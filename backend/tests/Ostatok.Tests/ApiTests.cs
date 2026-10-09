@@ -318,6 +318,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var me = await Get<MeResponse>("/api/me");
 
         Assert.Equal(("demo", "Шеф-повар", "12:00", "24:00"), (me.Login, me.Title, me.Shift.Start, me.Shift.End));
+        Assert.Equal(Role.Chef, me.Role);
     }
 
     [Fact]
@@ -348,6 +349,81 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, badContact.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, listForVisitor.StatusCode);
-        Assert.Single(await Get<List<LeadResponse>>("/api/leads"), l => l.Organization == organization);
+        // Заявки видит только управляющий; шеф-повару (demo) раздел закрыт.
+        using var manager = await fx.SignInAsync("manager");
+        Assert.Single((await manager.GetFromJsonAsync<List<LeadResponse>>("/api/leads", ApiFixture.Json))!, l => l.Organization == organization);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Api.GetAsync("/api/leads")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Журнал_записывает_кто_провёл_операцию()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.5m));
+        var supply = await Supply(new SupplyItemRequest(product.Id, 2, 1));
+        (await Order(dish)).EnsureSuccessStatusCode();
+        fx.Time.Advance(TimeSpan.FromHours(2));
+        (await Api.PostAsync($"/api/stock/batches/{supply.Items.Single().BatchId}/write-off", null)).EnsureSuccessStatusCode();
+
+        var movements = (await Get<List<MovementRow>>("/api/movements?take=500")).Where(m => m.ProductId == product.Id).ToList();
+
+        Assert.Equal(3, movements.Count);
+        Assert.All(movements, m => Assert.Equal("demo", m.Actor));
+    }
+
+    [Fact]
+    public async Task Файл_поставки_разбирается_в_предпросмотр_и_ничего_не_сохраняет()
+    {
+        var product = await Product();
+        var csv = $"продукт;количество;единица;срок хранения;цена\n{product.Name};3;кг;72 ч;\nНеизвестный продукт;1;кг;72 ч;";
+        // Русский Excel сохраняет CSV в Windows-1251 — такой файл тоже должен читаться.
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        var content = new ByteArrayContent(System.Text.Encoding.GetEncoding(1251).GetBytes(csv));
+        content.Headers.ContentType = new("text/csv");
+
+        var response = await Api.PostAsync("/api/supplies/import/preview", content);
+
+        var rows = await Read<List<ImportRow>>(response);
+        Assert.Equal([ImportRowStatus.Ok, ImportRowStatus.Error], rows.Select(r => r.Status));
+        Assert.Equal((product.Id, 3m, 72), (rows[0].ProductId!.Value, rows[0].Quantity!.Value, rows[0].ShelfLifeHours!.Value));
+        Assert.Empty(await Batches(product));
+    }
+
+    [Fact]
+    public async Task Повар_принимает_заказы_но_не_поставки_и_не_видит_аналитику()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.1m));
+        await Supply(new SupplyItemRequest(product.Id, 1, null));
+        using var cook = await fx.SignInAsync("cook");
+
+        var order = await cook.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)]));
+        var supply = await cook.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, "П-повар", null, [new SupplyItemRequest(product.Id, 1, null)]));
+        var analytics = await cook.GetAsync("/api/analytics/write-offs");
+        var newProduct = await cook.PostAsJsonAsync("/api/products", new ProductRequest("Продукт повара", Unit.Kg, 24, 1), ApiFixture.Json);
+        var me = (await cook.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!;
+
+        Assert.Equal(HttpStatusCode.Created, order.StatusCode);
+        Assert.All([supply, analytics, newProduct], r => Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode));
+        Assert.Equal(["today", "orders", "menu"], me.Sections);
+    }
+
+    [Fact]
+    public async Task Кладовщик_принимает_поставки_и_списывает_но_не_создаёт_заказы()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.1m));
+        using var storekeeper = await fx.SignInAsync("storekeeper");
+
+        var supply = await storekeeper.PostAsJsonAsync("/api/supplies",
+            new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 1, null)]));
+        var batchId = (await Read<SupplyResponse>(supply)).Items.Single().BatchId;
+        var writeOff = await storekeeper.PostAsync($"/api/stock/batches/{batchId}/write-off", null);
+        var order = await storekeeper.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)]));
+        var me = (await storekeeper.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!;
+
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.NoContent), (supply.StatusCode, writeOff.StatusCode));
+        Assert.Equal(HttpStatusCode.Forbidden, order.StatusCode);
+        Assert.Equal(["today", "stock", "purchasing"], me.Sections);
     }
 }

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ostatok.Api.Data;
 using Ostatok.Api.Domain;
@@ -22,7 +23,7 @@ public sealed record StopListRow(
 
 public sealed record MovementRow(
     long Id, DateTimeOffset At, MovementType Type, Guid ProductId, string ProductName, Unit Unit,
-    Guid BatchId, decimal Quantity, Guid? OrderId, string? Note);
+    Guid BatchId, decimal Quantity, Guid? OrderId, string? Note, string Actor);
 
 public sealed class StockOptions
 {
@@ -87,13 +88,13 @@ public static class StockEndpoints
                 b.ExpiresAt <= now ? BatchStatus.Expired : b.ExpiresAt <= soon ? BatchStatus.ExpiringSoon : BatchStatus.Fresh));
         });
 
-        stock.MapPost("/batches/{id:guid}/write-off", async (Guid id, WriteOffService service, CancellationToken ct) =>
-            await service.WriteOffAsync(id, ct) switch
+        stock.MapPost("/batches/{id:guid}/write-off", async (Guid id, WriteOffService service, ClaimsPrincipal user, CancellationToken ct) =>
+            await service.WriteOffAsync(id, user.Identity?.Name ?? "", ct) switch
             {
                 WriteOffResult.NotFound => Results.NotFound(),
                 WriteOffResult.Empty => Results.Problem("В партии ничего не осталось.", statusCode: StatusCodes.Status409Conflict),
                 _ => Results.NoContent(),
-            });
+            }).RequireRoles(Access.Stock);
 
         api.MapGet("/stop-list", async (AppDbContext db, TimeProvider time, StockOptions options, CancellationToken ct) =>
         {
@@ -117,7 +118,7 @@ public static class StockEndpoints
             await db.Movements
                 .OrderByDescending(m => m.Id)
                 .Take(Math.Clamp(take, 1, 500))
-                .Select(m => new MovementRow(m.Id, m.At, m.Type, m.ProductId, m.Product!.Name, m.Product.Unit, m.BatchId, m.Quantity, m.OrderId, m.Note))
+                .Select(m => new MovementRow(m.Id, m.At, m.Type, m.ProductId, m.Product!.Name, m.Product.Unit, m.BatchId, m.Quantity, m.OrderId, m.Note, m.Actor))
                 .ToListAsync(ct))
         .WithTags("Склад");
     }

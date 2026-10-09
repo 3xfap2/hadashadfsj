@@ -13,7 +13,7 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
     /// блокируются на время заказа, поэтому два одновременных заказа не спишут один и тот же остаток.
     /// Заказ с нехваткой сохраняется как отклонённый — по ним считается статистика дефицита.
     /// </summary>
-    public async Task<Order> PlaceAsync(IReadOnlyCollection<OrderLine> lines, string place, CancellationToken ct)
+    public async Task<Order> PlaceAsync(IReadOnlyCollection<OrderLine> lines, string place, string actor, CancellationToken ct)
     {
         var quantities = lines.GroupBy(l => l.DishId).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
         var dishes = await db.Dishes
@@ -64,6 +64,7 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
                     BatchId = a.BatchId,
                     Quantity = a.Quantity,
                     OrderId = order.Id,
+                    Actor = actor,
                 });
             }
         }

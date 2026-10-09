@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ostatok.Api.Data;
 using Ostatok.Api.Domain;
@@ -27,7 +28,7 @@ public static class OrderEndpoints
             (await Detailed(db).OrderByDescending(o => o.CreatedAt).Take(Math.Clamp(take, 1, 200)).ToListAsync(ct))
             .Select(ToResponse));
 
-        orders.MapPost("", async (OrderRequest req, OrderService service, AppDbContext db, RestaurantOptions restaurant, CancellationToken ct) =>
+        orders.MapPost("", async (OrderRequest req, OrderService service, AppDbContext db, RestaurantOptions restaurant, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var items = req.Items ?? [];
             var place = req.Place?.Trim() ?? "";
@@ -40,7 +41,7 @@ public static class OrderEndpoints
             var known = await db.Dishes.CountAsync(d => ids.Contains(d.Id), ct);
             if (errors.Check(known == ids.Length, "items", "В заказе есть неизвестное блюдо.").Any) return errors.ToResult();
 
-            var placed = await service.PlaceAsync(items, place, ct);
+            var placed = await service.PlaceAsync(items, place, user.Identity?.Name ?? "", ct);
             var writeOffs = await (
                 from m in db.Movements
                 where m.OrderId == placed.Id
@@ -55,7 +56,8 @@ public static class OrderEndpoints
                 : Results.Json(response, statusCode: StatusCodes.Status409Conflict);
         })
         .Produces<OrderResponse>(StatusCodes.Status201Created)
-        .Produces<OrderResponse>(StatusCodes.Status409Conflict);
+        .Produces<OrderResponse>(StatusCodes.Status409Conflict)
+        .RequireRoles(Access.Orders);
     }
 
     private static IQueryable<Order> Detailed(AppDbContext db) => db.Orders

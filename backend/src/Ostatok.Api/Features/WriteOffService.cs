@@ -8,7 +8,9 @@ public enum WriteOffResult { Done, NotFound, Empty }
 
 public sealed class WriteOffService(AppDbContext db, TimeProvider time)
 {
-    public async Task<WriteOffResult> WriteOffAsync(Guid batchId, CancellationToken ct)
+    public const string System = "система";
+
+    public async Task<WriteOffResult> WriteOffAsync(Guid batchId, string actor, CancellationToken ct)
     {
         var now = time.GetUtcNow();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -19,7 +21,7 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
         if (batch is null) return WriteOffResult.NotFound;
         if (batch.Remaining == 0) return WriteOffResult.Empty;
 
-        Apply(batch, now, batch.ExpiresAt <= now ? "Истёк срок годности" : "Списано вручную");
+        Apply(batch, now, batch.ExpiresAt <= now ? "Истёк срок годности" : "Списано вручную", actor);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return WriteOffResult.Done;
@@ -35,13 +37,13 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
             .FromSql($"""SELECT * FROM "Batches" WHERE "Remaining" > 0 AND "ExpiresAt" <= {cutoff} FOR UPDATE SKIP LOCKED""")
             .ToListAsync(ct);
 
-        foreach (var batch in batches) Apply(batch, now, "Истёк срок годности (автосписание)");
+        foreach (var batch in batches) Apply(batch, now, "Истёк срок годности (автосписание)", System);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return batches.Count;
     }
 
-    private void Apply(Batch batch, DateTimeOffset now, string note)
+    private void Apply(Batch batch, DateTimeOffset now, string note, string actor)
     {
         db.Movements.Add(new Movement
         {
@@ -51,6 +53,7 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
             BatchId = batch.Id,
             Quantity = batch.Remaining,
             Note = note,
+            Actor = actor,
         });
         batch.Remaining = 0;
     }

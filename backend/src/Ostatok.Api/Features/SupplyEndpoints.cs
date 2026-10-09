@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Ostatok.Api.Data;
 using Ostatok.Api.Domain;
@@ -16,6 +18,8 @@ public sealed record SupplyResponse(Guid Id, string Number, DateTimeOffset Creat
 
 public static class SupplyEndpoints
 {
+    private const int MaxImportBytes = 1_000_000;
+
     public static void MapSupplies(this RouteGroupBuilder api)
     {
         var supplies = api.MapGroup("/supplies").WithTags("Поставки");
@@ -28,7 +32,27 @@ public static class SupplyEndpoints
                 .ToListAsync(ct))
             .Select(ToResponse));
 
-        supplies.MapPost("", async (SupplyRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        // Предпросмотр файла поставки: тело запроса — сам файл CSV. Ничего не сохраняет;
+        // после подтверждения строки без ошибок отправляются обычным POST /api/supplies.
+        supplies.MapPost("/import/preview", async (HttpRequest request, AppDbContext db, CancellationToken ct) =>
+        {
+            if (request.ContentLength > MaxImportBytes)
+                return Results.Problem("Файл больше 1 МБ.", statusCode: StatusCodes.Status413PayloadTooLarge);
+            using var buffer = new MemoryStream();
+            await request.Body.CopyToAsync(buffer, ct);
+            if (buffer.Length > MaxImportBytes)
+                return Results.Problem("Файл больше 1 МБ.", statusCode: StatusCodes.Status413PayloadTooLarge);
+
+            var rows = SupplyImport.Parse(Decode(buffer.ToArray()), await db.Products.AsNoTracking().ToListAsync(ct));
+            return rows.Count == 0
+                ? Results.Problem("В файле нет строк с продуктами. Первая строка — заголовки колонок.", statusCode: StatusCodes.Status400BadRequest)
+                : Results.Ok(rows);
+        })
+        .Accepts<string>("text/csv")
+        .Produces<IReadOnlyList<ImportRow>>()
+        .RequireRoles(Access.Stock);
+
+        supplies.MapPost("", async (SupplyRequest req, AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var now = time.GetUtcNow();
             var createdAt = req.CreatedAt?.ToUniversalTime() ?? now;
@@ -77,10 +101,25 @@ public static class SupplyEndpoints
                 BatchId = b.Id,
                 Quantity = b.Quantity,
                 Note = $"Поставка {supply.Number}",
+                Actor = user.Identity?.Name ?? "",
             }));
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/supplies/{supply.Id}", ToResponse(supply));
-        });
+        }).RequireRoles(Access.Stock);
+    }
+
+    /// <summary>Читает файл как UTF-8, а если это не UTF-8 — как Windows-1251: так CSV сохраняет русский Excel.</summary>
+    private static string Decode(byte[] bytes)
+    {
+        try
+        {
+            return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes).TrimStart('\uFEFF');
+        }
+        catch (DecoderFallbackException)
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            return Encoding.GetEncoding(1251).GetString(bytes);
+        }
     }
 
     private static SupplyResponse ToResponse(Supply s) => new(

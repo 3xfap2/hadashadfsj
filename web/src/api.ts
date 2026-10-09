@@ -73,6 +73,8 @@ export interface OrderRow {
 export interface Me {
   login: string;
   title: string;
+  role: 'Manager' | 'Chef' | 'Cook' | 'Storekeeper';
+  sections: string[];
   shift: { start: string; end: string };
   places: string[];
 }

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { post, useApi, type BatchRow, type HotOffer, type OrderRow, type StopListRow } from '../api';
 import { clock, duration, isToday, money, plural, portions, qty, today, until } from '../format';
-import { BatchLabel, Photo, PlusIcon, URGENT_HOURS } from '../ui';
+import { BatchLabel, Photo, PlusIcon, URGENT_HOURS, useCan } from '../ui';
 
 const STOP_REASON = {
   Expired: 'просрочено',
@@ -16,6 +16,8 @@ export function Today() {
   const batches = useApi<BatchRow[]>('/stock/batches');
   const orders = useApi<OrderRow[]>('/orders?take=200');
   const [writingOff, setWritingOff] = useState(false);
+  const canOrder = useCan('orders');
+  const canStock = useCan('stock');
 
   const error = offers.error ?? stopList.error ?? batches.error ?? orders.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить данные</h3><span>{error}</span></div>;
@@ -43,8 +45,8 @@ export function Today() {
         <h1>Сегодня</h1>
         <span className="sub">{today()}</span>
         <div className="end">
-          <Link className="g-btn title-secondary" to="/app/stock">Принять поставку</Link>
-          <Link className="g-btn g-btn--primary" to="/app/orders"><PlusIcon />Новый заказ</Link>
+          {canStock && <Link className={`g-btn${canOrder ? ' title-secondary' : ''}`} to="/app/stock">Принять поставку</Link>}
+          {canOrder && <Link className="g-btn g-btn--primary" to="/app/orders"><PlusIcon />Новый заказ</Link>}
         </div>
       </div>
 
@@ -134,7 +136,7 @@ export function Today() {
           <section className="g-panel" aria-labelledby="stop-h">
             <div className="g-panel__head">
               <h2 id="stop-h">Стоп-лист</h2>
-              <Link className="end" to="/app/menu">Меню</Link>
+              {canOrder && <Link className="end" to="/app/menu">Меню</Link>}
             </div>
             {stopped.length + low.length === 0 ? (
               <p className="g-empty"><strong>Стоп-лист пуст</strong>Все блюда в продаже.</p>
@@ -168,7 +170,7 @@ export function Today() {
           <section className="g-panel" aria-labelledby="batches-h">
             <div className="g-panel__head">
               <h2 id="batches-h">Партии со сроком</h2>
-              <Link className="end" to="/app/stock">Склад</Link>
+              {canStock && <Link className="end" to="/app/stock">Склад</Link>}
             </div>
             {expired.length + expiring.length === 0 ? (
               <p className="g-empty"><strong>Сроки в порядке</strong>В ближайшие сутки ни одна партия не истекает.</p>
@@ -183,7 +185,7 @@ export function Today() {
                 ))}
               </ul>
             )}
-            {expired.length > 0 && (
+            {expired.length > 0 && canStock && (
               <div className="g-panel__foot">
                 <span className="muted">Просрочено: <b className="num hd">{money(expiredValue)}</b></span>
                 <button className="g-btn" type="button" disabled={writingOff} onClick={writeOffExpired}>

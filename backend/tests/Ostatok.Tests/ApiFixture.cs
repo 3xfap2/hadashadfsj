@@ -43,11 +43,18 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();
-        Api = CreateClient();
-        var login = await Api.PostAsJsonAsync("/api/auth/login", new LoginRequest("demo", "demo2026"));
-        login.EnsureSuccessStatusCode();
-        var token = (await login.Content.ReadFromJsonAsync<LoginResponse>(Json))!.Token;
-        Api.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        Api = await SignInAsync("demo");
+    }
+
+    /// <summary>Клиент, вошедший под одной из демо-записей: demo (шеф-повар), manager, cook, storekeeper.</summary>
+    public async Task<HttpClient> SignInAsync(string login)
+    {
+        var client = CreateClient();
+        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(login, "demo2026"));
+        response.EnsureSuccessStatusCode();
+        var token = (await response.Content.ReadFromJsonAsync<LoginResponse>(Json))!.Token;
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
     }
 
     async Task IAsyncLifetime.DisposeAsync()

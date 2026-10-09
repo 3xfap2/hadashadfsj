@@ -1,5 +1,10 @@
+import { createContext, useContext } from 'react';
 import type { BatchRow } from './api';
 import { duration, until, weekday } from './format';
+
+/** Разделы кабинета, доступные вошедшему сотруднику (приходят с сервера по его роли). */
+export const AccessContext = createContext<readonly string[]>([]);
+export const useCan = (section: string) => useContext(AccessContext).includes(section);
 
 /** Меньше этого срока партия считается срочной: красная метка вместо обычного текста. */
 export const URGENT_HOURS = 6;

@@ -17,9 +17,9 @@ public sealed class AuthOptions
     /// <summary>Секрет подписи токенов, не короче 32 символов. Задаётся переменной окружения Auth__Key.</summary>
     public string Key { get; set; } = "";
     public int TokenHours { get; set; } = 12;
-    public string DemoLogin { get; set; } = "";
+    /// <summary>Учётные записи, которые создаются при запуске; пароль у всех — DemoPassword.</summary>
+    public List<DemoUser> Users { get; set; } = [];
     public string DemoPassword { get; set; } = "";
-    public string DemoTitle { get; set; } = "";
     /// <summary>Сколько неверных паролей подряд допускается для одного логина.</summary>
     public int MaxFailedLogins { get; set; } = 5;
     public int LockoutMinutes { get; set; } = 10;
@@ -27,10 +27,17 @@ public sealed class AuthOptions
     public SymmetricSecurityKey SigningKey => new(Encoding.UTF8.GetBytes(Key));
 }
 
+public sealed class DemoUser
+{
+    public string Login { get; set; } = "";
+    public string Title { get; set; } = "";
+    public Role Role { get; set; }
+}
+
 public sealed record LoginRequest(string? Login, string? Password);
 public sealed record LoginResponse(string Token, DateTimeOffset ExpiresAt);
 public sealed record ShiftInfo(string Start, string End);
-public sealed record MeResponse(string Login, string Title, ShiftInfo Shift, IEnumerable<string> Places);
+public sealed record MeResponse(string Login, string Title, Role Role, IEnumerable<string> Sections, ShiftInfo Shift, IEnumerable<string> Places);
 
 public sealed class RestaurantOptions
 {
@@ -103,7 +110,7 @@ public static class AuthEndpoints
             {
                 Issuer = AuthOptions.Issuer,
                 Audience = AuthOptions.Issuer,
-                Subject = new ClaimsIdentity([new Claim(ClaimTypes.Name, user.Login)]),
+                Subject = new ClaimsIdentity([new Claim(ClaimTypes.Name, user.Login), new Claim(ClaimTypes.Role, user.Role.ToString())]),
                 Expires = expiresAt.UtcDateTime,
                 SigningCredentials = new SigningCredentials(options.SigningKey, SecurityAlgorithms.HmacSha256),
             });
@@ -118,7 +125,8 @@ public static class AuthEndpoints
             var user = await db.Users.FirstOrDefaultAsync(u => u.Login == principal.Identity!.Name, ct);
             return user is null
                 ? Results.Unauthorized()
-                : Results.Ok(new MeResponse(user.Login, user.Title, new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places));
+                : Results.Ok(new MeResponse(user.Login, user.Title, user.Role, Access.Sections(user.Role),
+                    new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places));
         })
         .WithTags("Вход")
         .RequireAuthorization();
@@ -128,19 +136,21 @@ public static class AuthEndpoints
         Results.Problem("Слишком много неверных попыток. Вход временно закрыт.", statusCode: StatusCodes.Status429TooManyRequests,
             extensions: new Dictionary<string, object?> { ["retryAfterMinutes"] = minutes });
 
-    /// <summary>Создаёт учётную запись из настроек, если её ещё нет, и поддерживает её должность.</summary>
-    public static async Task EnsureUserAsync(AppDbContext db, AuthOptions options, CancellationToken ct = default)
+    /// <summary>Создаёт учётные записи из настроек, которых ещё нет, и поддерживает их должность и роль.</summary>
+    public static async Task EnsureUsersAsync(AppDbContext db, AuthOptions options, CancellationToken ct = default)
     {
-        if (options.DemoLogin == "") return;
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Login == options.DemoLogin, ct);
-        if (user is null)
+        var existing = await db.Users.ToDictionaryAsync(u => u.Login, ct);
+        var hasher = new PasswordHasher<User>();
+        foreach (var demo in options.Users.Where(u => u.Login != ""))
         {
-            if (await db.Users.AnyAsync(ct)) return;
-            user = new User { Id = Guid.NewGuid(), Login = options.DemoLogin, PasswordHash = "" };
-            user.PasswordHash = new PasswordHasher<User>().HashPassword(user, options.DemoPassword);
-            db.Users.Add(user);
+            if (!existing.TryGetValue(demo.Login, out var user))
+            {
+                user = new User { Id = Guid.NewGuid(), Login = demo.Login, PasswordHash = "" };
+                user.PasswordHash = hasher.HashPassword(user, options.DemoPassword);
+                db.Users.Add(user);
+            }
+            (user.Title, user.Role) = (demo.Title, demo.Role);
         }
-        user.Title = options.DemoTitle;
         await db.SaveChangesAsync(ct);
     }
 }

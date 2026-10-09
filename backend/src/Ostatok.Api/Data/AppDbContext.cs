@@ -81,6 +81,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         model.Entity<Movement>(e =>
         {
             e.Property(m => m.Note).HasMaxLength(200);
+            e.Property(m => m.Actor).HasMaxLength(60);
             e.HasOne(m => m.Product).WithMany().HasForeignKey(m => m.ProductId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(m => m.At);
         });

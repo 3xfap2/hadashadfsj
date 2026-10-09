@@ -96,6 +96,8 @@ public class Movement
     public decimal Quantity { get; set; }
     public Guid? OrderId { get; set; }
     public string? Note { get; set; }
+    /// <summary>Логин сотрудника, который провёл операцию; «система» — для автосписания.</summary>
+    public string Actor { get; set; } = "";
 }
 
 public class Lead
@@ -109,6 +111,8 @@ public class Lead
     public string? Comment { get; set; }
 }
 
+public enum Role { Manager, Chef, Cook, Storekeeper }
+
 public class User
 {
     public Guid Id { get; set; }
@@ -116,4 +120,5 @@ public class User
     public required string PasswordHash { get; set; }
     /// <summary>Должность, которая показывается в шапке кабинета.</summary>
     public string Title { get; set; } = "";
+    public Role Role { get; set; }
 }

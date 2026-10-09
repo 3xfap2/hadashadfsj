@@ -29,7 +29,7 @@ public static class CatalogEndpoints
             db.Products.Add(product);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/products/{product.Id}", ToResponse(product));
-        });
+        }).RequireRoles(Access.Catalog);
 
         products.MapPut("{id:guid}", async (Guid id, ProductRequest req, AppDbContext db, CancellationToken ct) =>
         {
@@ -41,7 +41,7 @@ public static class CatalogEndpoints
             (product.Name, product.Unit, product.ShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit, req.ShelfLifeHours, req.Cost);
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToResponse(product));
-        });
+        }).RequireRoles(Access.Catalog);
 
         products.MapDelete("{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
         {
@@ -51,7 +51,7 @@ public static class CatalogEndpoints
                 return Results.Problem("Продукт используется в поставках или техкартах, удалить его нельзя.", statusCode: StatusCodes.Status409Conflict);
             var deleted = await db.Products.Where(p => p.Id == id).ExecuteDeleteAsync(ct);
             return deleted == 0 ? Results.NotFound() : Results.NoContent();
-        });
+        }).RequireRoles(Access.Catalog);
 
         var dishes = api.MapGroup("/dishes").WithTags("Блюда и техкарты");
 
@@ -67,7 +67,7 @@ public static class CatalogEndpoints
             db.Dishes.Add(dish);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/dishes/{dish.Id}", ToResponse(dish));
-        });
+        }).RequireRoles(Access.Catalog);
 
         dishes.MapPut("{id:guid}", async (Guid id, DishRequest req, AppDbContext db, CancellationToken ct) =>
         {
@@ -79,7 +79,7 @@ public static class CatalogEndpoints
             (dish.Name, dish.Price, dish.PhotoUrl, dish.Recipe) = (req.Name!.Trim(), req.Price, req.PhotoUrl, ToRecipe(req));
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToResponse(dish));
-        });
+        }).RequireRoles(Access.Catalog);
 
         dishes.MapDelete("{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
         {
@@ -87,7 +87,7 @@ public static class CatalogEndpoints
                 return Results.Problem("По блюду уже есть заказы, удалить его нельзя.", statusCode: StatusCodes.Status409Conflict);
             var deleted = await db.Dishes.Where(d => d.Id == id).ExecuteDeleteAsync(ct);
             return deleted == 0 ? Results.NotFound() : Results.NoContent();
-        });
+        }).RequireRoles(Access.Catalog);
     }
 
     private static Errors Validate(ProductRequest req) => new Errors()

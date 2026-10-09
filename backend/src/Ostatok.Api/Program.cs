@@ -85,7 +85,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
-    await AuthEndpoints.EnsureUserAsync(db, scope.ServiceProvider.GetRequiredService<AuthOptions>());
+    await AuthEndpoints.EnsureUsersAsync(db, scope.ServiceProvider.GetRequiredService<AuthOptions>());
     if (app.Configuration.GetValue<bool>("Seed:Demo"))
         await DemoSeed.RunAsync(db, scope.ServiceProvider.GetRequiredService<TimeProvider>().GetUtcNow());
 }

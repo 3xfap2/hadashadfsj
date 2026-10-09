@@ -38,9 +38,10 @@ public static class InsightsEndpoints
                 await db.LoadConsumptionPerHourAsync(now, options.ConsumptionDays, ct),
                 now, options.PurchaseCoverHours);
         })
-        .WithTags("Закупки");
+        .WithTags("Закупки")
+        .RequireRoles(Access.Purchasing);
 
-        var analytics = api.MapGroup("/analytics").WithTags("Аналитика");
+        var analytics = api.MapGroup("/analytics").WithTags("Аналитика").RequireRoles(Access.Analytics);
 
         analytics.MapGet("/write-offs", async (AppDbContext db, TimeProvider time, StockOptions options, CancellationToken ct, int days = 14) =>
         {

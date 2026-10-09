@@ -4,7 +4,6 @@ import { login } from '../api';
 
 // Открытая учётная запись демо-ресторана — та же, что на экране входа.
 const DEMO = { login: 'demo', password: 'demo2026' };
-const REPOSITORY = 'https://github.com/3xfap2/hadashadfsj';
 
 const WRITE_OFFS = [620, 0, 1240, 380, 910, 0, 2050, 760, 430, 1180, 0, 890, 1560, 833];
 const cols = (template: string): CSSProperties => ({ gridTemplateColumns: template });
@@ -59,7 +58,7 @@ export function Landing() {
             </div>
             <div className="stage">
               <div className="shot-cap">
-                <span className="live"><i aria-hidden="true" />Демо-ресторан на 60 мест · данные смены, 18:40</span>
+                <span className="live"><i aria-hidden="true" />Демо-ресторан на 60 мест · данные смены</span>
               </div>
               <div className="shot" aria-label="Экран кабинета «Сегодня»">
                 <div className="shot__in" aria-hidden="true">
@@ -238,13 +237,14 @@ export function Landing() {
                 <p style={{ margin: 0 }}>Поставки и заказы приходят автоматически. Если готовой связки с вашей кассой нет, подключим через API или настроим ручной ввод.</p>
                 <pre>{`POST /api/orders
 {
-  "table": "3",
+  "place": "Стол 3",
   "items": [
-    { "dish": "Феттучине с лососем", "qty": 1 },
-    { "dish": "Цезарь с креветками", "qty": 2 }
+    { "dishId": "5f0c…", "quantity": 1 },
+    { "dishId": "a81e…", "quantity": 2 }
   ]
 }
-→ 201 · Заказ № 148 принят, списано из П-0412, П-0418`}</pre>
+→ 201 · заказ № 148, в ответе — из каких партий списано
+→ 409 · заказ не создан: какого продукта сколько не хватило`}</pre>
               </div>
               <ul className="chan" style={{ listStyle: 'none', padding: 0 }}>
                 <li>
@@ -282,7 +282,7 @@ export function Landing() {
             <div className="faq">
               <details open><summary>Что нужно для старта?</summary><p>Список продуктов, техкарты блюд и сотрудник, который будет отвечать за систему. Справочники мы загружаем сами.</p></details>
               <details><summary>Можно ли без кассовой системы?</summary><p>Да. Заказы можно вводить в кабинете или с телефона, поставки — вручную или файлом от поставщика.</p></details>
-              <details><summary>Что будет, если пропал интернет?</summary><p>Приложение сохранит заказы и приёмки на устройстве и отправит их, когда связь вернётся. В кабинете будет видно время последнего обновления.</p></details>
+              <details><summary>Что будет, если пропал интернет?</summary><p>Для работы нужен интернет. Если связь пропала, заказ или приёмка не отправятся, и Остаток сразу об этом скажет — действие не потеряется незаметно. Когда связь вернётся, его нужно повторить.</p></details>
               <details><summary>Как учитываются заготовки?</summary><p>Заготовка — такая же партия со своим сроком хранения. Её можно добавить в техкарту блюда наравне с продуктами.</p></details>
               <details><summary>Кто вводит поставки?</summary><p>Обычно кладовщик или повар с телефона при приёмке. Можно загрузить файл от поставщика или получать поставки через API.</p></details>
               <details><summary>Сколько времени занимает запуск?</summary><p>Зависит от числа блюд и точек. Сроки называем после того, как увидим ваше меню и техкарты.</p></details>
@@ -319,7 +319,6 @@ export function Landing() {
           <span className="g-brand" style={{ fontSize: 18 }}>Остаток</span>
           <span>Почта: <span className="num hd" style={{ userSelect: 'all' }}>hello@ostatok.example</span></span>
           <span>Телефон: <span className="num hd" style={{ userSelect: 'all' }}>+7 000 000-00-00</span></span>
-          <a href={REPOSITORY} style={{ marginLeft: 'auto' }} className="hd">Исходный код на GitHub</a>
         </div>
       </footer>
     </div>
