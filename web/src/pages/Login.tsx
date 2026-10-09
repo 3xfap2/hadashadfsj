@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { login } from '../api';
 
 // Открытая учётная запись демо-ресторана: по ней жюри и гости смотрят систему без регистрации.
@@ -37,7 +38,7 @@ export function Login() {
       </div>
 
       <main className="login__main">
-        <span className="g-brand">Остаток</span>
+        <Link className="g-brand" to="/">Остаток</Link>
         <form className="login__form" onSubmit={submit} noValidate>
           <div>
             <h1>Вход в кабинет</h1>
@@ -105,6 +106,7 @@ export function Login() {
           </button>
           <p className="muted">Демо — ресторан на 60 мест с партиями, сроками годности и стоп-листом.</p>
         </form>
+        <p className="muted">Нет кабинета? <Link className="hd" to="/">Узнать, как подключиться</Link></p>
       </main>
     </div>
   );

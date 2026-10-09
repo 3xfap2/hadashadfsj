@@ -1,0 +1,185 @@
+/* Стили лендинга из утверждённого макета (design-current/LandingG). Правила, которые в макете были общими
+   для кнопок и списков, ограничены классом .landing, чтобы не менять поведение кабинета. */
+.w{max-width:1200px;margin:0 auto;padding-inline:24px}
+.sec{padding-block:104px}
+.sec--panel{background:var(--panel)}
+.sec--dark{background:var(--brand);color:#d7ecc6}
+.sec--dark h2,.sec--dark h3{color:#ffffff}
+.sec--dark .muted{color:#b9d4a6}
+.h1{font-size:64px;font-weight:800;letter-spacing:-.035em;line-height:1.02;color:var(--h);max-width:15ch;margin:0}
+.h2{font-size:40px;font-weight:800;letter-spacing:-.03em;line-height:1.08;color:var(--h);max-width:22ch;margin:0}
+.lead{font-size:20px;line-height:1.5;color:var(--ink);max-width:56ch}
+.kick{font-weight:700;color:var(--brand);font-size:15px}
+.sec--dark .kick{color:var(--accent)}
+/* шапка */
+.lh{position:sticky;top:0;z-index:10;background:#ffffff;border-bottom:1px solid var(--line)}
+.lh .w{height:64px;display:flex;align-items:center;gap:28px}
+.lh nav{display:flex;gap:4px}
+.lh nav a{padding:10px 10px;text-decoration:none;color:var(--ink);font-weight:500}
+.lh .end{margin-left:auto;display:flex;gap:8px}
+@media (hover:hover) and (pointer:fine){.lh nav a:hover{color:var(--brand);text-decoration:underline;text-underline-offset:6px}}
+/* первый экран */
+.hero{padding-block:72px 0;overflow:hidden}
+.hero__cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:32px}
+.shot{margin-top:12px;height:520px;overflow:hidden;border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;position:relative;background:#fff}
+.shot__in{width:1280px;transform:scale(.9);transform-origin:top left;pointer-events:none}
+.shot-cap{margin-top:56px;display:flex;justify-content:flex-end}
+.live{display:inline-flex;align-items:center;gap:8px;background:var(--brand);color:#fff;font-weight:600;font-size:14px;padding:8px 12px;border-radius:8px}
+.live i{width:8px;height:8px;border-radius:2px;background:var(--accent);animation:blink 1.6s steps(2,start) infinite}
+@keyframes blink{to{visibility:hidden}}
+@media (prefers-reduced-motion:reduce){.live i{animation:none}}
+/* смена */
+.shift{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin-top:48px;border-top:2px solid var(--h)}
+.shift li{padding:24px 28px 0 0;display:flex;flex-direction:column;gap:10px}
+.shift li + li{padding-left:28px;border-left:1px solid #cdd2ca}
+.clock{font-size:48px;font-weight:800;letter-spacing:-.03em;color:var(--h);font-variant-numeric:tabular-nums;line-height:1}
+/* возможности */
+.feat{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:48px 72px;align-items:center;padding-block:56px;border-top:1px solid var(--line)}
+.feat:first-of-type{border-top:0}
+.feat--rev .feat__text{order:2}
+.feat__text{display:flex;flex-direction:column;gap:14px}
+.feat__text h3{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1.15;color:var(--h);margin:0}
+.feat__text p{font-size:18px;line-height:1.55;margin:0}
+.frag{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+/* внедрение */
+.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin-top:48px;position:relative}
+.steps li{display:flex;flex-direction:column;gap:12px;padding-top:24px;border-top:2px solid #3f6a22}
+.steps b.n{font-size:20px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
+.steps h3{font-size:20px;font-weight:700;line-height:1.3;margin:0}
+.need{margin-top:56px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:24px 48px;padding:28px;border-radius:10px;background:#204a05}
+.need ul{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.need li{display:flex;flex-direction:column;gap:4px}
+.need li strong{color:#fff;font-size:18px}
+/* интеграции */
+.intg{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;margin-top:48px}
+.api{background:#0e0f0c;color:#d7ecc6;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:14px}
+.api pre{margin:0;font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;font-size:14px;line-height:1.6;white-space:pre-wrap;color:#e2f6d5;background:#1b1c18;border-radius:8px;padding:16px;overflow-x:auto}
+.api h3{color:#fff;font-size:22px;margin:0}
+.chan{display:flex;flex-direction:column;background:#fff;border-radius:10px;border:1px solid var(--line)}
+.chan li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;padding:20px 22px;border-bottom:1px solid var(--line)}
+.chan li:last-child{border-bottom:0}
+.chan h3{font-size:18px;font-weight:700;color:var(--h);margin:0}
+.bubble{grid-column:1 / -1;background:var(--hl);border-radius:10px 10px 10px 2px;padding:10px 12px;font-size:14px;color:var(--h)}
+/* надёжность */
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin-top:40px}
+.facts li{padding:8px 32px 8px 0;display:flex;flex-direction:column;gap:8px}
+.facts li + li{padding-left:32px;border-left:1px solid var(--line)}
+.facts strong{font-size:22px;font-weight:800;letter-spacing:-.02em;color:var(--h);line-height:1.25}
+/* вопросы */
+.faq{margin-top:40px;display:flex;flex-direction:column;border-top:1px solid #cdd2ca}
+.faq details{border-bottom:1px solid #cdd2ca}
+.faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;gap:16px;align-items:center;padding:22px 0;font-size:20px;font-weight:700;color:var(--h)}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";font-size:26px;font-weight:500;color:var(--brand);flex:none}
+.faq details[open] summary::after{content:"−"}
+.faq p{margin:0 0 22px;font-size:17px;line-height:1.55;max-width:70ch}
+/* заявка */
+.req{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:48px 72px;align-items:start}
+.form{background:#fff;border-radius:10px;padding:28px;display:flex;flex-direction:column;gap:16px;color:var(--ink)}
+.form .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.landing textarea.g-input{height:96px;padding:10px 12px;resize:vertical;font:inherit}
+.sec--dark a.lnk{color:#fff;font-weight:600}
+/* подвал */
+.foot-top{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:32px;align-items:center;padding:32px;border-radius:10px;background:var(--panel)}
+.foot-bot{display:flex;flex-wrap:wrap;gap:12px 32px;align-items:center;padding-block:28px;color:var(--ink-2)}
+/* узкие экраны */
+@media (max-width:900px){
+  .feat,.req,.intg,.need{grid-template-columns:1fr}
+  .feat--rev .feat__text{order:0}
+  .steps{grid-template-columns:1fr 1fr}
+  .foot-top{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  .w{padding-inline:16px}
+  .sec{padding-block:64px}
+  .h1{font-size:40px}
+  .h2{font-size:30px}
+  .lead{font-size:18px}
+  .lh nav{display:none}
+  .lh .w{gap:12px}
+  .lh .end .g-btn{padding:0 12px}
+  .hero{padding-top:40px}
+  .shot{height:300px}
+  .shot-cap{margin-top:32px;justify-content:flex-start}
+  .shot__in{transform:scale(.42)}
+  .shift,.facts,.steps,.need ul{grid-template-columns:1fr}
+  .shift li,.shift li + li,.facts li,.facts li + li{padding:20px 0;border-left:0;border-top:1px solid #cdd2ca}
+  .clock{font-size:40px}
+  .feat{padding-block:40px;gap:24px}
+  .feat__text h3{font-size:24px}
+  .form{padding:20px}
+  .form .two{grid-template-columns:1fr}
+  .foot-top{padding:20px}
+}
+
+
+/* фотографии */
+.shift-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px 56px;align-items:end}
+.pic{margin:0;border-radius:10px;overflow:hidden;background:#d9ddd5}
+.pic img{display:block;width:100%;height:100%;object-fit:cover}
+.pic--pass{aspect-ratio:3/2}
+.pic--hall{aspect-ratio:16/10;margin-top:8px}
+.landing .g-photo img{border-radius:inherit}
+@media (hover:hover) and (pointer:fine){.pic img{transition:transform .8s cubic-bezier(.2,.7,.2,1)}.pic:hover img{transform:scale(1.04)}}
+@media (max-width:900px){.shift-top{grid-template-columns:1fr}}
+/* мягкий край у скриншота кабинета */
+.shot::after{content:"";position:absolute;left:0;right:0;bottom:0;height:140px;background:linear-gradient(to bottom,rgba(232,235,230,0),#e8ebe6);pointer-events:none;z-index:1}
+.hero{padding-bottom:0}
+/* ===== Движение ===== */
+:root{interpolate-size:allow-keywords}
+html{scroll-behavior:smooth}
+@keyframes up{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(48px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes pop{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
+/* первый экран: ступенчатое появление при загрузке */
+.hero .h1{animation:up .7s cubic-bezier(.2,.7,.2,1) both}
+.hero .lead{animation:up .7s .08s cubic-bezier(.2,.7,.2,1) both}
+.hero__cta{animation:up .7s .16s cubic-bezier(.2,.7,.2,1) both}
+.stage{position:relative;animation:rise .9s .24s cubic-bezier(.2,.7,.2,1) both}
+.float{position:absolute;z-index:3;background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:220px}
+.float--a{left:-28px;top:150px;animation:pop .6s .9s cubic-bezier(.2,.7,.2,1) both}
+.float--b{right:-24px;top:300px;animation:pop .6s 1.1s cubic-bezier(.2,.7,.2,1) both}
+.float--a > div,.float--b > div{animation:floaty 6s 1.6s ease-in-out infinite}
+.float--b > div{animation-duration:7s}
+/* кнопки и ссылки */
+.landing .g-btn{transition:background-color .2s,border-color .2s,color .2s,transform .2s cubic-bezier(.2,.7,.2,1)}
+.landing .g-btn--primary .arr{display:inline-block;transition:transform .25s cubic-bezier(.2,.7,.2,1)}
+@media (hover:hover) and (pointer:fine){
+  .landing .g-btn:hover{transform:translateY(-2px)}
+  .landing .g-btn--primary:hover .arr{transform:translateX(4px)}
+  .frag{transition:transform .35s cubic-bezier(.2,.7,.2,1),border-color .35s}
+  .feat:hover .frag{transform:translateY(-4px);border-color:#c9cec6}
+  .landing .g-rows > li{transition:background-color .2s}
+  .frag .g-rows > li:hover{background:#f6f8f4}
+  .chan li{transition:background-color .2s}
+  .chan li:hover{background:#f6f8f4}
+  .faq summary{transition:color .2s}
+  .faq summary:hover{color:var(--brand)}
+}
+.faq summary::after{transition:transform .3s cubic-bezier(.2,.7,.2,1)}
+.faq details[open] summary::after{transform:rotate(180deg)}
+.faq details::details-content{block-size:0;overflow:hidden;transition:block-size .35s cubic-bezier(.2,.7,.2,1),content-visibility .35s allow-discrete}
+.faq details[open]::details-content{block-size:auto}
+/* появление блоков при прокрутке — только там, где браузер умеет анимацию по прокрутке */
+@supports (animation-timeline: view()){
+  .sec .h2,.sec .kick,.shift li,.feat__text,.frag,.steps li,.need,.api,.chan,.facts li,.faq details,.req > *,.foot-top,.pic{
+    animation:up linear both;animation-timeline:view();animation-range:entry 0% entry 55%}
+  .feat--rev .frag,.steps li:nth-child(2),.facts li:nth-child(2),.shift li:nth-child(2){animation-range:entry 8% entry 63%}
+  .steps li:nth-child(3),.facts li:nth-child(3),.shift li:nth-child(3){animation-range:entry 16% entry 71%}
+  .steps li:nth-child(4){animation-range:entry 24% entry 79%}
+  .shot__in{animation:drift linear both;animation-timeline:view();animation-range:exit 0% exit 100%}
+  @keyframes drift{to{transform:scale(.9) translateY(-60px)}}
+  .lh{animation:shrink linear both;animation-timeline:scroll(root);animation-range:0 120px}
+  @keyframes shrink{to{border-bottom-color:#cdd2ca}}
+}
+@media (max-width:640px){.float{display:none}}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .landing *,.landing *::before,.landing *::after{animation:none!important;transition:none!important}
+}
+
+/* Отступы списков из макета: общее правило `.g ul, .g ol { margin: 0 }` сильнее одиночного класса и обнуляло их,
+   из-за чего заголовки секций прилипали к спискам. */
+.landing .shift,.landing .steps{margin-top:48px}
+.landing .facts{margin-top:40px}

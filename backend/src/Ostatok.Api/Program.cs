@@ -45,6 +45,9 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy(AuthEndpoints.LoginRateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1) }));
+    options.AddPolicy(LeadEndpoints.RateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
 });
 
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
@@ -69,6 +72,7 @@ app.UseAuthorization();
 app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
 app.MapAuth();
+app.MapLeads();
 
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapCatalog();

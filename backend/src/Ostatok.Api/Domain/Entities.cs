@@ -98,6 +98,17 @@ public class Movement
     public string? Note { get; set; }
 }
 
+public class Lead
+{
+    public long Id { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public required string Name { get; set; }
+    public required string Organization { get; set; }
+    public required string Contact { get; set; }
+    public string Points { get; set; } = "";
+    public string? Comment { get; set; }
+}
+
 public class User
 {
     public Guid Id { get; set; }

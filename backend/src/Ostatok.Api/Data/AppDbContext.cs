@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<Movement> Movements => Set<Movement>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<Lead> Leads => Set<Lead>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
     {
@@ -82,6 +83,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(m => m.Note).HasMaxLength(200);
             e.HasOne(m => m.Product).WithMany().HasForeignKey(m => m.ProductId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(m => m.At);
+        });
+
+        model.Entity<Lead>(e =>
+        {
+            e.Property(l => l.Name).HasMaxLength(120);
+            e.Property(l => l.Organization).HasMaxLength(120);
+            e.Property(l => l.Contact).HasMaxLength(120);
+            e.Property(l => l.Points).HasMaxLength(20);
+            e.Property(l => l.Comment).HasMaxLength(1000);
         });
 
         model.Entity<User>(e =>

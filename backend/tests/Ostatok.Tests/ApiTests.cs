@@ -334,4 +334,20 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
         Assert.Contains("Стол 7", (await Get<MeResponse>("/api/me")).Places);
     }
+
+    [Fact]
+    public async Task Заявка_с_лендинга_принимается_без_входа_и_видна_в_кабинете()
+    {
+        using var visitor = fx.CreateClient();
+        var organization = $"Ресторан {Guid.NewGuid():N}";
+
+        var accepted = await visitor.PostAsJsonAsync("/api/leads", new LeadRequest("Иван", organization, "ivan@example.com", "2–5", null));
+        var badContact = await visitor.PostAsJsonAsync("/api/leads", new LeadRequest("Иван", organization, "ivan@", "1", null));
+        var listForVisitor = await visitor.GetAsync("/api/leads");
+
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, badContact.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, listForVisitor.StatusCode);
+        Assert.Single(await Get<List<LeadResponse>>("/api/leads"), l => l.Organization == organization);
+    }
 }
