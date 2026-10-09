@@ -1,0 +1,141 @@
+/* Остаток · v4 «про еду и зелень». Только внешний вид: структура экранов — как в версии «Новый язык». */
+.g{
+  --bg:#ffffff; --panel:#e8ebe6; --line:#e8ebe6; --hl:#e2f6d5;
+  --h:#0e0f0c; --ink:#454745; --ink-2:#6a6c6a;
+  --brand:#163300; --accent:#9fe870; --on-accent:#163300;
+  --red:#cb272f; --red-tint:#fdeced;
+  --amber:#8a5300; --amber-tint:#fbefd5;
+  --font:"Onest Variable", "Onest", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --r-panel:10px; --r-btn:8px; --r-tag:6px; --r-photo:10px;
+  background:var(--bg); color:var(--ink); font-family:var(--font); font-size:16px; line-height:1.45; box-sizing:border-box;
+}
+.g *,.g *::before,.g *::after{box-sizing:border-box}
+.g h1,.g h2,.g h3,.g p,.g ul,.g ol,.g dl,.g dd{margin:0}
+.g ul,.g ol{padding:0;list-style:none}
+.g a{color:inherit}
+.g button,.g input,.g select{font:inherit;color:inherit}
+.g :focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.g button,.g a{transition:background-color .15s,border-color .15s,color .15s}
+.g .num{font-variant-numeric:tabular-nums lining-nums;white-space:nowrap}
+.g .r{text-align:right}
+.g .muted{color:var(--ink-2)}
+.g .small{font-size:14px;line-height:1.4}
+.g .hd{color:var(--h)}
+
+/* Шапка: один ряд, 60 px */
+.g-top{height:60px;display:flex;align-items:stretch;gap:20px;padding:0 24px;background:var(--bg);border-bottom:1px solid var(--line)}
+.g-brand{display:flex;align-items:center;font-weight:800;font-size:20px;letter-spacing:-.03em;color:var(--brand);text-decoration:none;white-space:nowrap}
+.g-nav{display:flex;align-items:stretch}
+.g-nav a{display:flex;align-items:center;gap:6px;padding:0 9px;text-decoration:none;color:var(--ink-2);font-weight:500;border-bottom:3px solid transparent;white-space:nowrap}
+.g-nav a[aria-current="page"]{color:var(--brand);font-weight:700;border-bottom-color:var(--brand)}
+.g-nav .cnt{font-size:14px;font-weight:700;line-height:20px;padding:0 6px;border-radius:var(--r-tag);background:var(--red);color:#fff}
+.g-end{margin-left:auto;display:flex;align-items:center;gap:16px;white-space:nowrap}
+.g-ava{width:34px;height:34px;border-radius:50%;background:var(--panel);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--brand)}
+@media (hover:hover) and (pointer:fine){.g-nav a:not([aria-current]):hover{color:var(--h);background:#f4f6f3}}
+
+/* Кнопки */
+.g-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 18px;border-radius:var(--r-btn);border:1px solid #c9cec6;background:var(--bg);color:var(--h);font-weight:600;text-decoration:none;cursor:pointer;white-space:nowrap}
+.g-btn--primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
+.g-btn--block{width:100%}
+.g-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.2}
+@media (hover:hover) and (pointer:fine){.g-btn--primary:hover{background:#8fdc5d}.g-btn:not(.g-btn--primary):hover{background:#f4f6f3}}
+
+/* Страница */
+.g-page{padding:28px 24px 40px;display:flex;flex-direction:column;gap:24px}
+.g-title{display:flex;align-items:flex-end;flex-wrap:wrap;gap:8px 16px}
+.g-title h1{font-size:34px;font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--h)}
+.g-title .sub{color:var(--ink-2);padding-bottom:3px}
+.g-title .end{margin-left:auto;display:flex;gap:8px}
+
+/* Сводка */
+.g-kpis{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr);gap:12px}
+.g-kpi{background:var(--panel);border-radius:var(--r-panel);padding:16px 18px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.g-kpi dt{color:var(--ink)}
+.g-kpi .v{font-size:22px;font-weight:700;color:var(--h);font-variant-numeric:tabular-nums;line-height:1.2}
+.g-kpi .n{color:var(--ink);font-size:14px}
+.g-kpi--main{background:var(--hl)}
+.g-kpi--main .v{font-size:46px;font-weight:800;letter-spacing:-.03em;line-height:1.05;color:var(--brand)}
+.g-kpi--red .v{color:var(--red)}
+
+/* Панели */
+.g-panel{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-panel);min-width:0;overflow:hidden}
+.g-panel__head{display:flex;align-items:baseline;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.g-panel__head h2{font-size:18px;font-weight:600;color:var(--h)}
+.g-panel__head .end{margin-left:auto;color:var(--ink-2);font-size:14px}
+.g-panel__foot{display:flex;align-items:center;gap:12px;padding:14px 20px;border-top:1px solid var(--line);background:#fafbf9}
+
+/* Список */
+.g-colhead{display:grid;gap:0 20px;padding:10px 20px;background:var(--panel);color:var(--ink);font-size:14px;font-weight:600}
+.g-rows > li{display:grid;gap:0 20px;align-items:center;padding:12px 20px;min-height:72px;border-bottom:1px solid var(--line)}
+.g-rows > li:last-child{border-bottom:0}
+.g-name{font-weight:700;color:var(--h);line-height:1.3;overflow-wrap:anywhere}
+.g-why{color:var(--ink-2);font-size:14px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* Фото блюда — квадрат, одна обрезка */
+.g-photo{width:64px;height:64px;border-radius:var(--r-photo);overflow:hidden;background:var(--panel);position:relative;flex:none}
+.g-photo img{width:100%;height:100%;object-fit:cover;display:block}
+.g-photo span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--brand);opacity:.55;font-size:15px}
+
+/* Статусы: всегда словом */
+.g-tag{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:var(--r-tag);font-size:14px;font-weight:700;white-space:nowrap;line-height:1}
+.g-tag--red{background:var(--red-tint);color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}
+.g-tag--amber{background:var(--amber-tint);color:var(--amber)}
+.g-soon{color:var(--amber);font-weight:600;font-size:14px}
+
+/* Этикетка партии */
+.g-lbl{display:inline-grid;grid-template-columns:auto auto;border:1.5px solid var(--h);border-radius:var(--r-tag);overflow:hidden;font-size:14px;line-height:1.2;background:var(--bg);white-space:nowrap}
+.g-lbl__d{display:flex;align-items:center;padding:0 7px;background:var(--brand);color:#fff;font-weight:700}
+.g-lbl__b{padding:4px 8px;display:flex;gap:8px;font-variant-numeric:tabular-nums;color:var(--h)}
+.g-lbl__left{font-weight:700}
+.g-lbl--red{border-color:var(--red)} .g-lbl--red .g-lbl__d{background:var(--red)} .g-lbl--red .g-lbl__left{color:var(--red)}
+.g-lbl--amber .g-lbl__left{color:var(--amber)}
+
+/* Телефон */
+.g-mtop{height:56px;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--bg);border-bottom:1px solid var(--line)}
+.g-tabs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:var(--bg);border-top:1px solid var(--line)}
+.g-tabs a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:64px;text-decoration:none;color:var(--ink-2);font-size:13px;font-weight:600;position:relative}
+.g-tabs a[aria-current="page"]{color:var(--brand)}
+.g-tabs a[aria-current="page"] svg{background:var(--accent);border-radius:8px}
+.g-tabs svg{width:40px;height:28px;padding:3px 9px;fill:none;stroke:currentColor;stroke-width:1.8}
+.g-tabs .cnt{position:absolute;top:6px;left:calc(50% + 10px);font-size:12px;font-weight:700;line-height:16px;padding:0 4px;border-radius:5px;background:var(--red);color:#fff}
+
+/* ---------- Общие элементы для остальных экранов ---------- */
+.g-field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.g-field label,.g-field .lb{font-weight:600;color:var(--h)}
+.g-input{width:100%;height:44px;padding:0 12px;border:1px solid #c9cec6;border-radius:var(--r-panel);background:var(--bg);color:var(--h)}
+.g-input:focus-visible{outline:2px solid var(--brand);outline-offset:0;border-color:var(--brand)}
+.g-hint{color:var(--ink-2);font-size:14px}
+.g-field--error .g-input{border:2px solid var(--red)}
+.g-error-text{color:var(--red);font-size:14px;font-weight:600}
+.g-unit{display:flex}
+.g-unit .g-input{border-radius:var(--r-panel) 0 0 var(--r-panel)}
+.g-unit > span{display:flex;align-items:center;padding:0 12px;border:1px solid #c9cec6;border-left:0;border-radius:0 var(--r-panel) var(--r-panel) 0;background:var(--panel);color:var(--ink);font-weight:600;white-space:nowrap}
+/* Сегменты: прямоугольные, радиус 8 */
+.g-seg{display:inline-flex;max-width:100%;overflow-x:auto;background:var(--panel);border-radius:var(--r-btn);padding:3px;gap:2px}
+.g-seg button,.g-seg a{flex:none;height:38px;padding:0 14px;border:0;border-radius:6px;background:transparent;color:var(--ink);font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;white-space:nowrap}
+.g-seg [aria-pressed="true"],.g-seg [aria-current="page"]{background:var(--bg);color:var(--brand);box-shadow:inset 0 0 0 1px #c9cec6}
+.g-seg .n{font-variant-numeric:tabular-nums;color:var(--ink-2);font-weight:500}
+/* Счётчик −/+ */
+.g-qty{display:inline-flex;align-items:center;border:1px solid #c9cec6;border-radius:var(--r-btn);height:40px;overflow:hidden}
+.g-qty button{width:40px;height:38px;border:0;background:var(--bg);cursor:pointer;font-size:20px;line-height:1;color:var(--h)}
+.g-qty button[disabled]{color:#b5bab2;cursor:not-allowed;background:#f6f7f5}
+.g-qty span{min-width:34px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums;color:var(--h);border-left:1px solid var(--line);border-right:1px solid var(--line);line-height:38px}
+/* Приглушённая строка (стоп) */
+.g-off .g-name{color:var(--ink-2)} .g-off .g-photo{opacity:.5}
+/* Сообщения */
+.g-note{border-radius:var(--r-panel);padding:14px 18px;display:flex;flex-direction:column;gap:6px}
+.g-note--ok{background:var(--hl)} .g-note--ok h3{color:var(--brand)}
+.g-note--err{background:var(--red-tint);box-shadow:inset 0 0 0 1px var(--red)} .g-note--err h3{color:var(--red)}
+.g-note h3{font-size:16px;font-weight:700}
+.g-empty{padding:32px 20px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;color:var(--ink-2)}
+.g-empty strong{color:var(--h);font-size:18px}
+/* Тёмный блок бренда */
+.g-dark{background:var(--brand);color:#e2f6d5;border-radius:var(--r-panel)}
+.g-dark .g-name,.g-dark h2,.g-dark h3{color:#ffffff}
+.g-dark .muted{color:#b9d4a6}
+/* Таблица — только там, где сравнивают колонки */
+.g-table-wrap{overflow-x:auto}
+.g-table{width:100%;border-collapse:collapse}
+.g-table th{text-align:left;font-weight:600;font-size:14px;color:var(--ink);background:var(--panel);padding:10px 16px;white-space:nowrap}
+.g-table td{padding:14px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+.g-table .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}

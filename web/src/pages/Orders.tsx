@@ -1,0 +1,245 @@
+import { useState } from 'react';
+import { post, useApi, type HotOffer, type Me, type OrderRow, type StopListRow } from '../api';
+import { clock, duration, money, portions, qty } from '../format';
+import { Photo, URGENT_HOURS } from '../ui';
+
+const STOP_REASON = {
+  Expired: 'просрочено',
+  OutOfStock: 'нет на складе',
+  NotEnough: 'не хватает на порцию',
+};
+
+type Result = { kind: 'ok' | 'rejected'; order: OrderRow } | { kind: 'error'; message: string } | null;
+
+export function Orders() {
+  const menu = useApi<StopListRow[]>('/stop-list');
+  const offers = useApi<HotOffer[]>('/hot-offers');
+  const places = useApi<Me>('/me', 300_000).data?.places ?? [];
+  const [chosenPlace, setPlace] = useState('');
+  const place = chosenPlace || places[0] || '';
+  const [cart, setCart] = useState<Record<string, number>>({});
+  const [search, setSearch] = useState('');
+  const [result, setResult] = useState<Result>(null);
+  const [busy, setBusy] = useState(false);
+
+  const error = menu.error ?? offers.error;
+  if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить меню</h3><span>{error}</span></div>;
+  if (!menu.data || !offers.data) return <p className="muted">Загружаем меню…</p>;
+
+  // В меню блюда идут в постоянном порядке, чтобы строки не прыгали при изменении остатков.
+  const dishes = [...menu.data].sort((a, b) => a.dishName.localeCompare(b.dishName, 'ru'));
+  const shown = dishes.filter((d) => d.dishName.toLowerCase().includes(search.trim().toLowerCase()));
+  const stopped = dishes.filter((d) => d.status === 'Stop').length;
+  const inCart = dishes.filter((d) => cart[d.dishId]);
+  const count = inCart.reduce((s, d) => s + cart[d.dishId], 0);
+  const total = inCart.reduce((s, d) => s + d.price * cart[d.dishId], 0);
+
+  const change = (dishId: string, delta: number) =>
+    setCart((c) => {
+      const next = { ...c, [dishId]: Math.max(0, (c[dishId] ?? 0) + delta) };
+      if (!next[dishId]) delete next[dishId];
+      return next;
+    });
+
+  const placeSelect = (id: string) =>
+    places.length > 0 && (
+      <>
+        <label className="sr" htmlFor={id}>Стол</label>
+        <select className="g-input orders__place" id={id} value={place} onChange={(e) => setPlace(e.target.value)}>
+          {places.map((p) => <option key={p}>{p}</option>)}
+        </select>
+      </>
+    );
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const response = await post('/orders', { place, items: Object.entries(cart).map(([dishId, quantity]) => ({ dishId, quantity })) });
+      if (response.status === 201) {
+        setResult({ kind: 'ok', order: await response.json() });
+        setCart({});
+      } else if (response.status === 409) {
+        setResult({ kind: 'rejected', order: await response.json() });
+      } else {
+        setResult({ kind: 'error', message: `Сервер ответил ошибкой ${response.status}. Заказ не создан.` });
+      }
+      await Promise.all([menu.reload(), offers.reload()]);
+    } catch (e) {
+      setResult({ kind: 'error', message: (e as Error).message });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <div className="g-title">
+        <h1>Новый заказ</h1>
+        <span className="sub">Продукты спишутся из партий с самым ранним сроком</span>
+        <div className="end orders__place-mobile">{placeSelect('place-mobile')}</div>
+      </div>
+
+      <div className="orders">
+        <section className="g-panel" aria-labelledby="menu-h">
+          <div className="g-panel__head orders__menu-head">
+            <h2 id="menu-h">Меню</h2>
+            <span className="muted num small">
+              {dishes.length} блюд{stopped > 0 && ` · ${stopped} в стопе`}
+            </span>
+            <div className="search">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></svg>
+              <label className="sr" htmlFor="dish-search">Найти блюдо</label>
+              <input className="g-input" id="dish-search" type="search" placeholder="Найти блюдо" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+          </div>
+          <div className="g-colhead dish-row" aria-hidden="true">
+            <span />
+            <span>Блюдо</span>
+            <span className="r">Цена</span>
+            <span className="r">Осталось</span>
+            <span className="r">В заказ</span>
+          </div>
+          {shown.length === 0 ? (
+            <p className="g-empty"><strong>Ничего не найдено</strong>Блюда с таким названием в меню нет.</p>
+          ) : (
+            <ul className="g-rows">
+              {shown.map((d) => (
+                <DishRow
+                  key={d.dishId}
+                  dish={d}
+                  offer={offers.data!.find((o) => o.dishId === d.dishId)}
+                  first={offers.data![0]?.dishId === d.dishId}
+                  quantity={cart[d.dishId] ?? 0}
+                  onChange={(delta) => change(d.dishId, delta)}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <aside className="orders__side">
+          <section className="g-panel orders__cart" aria-labelledby="cart-h">
+            <div className="g-panel__head orders__cart-head"><h2 id="cart-h">Заказ</h2>{placeSelect('place')}</div>
+            {inCart.length === 0 ? (
+              <div className="g-empty"><strong>Заказ пуст</strong><span>Добавьте блюда кнопкой «+» в списке слева.</span></div>
+            ) : (
+              <ul>
+                {inCart.map((d) => (
+                  <li key={d.dishId} className="ord-row">
+                    <span className="ord-row__text">
+                      <span className="g-name">{d.dishName}</span>
+                      <span className="muted num small">{cart[d.dishId]} × {money(d.price)}</span>
+                    </span>
+                    <span className="num r hd ord-row__sum">{money(d.price * cart[d.dishId])}</span>
+                    <button className="x" type="button" aria-label={`Удалить ${d.dishName}`} onClick={() => change(d.dishId, -cart[d.dishId])}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="orders__total">
+              <div className="muted"><span>Позиций</span><span className="num">{count}</span></div>
+              <div className="orders__sum"><span>Сумма</span><span className="num">{money(total)}</span></div>
+              <button className="g-btn g-btn--primary g-btn--block" type="button" onClick={submit} disabled={count === 0 || busy}>
+                {busy ? 'Оформляем…' : 'Оформить'}
+              </button>
+            </div>
+          </section>
+
+          <ResultNote result={result} />
+
+          <div className="orders__bar">
+            <div>
+              <span className="muted num small">{count} поз.</span>
+              <strong className="num hd">{money(total)}</strong>
+            </div>
+            <button className="g-btn g-btn--primary" type="button" onClick={submit} disabled={count === 0 || busy}>
+              {busy ? 'Оформляем…' : 'Оформить'}
+            </button>
+          </div>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function DishRow(props: { dish: StopListRow; offer?: HotOffer; first: boolean; quantity: number; onChange: (delta: number) => void }) {
+  const { dish, offer, first, quantity, onChange } = props;
+  const stop = dish.status === 'Stop';
+  const expiring = offer?.ingredients[0];
+
+  let tag: { className: string; text: string; note?: string } | null = null;
+  if (stop) {
+    tag = { className: 'g-tag g-tag--red', text: 'Стоп', note: `${dish.limitingProductName.toLowerCase()}: ${STOP_REASON[dish.reason!]}` };
+  } else if (expiring) {
+    tag = {
+      className: expiring.hoursLeft < URGENT_HOURS ? 'g-tag g-tag--red' : 'g-soon',
+      text: `${expiring.productName.toLowerCase()}, осталось ${duration(expiring.hoursLeft)}`,
+      note: first ? 'предложить первым' : undefined,
+    };
+  } else if (dish.status === 'Low') {
+    tag = { className: 'g-tag g-tag--amber', text: 'Заканчивается', note: `${dish.limitingProductName.toLowerCase()} на ${portions(dish.portions)}` };
+  }
+
+  return (
+    <li className={`dish-row${stop ? ' g-off' : ''}`}>
+      <Photo url={dish.photoUrl} name={dish.dishName} />
+      <div className="dish-row__text">
+        <span className="g-name">{dish.dishName}</span>
+        <span className="muted num small dish-row__mobile">{money(dish.price)} · {stop ? 'нет в продаже' : portions(dish.portions)}</span>
+        {tag && (
+          <span className="meta">
+            <span className={tag.className}>{tag.text}</span>
+            {tag.note && <span>{tag.note}</span>}
+          </span>
+        )}
+      </div>
+      <span className="num r hd dish-row__wide">{money(dish.price)}</span>
+      <span className="num r hd dish-row__wide dish-row__left">{stop ? '—' : portions(dish.portions)}</span>
+      <span className="g-qty" role="group" aria-label={`Количество: ${dish.dishName}`}>
+        <button type="button" aria-label="Убрать порцию" onClick={() => onChange(-1)} disabled={quantity === 0}>−</button>
+        <span aria-live="polite">{quantity}</span>
+        <button type="button" aria-label="Добавить порцию" onClick={() => onChange(1)} disabled={stop}>+</button>
+      </span>
+    </li>
+  );
+}
+
+function ResultNote({ result }: { result: Result }) {
+  if (!result) return null;
+  if (result.kind === 'error') {
+    return <section className="g-note g-note--err" role="alert"><h3>Заказ не создан</h3><span className="hd">{result.message}</span></section>;
+  }
+  const { order } = result;
+  if (result.kind === 'rejected') {
+    return (
+      <section className="g-note g-note--err" role="alert">
+        <h3>Заказ не создан</h3>
+        <span className="hd">Не хватает продуктов. Ничего не списано.</span>
+        <ul className="orders__lack">
+          {order.shortages.map((s) => (
+            <li key={s.productName}>
+              <strong className="hd">{s.productName}:</strong> нужно <span className="num">{qty(s.required, s.unit)}</span>, есть{' '}
+              <span className="num">{qty(s.available, s.unit)}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+  return (
+    <section className="g-note g-note--ok" aria-live="polite">
+      <h3>Заказ № {order.number} принят · <span className="num">{clock(order.createdAt)}</span></h3>
+      <span className="muted small">Списано из партий с ближайшим сроком:</span>
+      <ul>
+        {order.writeOffs.map((w, i) => (
+          <li key={i} className="wo">
+            <span className="hd">{w.productName}</span>
+            <span className="muted num">{w.supplyNumber}</span>
+            <span className="num r hd wo__qty">−{qty(w.quantity, w.unit)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

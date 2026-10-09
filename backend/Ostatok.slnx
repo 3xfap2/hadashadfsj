@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ostatok.Api/Ostatok.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ostatok.Tests/Ostatok.Tests.csproj" />
+  </Folder>
+</Solution>

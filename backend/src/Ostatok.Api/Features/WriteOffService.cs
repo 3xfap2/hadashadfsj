@@ -1,0 +1,82 @@
+using Microsoft.EntityFrameworkCore;
+using Ostatok.Api.Data;
+using Ostatok.Api.Domain;
+
+namespace Ostatok.Api.Features;
+
+public enum WriteOffResult { Done, NotFound, Empty }
+
+public sealed class WriteOffService(AppDbContext db, TimeProvider time)
+{
+    public async Task<WriteOffResult> WriteOffAsync(Guid batchId, CancellationToken ct)
+    {
+        var now = time.GetUtcNow();
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Та же блокировка, что и при заказе: списание не разойдётся с параллельной продажей.
+        var batch = (await db.Batches
+            .FromSql($"""SELECT * FROM "Batches" WHERE "Id" = {batchId} FOR UPDATE""")
+            .ToListAsync(ct)).FirstOrDefault();
+        if (batch is null) return WriteOffResult.NotFound;
+        if (batch.Remaining == 0) return WriteOffResult.Empty;
+
+        Apply(batch, now, batch.ExpiresAt <= now ? "Истёк срок годности" : "Списано вручную");
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return WriteOffResult.Done;
+    }
+
+    /// <summary>Списывает партии, просроченные дольше отсрочки. Возвращает число списанных партий.</summary>
+    public async Task<int> WriteOffExpiredAsync(TimeSpan grace, CancellationToken ct)
+    {
+        var now = time.GetUtcNow();
+        var cutoff = now - grace;
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var batches = await db.Batches
+            .FromSql($"""SELECT * FROM "Batches" WHERE "Remaining" > 0 AND "ExpiresAt" <= {cutoff} FOR UPDATE SKIP LOCKED""")
+            .ToListAsync(ct);
+
+        foreach (var batch in batches) Apply(batch, now, "Истёк срок годности (автосписание)");
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return batches.Count;
+    }
+
+    private void Apply(Batch batch, DateTimeOffset now, string note)
+    {
+        db.Movements.Add(new Movement
+        {
+            At = now,
+            Type = MovementType.WriteOff,
+            ProductId = batch.ProductId,
+            BatchId = batch.Id,
+            Quantity = batch.Remaining,
+            Note = note,
+        });
+        batch.Remaining = 0;
+    }
+}
+
+/// <summary>Раз в минуту списывает просрочку, которую не списали вручную за время отсрочки.</summary>
+public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions options, ILogger<ExpiryWorker> log) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stop)
+    {
+        if (!options.AutoWriteOff) return;
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        do
+        {
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                var count = await scope.ServiceProvider.GetRequiredService<WriteOffService>()
+                    .WriteOffExpiredAsync(TimeSpan.FromHours(options.AutoWriteOffAfterHours), stop);
+                if (count > 0) log.LogInformation("Автосписание: {Count} партий", count);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                log.LogError(e, "Автосписание не выполнено");
+            }
+        }
+        while (await timer.WaitForNextTickAsync(stop));
+    }
+}

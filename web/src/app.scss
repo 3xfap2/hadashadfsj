@@ -1,0 +1,750 @@
+// Раскладки экранов поверх утверждённой дизайн-системы (g.css) и адаптация под телефон.
+$narrow: 900px;
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.g {
+  min-height: 100dvh;
+
+  button,
+  a {
+    touch-action: manipulation;
+  }
+
+  .g-btn,
+  .g-tabs a,
+  .g-nav a {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .g-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .g-nav a.active {
+    color: var(--brand);
+    font-weight: 700;
+    border-bottom-color: var(--brand);
+  }
+
+  .g-tabs a.active {
+    color: var(--brand);
+
+    svg {
+      background: var(--accent);
+      border-radius: 8px;
+    }
+  }
+}
+
+// ---------- Каркас кабинета ----------
+
+.shell {
+  display: flex;
+  flex-direction: column;
+
+  &__top {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    gap: 12px;
+
+    .g-end {
+      gap: 12px;
+    }
+  }
+
+  .g-nav {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .g-page {
+    flex: 1;
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+
+  &__user {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__exit {
+    padding: 8px 0;
+    border: 0;
+    background: none;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  &__mtop,
+  &__tabs {
+    display: none;
+  }
+
+  .more > li {
+    display: flex;
+    min-height: 60px;
+  }
+}
+
+// ---------- Сегодня ----------
+
+.today {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 20px;
+  align-items: start;
+
+  &__col {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+  }
+}
+
+.g .sell {
+  grid-template-columns: 64px minmax(0, 1fr) 104px 112px;
+
+  &__text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  // На широком экране числа стоят в двух столбцах сетки, на телефоне — стопкой справа.
+  &__nums {
+    display: contents;
+  }
+
+  &__portions {
+    font-weight: 600;
+  }
+
+  &__loss {
+    font-weight: 700;
+  }
+}
+
+.g-lbl__d {
+  text-transform: uppercase;
+}
+
+.g .ord {
+  grid-template-columns: 52px 52px minmax(0, 1fr) 88px;
+  align-items: baseline;
+
+  &__items {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: center;
+  }
+
+  &__sum {
+    font-weight: 600;
+  }
+}
+
+.g .side {
+  grid-template-columns: minmax(0, 1fr) auto;
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+}
+
+// Строка партии: название, под ним этикетка срока, под ней номер поставки и остаток.
+// Этикетка всегда под названием, чтобы строки были одинаковыми при любой длине срока.
+.g .batch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.g-panel__foot .g-btn {
+  margin-left: auto;
+}
+
+// ---------- Заказы ----------
+
+.g .sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.g .meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.search {
+  position: relative;
+
+  .g-input {
+    padding-left: 38px;
+  }
+
+  svg {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: var(--ink-2);
+    stroke-width: 2;
+  }
+}
+
+.orders {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 20px;
+  align-items: start;
+
+  &__menu-head {
+    align-items: center;
+
+    .search {
+      margin-left: auto;
+      width: 240px;
+    }
+  }
+
+  &__cart-head {
+    align-items: center;
+  }
+
+  &__place {
+    width: 130px;
+    margin-left: auto;
+  }
+
+  &__place-mobile {
+    display: none;
+  }
+
+  &__side {
+    position: sticky;
+    top: 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  &__total {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 20px 20px;
+    border-top: 1px solid var(--line);
+
+    > div {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .g-btn {
+      height: 52px;
+      font-size: 17px;
+    }
+  }
+
+  &__sum {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--h);
+  }
+
+  &__lack {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  &__bar {
+    display: none;
+  }
+}
+
+.g .dish-row {
+  grid-template-columns: 64px minmax(0, 1fr) 80px 104px 120px;
+
+  &__text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  &__left {
+    font-weight: 600;
+  }
+
+  &__mobile {
+    display: none;
+  }
+
+  .g-qty {
+    justify-self: end;
+  }
+}
+
+.ord-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0 12px;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+
+  &__text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__sum {
+    font-weight: 700;
+  }
+}
+
+.g .x {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid rgba(22, 51, 0, 0.14);
+
+  &__qty {
+    min-width: 64px;
+    font-weight: 700;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .g .x:hover {
+    background: #f4f6f3;
+    color: var(--h);
+  }
+}
+
+// ---------- Вход ----------
+
+.login {
+  display: flex;
+  flex-wrap: wrap;
+
+  &__photo-col {
+    flex: 1 1 520px;
+    min-height: 280px;
+    padding: 24px;
+    display: flex;
+  }
+
+  &__photo {
+    flex: 1;
+    position: relative;
+    border-radius: var(--r-photo);
+    overflow: hidden;
+    background: var(--panel);
+
+    img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+
+  &__main {
+    flex: 1 1 480px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    padding: 32px clamp(20px, 5vw, 72px);
+  }
+
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    max-width: 420px;
+    margin: auto 0;
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.05;
+      color: var(--h);
+    }
+
+    h1 + p {
+      font-size: 18px;
+    }
+  }
+
+  &__label-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+
+    button {
+      padding: 0;
+      border: 0;
+      background: none;
+      font-size: 14px;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+  }
+
+  &__toggle {
+    min-width: 100px;
+    padding: 0 14px;
+    border: 1px solid #c9cec6;
+    border-left: 0;
+    border-radius: 0 var(--r-panel) var(--r-panel) 0;
+    background: var(--panel);
+    color: var(--ink);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  &__or {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--ink-2);
+
+    span {
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+  }
+}
+
+// ---------- Телефон ----------
+
+@media (max-width: $narrow) {
+  .shell {
+    &__top {
+      display: none;
+    }
+
+    &__mtop {
+      display: flex;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      padding-top: env(safe-area-inset-top, 0px);
+      height: calc(56px + env(safe-area-inset-top, 0px));
+
+      .g-brand {
+        font-size: 19px;
+      }
+
+      .muted {
+        margin-left: auto;
+      }
+    }
+
+    &__tabs {
+      display: grid;
+      position: sticky;
+      bottom: 0;
+      z-index: 5;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .g-page {
+      padding: 20px 14px;
+      gap: 16px;
+    }
+  }
+
+  .g-title {
+    h1 {
+      font-size: 32px;
+    }
+
+    .end {
+      width: 100%;
+      margin-left: 0;
+
+      .g-btn {
+        flex: 1;
+        height: 52px;
+      }
+
+      // На телефоне приёмка поставки открывается из раздела «Склад» в нижней панели.
+      .title-secondary {
+        display: none;
+      }
+    }
+  }
+
+  .g-kpis {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+
+    .g-kpi {
+      padding: 12px 14px;
+    }
+
+    .g-kpi .v {
+      font-size: 20px;
+    }
+
+    .g-kpi--main .v {
+      font-size: 30px;
+      line-height: 1.1;
+    }
+
+    .n {
+      display: none;
+    }
+  }
+
+  .today {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+
+    &__col {
+      gap: 16px;
+    }
+  }
+
+  .g-panel__head {
+    padding: 14px;
+
+    span.end {
+      display: none;
+    }
+  }
+
+  .g-colhead {
+    display: none;
+  }
+
+  .g-rows > li {
+    padding: 12px 14px;
+  }
+
+  .g .sell {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    gap: 0 12px;
+    min-height: 88px;
+
+    .g-why {
+      display: none;
+    }
+
+    .g-tag {
+      height: auto;
+      padding: 4px 9px;
+      line-height: 1.25;
+      white-space: normal;
+    }
+
+    &__nums {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    &__portions {
+      order: 2;
+      color: var(--ink-2);
+      font-size: 14px;
+      font-weight: 400;
+    }
+  }
+
+  .g .ord {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+
+    > .hd:nth-child(2) {
+      display: none;
+    }
+  }
+
+  .g .side {
+    gap: 4px 10px;
+  }
+
+  .g-panel__foot {
+    padding: 12px 14px;
+    flex-wrap: wrap;
+
+    .g-btn {
+      width: 100%;
+      height: 48px;
+      margin-left: 0;
+    }
+  }
+
+  .orders {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+
+    &__menu-head {
+      flex-wrap: wrap;
+
+      .search {
+        width: 100%;
+        margin-left: 0;
+      }
+    }
+
+    &__side {
+      position: static;
+    }
+
+    &__place-mobile {
+      display: block;
+
+      .g-input {
+        width: 100%;
+      }
+    }
+
+    // На телефоне корзина свёрнута в полосу с итогом над нижней панелью разделов.
+    &__cart {
+      display: none;
+    }
+
+    &__bar {
+      position: sticky;
+      bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 -14px -20px;
+      padding: 10px 14px;
+      background: var(--bg);
+      border-top: 1px solid var(--line);
+
+      > div {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.2;
+      }
+
+      strong {
+        font-size: 19px;
+        font-weight: 800;
+      }
+
+      .g-btn {
+        flex: 1;
+        height: 52px;
+        font-size: 17px;
+      }
+    }
+  }
+
+  .g .dish-row {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    gap: 0 12px;
+    min-height: 88px;
+
+    &__wide {
+      display: none;
+    }
+
+    &__mobile {
+      display: block;
+      white-space: normal;
+    }
+
+    .g-tag {
+      height: auto;
+      min-height: 26px;
+      padding: 4px 8px;
+      line-height: 1.2;
+      white-space: normal;
+    }
+
+    .g-qty {
+      height: 44px;
+
+      button {
+        width: 38px;
+        height: 42px;
+      }
+
+      span {
+        min-width: 28px;
+        line-height: 42px;
+      }
+    }
+  }
+
+  .login {
+    &__photo-col {
+      flex-basis: 100%;
+      min-height: 180px;
+      padding: 14px 14px 0;
+    }
+
+    &__form h1 {
+      font-size: 32px;
+    }
+  }
+}
