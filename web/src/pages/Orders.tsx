@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { post, useApi, type HotOffer, type Me, type OrderRow, type StopListRow } from '../api';
-import { clock, duration, money, portions, qty } from '../format';
+import { clock, duration, isToday, money, portions, qty } from '../format';
 import { Photo, URGENT_HOURS } from '../ui';
 
 const STOP_REASON = {
@@ -15,6 +15,7 @@ type Result = { kind: 'ok' | 'rejected'; order: OrderRow } | { kind: 'error'; me
 export function Orders() {
   const menu = useApi<StopListRow[]>('/stop-list');
   const offers = useApi<HotOffer[]>('/hot-offers');
+  const orders = useApi<OrderRow[]>('/orders?take=200');
   const places = useApi<Me>('/me', 300_000).data?.places ?? [];
   const [chosenPlace, setPlace] = useState('');
   const place = chosenPlace || places[0] || '';
@@ -42,15 +43,13 @@ export function Orders() {
       return next;
     });
 
-  const placeSelect = (id: string) =>
-    places.length > 0 && (
-      <>
-        <label className="sr" htmlFor={id}>Стол</label>
-        <select className="g-input orders__place" id={id} value={place} onChange={(e) => setPlace(e.target.value)}>
-          {places.map((p) => <option key={p}>{p}</option>)}
-        </select>
-      </>
-    );
+  // Что сегодня уже заказывали за каждым столом: сумма и время последнего заказа.
+  const served = new Map<string, { total: number; last: string }>();
+  for (const o of orders.data ?? []) {
+    if (o.status !== 'Accepted' || !o.place || !isToday(o.createdAt)) continue;
+    const seen = served.get(o.place);
+    served.set(o.place, { total: (seen?.total ?? 0) + o.total, last: seen && seen.last > o.createdAt ? seen.last : o.createdAt });
+  }
 
   const submit = async () => {
     setBusy(true);
@@ -64,7 +63,7 @@ export function Orders() {
       } else {
         setResult({ kind: 'error', message: `Сервер ответил ошибкой ${response.status}. Заказ не создан.` });
       }
-      await Promise.all([menu.reload(), offers.reload()]);
+      await Promise.all([menu.reload(), offers.reload(), orders.reload()]);
     } catch (e) {
       setResult({ kind: 'error', message: (e as Error).message });
     }
@@ -76,8 +75,32 @@ export function Orders() {
       <div className="g-title">
         <h1>Новый заказ</h1>
         <span className="sub">Продукты спишутся из партий с самым ранним сроком</span>
-        <div className="end orders__place-mobile">{placeSelect('place-mobile')}</div>
       </div>
+
+      {places.length > 0 && (
+        <section className="g-panel hall" aria-labelledby="hall-h">
+          <div className="g-panel__head">
+            <h2 id="hall-h">Зал</h2>
+            <span className="end">выберите стол · под номером — заказы за сегодня</span>
+          </div>
+          <div className="hall__grid" role="group" aria-label="Стол">
+            {places.map((p) => {
+              const table = /^Стол (\d+)$/.exec(p)?.[1];
+              const seen = served.get(p);
+              return (
+                <button key={p} className="hall__table" type="button" aria-pressed={place === p} aria-label={p} onClick={() => setPlace(p)}>
+                  <strong className={table ? 'num' : 'hall__word'}>{table ?? p}</strong>
+                  {seen ? (
+                    <><span className="num hd">{money(seen.total)}</span><span className="num muted small">{clock(seen.last)}</span></>
+                  ) : (
+                    <span className="muted small">свободен</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <div className="orders">
         <section className="g-panel" aria-labelledby="menu-h">
@@ -119,7 +142,7 @@ export function Orders() {
 
         <aside className="orders__side">
           <section className="g-panel orders__cart" aria-labelledby="cart-h">
-            <div className="g-panel__head orders__cart-head"><h2 id="cart-h">Заказ</h2>{placeSelect('place')}</div>
+            <div className="g-panel__head orders__cart-head"><h2 id="cart-h">Заказ</h2>{place && <span className="end hd">{place}</span>}</div>
             {inCart.length === 0 ? (
               <div className="g-empty"><strong>Заказ пуст</strong><span>Добавьте блюда кнопкой «+» в списке слева.</span></div>
             ) : (
