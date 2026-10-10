@@ -2200,6 +2200,99 @@ body {
   }
 }
 
+.sell__discount {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+// ---------- Этикетки партий ----------
+
+.labels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 12px 16px;
+  border: 1.5px solid var(--h);
+  border-radius: var(--r-tag);
+  background: #fff;
+  color: var(--h);
+  break-inside: avoid;
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  &__name {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+
+  &__until {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  &__day {
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--h);
+    color: #fff;
+    font-size: 16px;
+    text-transform: uppercase;
+  }
+
+  &__qr {
+    width: 96px;
+    height: 96px;
+    flex: none;
+    fill: #000;
+  }
+}
+
+.batch-row--target {
+  background: var(--hl);
+}
+
+@media print {
+  .shell__top,
+  .shell__mtop,
+  .shell__tabs,
+  .shell__foot,
+  .labels-head,
+  .toasts {
+    display: none !important;
+  }
+
+  .g-page {
+    padding: 0;
+  }
+
+  .labels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4mm;
+  }
+}
+
 // ---------- Журнал и генератор ----------
 
 .journal {

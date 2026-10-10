@@ -215,6 +215,11 @@ function Offer({ offer }: { offer: HotOffer }) {
           Истекает {qty(main.nearestQuantity, main.unit)}, продать {portions(offer.portions)}
           {main.alternativeDishes === 1 && ' · других блюд с этим продуктом нет'}
         </span>
+        {offer.discount && (
+          <span className="sell__discount" title={offer.discount.reason}>
+            Можно дать скидку {offer.discount.percent}% — <span className="num">{money(offer.discount.price)}</span> вместо <span className="num">{money(offer.price)}</span>
+          </span>
+        )}
       </div>
       <div className="sell__nums">
         <span className="num r hd sell__portions">{portions(offer.availablePortions)}</span>

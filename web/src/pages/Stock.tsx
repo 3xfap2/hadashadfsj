@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, NavLink, useSearchParams } from 'react-router-dom';
 import { post, useApi, type BatchRow, type ProductRow, type StockRow, type StopListRow } from '../api';
 import { dayMonthShort, dueLong, leftPrecise, money, qty, shelfLife, unitName } from '../format';
 import { URGENT_HOURS } from '../ui';
@@ -46,6 +46,13 @@ export function Stock() {
   // Партия, для которой сейчас спрашивается причина списания.
   const [asking, setAsking] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Партия, открытая по QR-коду с этикетки: её продукт раскрыт, строка выделена.
+  const target = useSearchParams()[0].get('batch');
+  const targetRow = useRef<HTMLLIElement>(null);
+  const loaded = Boolean(batches.data);
+  useEffect(() => {
+    if (loaded) targetRow.current?.scrollIntoView({ block: 'center' });
+  }, [loaded, target]);
 
   const writeOff = async (batch: BatchRow, reason?: 'Spoiled' | 'Defective') => {
     setBusy(true);
@@ -121,7 +128,7 @@ export function Stock() {
       <section className="g-panel" aria-label="Остатки по продуктам">
         {shown.length === 0 && <p className="g-empty"><strong>Ничего не найдено</strong>Измените поиск или фильтр.</p>}
         {shown.map((p) => {
-          const isOpen = open[p.productId] ?? (p.kind === 'expired' || p.kind === 'hot');
+          const isOpen = open[p.productId] ?? (p.kind === 'expired' || p.kind === 'hot' || p.batches.some((b) => b.id === target));
           return (
             <div key={p.productId} className="prod">
               <button className="prow" type="button" aria-expanded={isOpen} onClick={() => setOpen((o) => ({ ...o, [p.productId]: !isOpen }))}>
@@ -152,11 +159,13 @@ export function Stock() {
                     {p.batches.map((b) => {
                       const kind = batchKind(b);
                       return (
-                        <li key={b.id} className="batch-row">
+                        <li key={b.id} className={`batch-row${b.id === target ? ' batch-row--target' : ''}`} ref={b.id === target ? targetRow : undefined}>
                           <span className={KINDS[kind].chip}>{KINDS[kind].word}</span>
                           <span className="batch-row__main">
                             <strong className="num hd">{qty(b.remaining, b.unit)} из {qty(b.quantity, b.unit)}</strong>
-                            <span className="muted small">Поставка {b.supplyNumber} · принята {dayMonthShort(b.receivedAt)}</span>
+                            <span className="muted small">
+                              Поставка {b.supplyNumber} · принята {dayMonthShort(b.receivedAt)} · <Link to={`/app/labels?batch=${b.id}`}>этикетка</Link>
+                            </span>
                           </span>
                           <span className="batch-row__until">
                             <span className="muted small">годен до</span>

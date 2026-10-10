@@ -9,12 +9,17 @@ public sealed record HotIngredient(
     decimal AtRiskQuantity, decimal NearestQuantity, double HoursLeft, decimal UsableQuantity, decimal ValueAtRisk,
     int AlternativeDishes, decimal Score);
 
+/// <param name="Percent">Рекомендуемая скидка, кратна 5.</param>
+/// <param name="Price">Цена блюда со скидкой.</param>
+/// <param name="FloorPrice">Ниже этой цены продавать невыгодно: столько стоят продукты блюда, которые не истекают.</param>
+public sealed record HotDiscount(int Percent, decimal Price, decimal FloorPrice, string Reason);
+
 /// <param name="Portions">Сколько порций стоит продать, чтобы израсходовать истекающие продукты.</param>
 /// <param name="ValueAtRisk">Сколько рублей продуктов блюдо спасает от списания.</param>
 public sealed record HotOffer(
     Guid DishId, string DishName, string? PhotoUrl, decimal Price, decimal Score,
     int Portions, int AvailablePortions, decimal ValueAtRisk,
-    IReadOnlyList<HotIngredient> Ingredients, string Reason);
+    IReadOnlyList<HotIngredient> Ingredients, string Reason, HotDiscount? Discount);
 
 /// <summary>
 /// Горячие предложения: какие блюда продавать активнее, чтобы продукты не ушли в списание.
@@ -24,6 +29,11 @@ public sealed record HotOffer(
 /// где срочность = 1 − (часов до конца срока ÷ горизонт): чем ближе срок, тем ближе к единице;
 /// N — число блюд в продаже с этим продуктом: если блюдо единственное, его вклад не делится.
 /// Количество ограничено и остатком партии, и числом порций, на которое хватает остальных ингредиентов.
+///
+/// Скидка предлагается, только если при обычном спросе партия не успеет продаться до конца срока:
+///   скидка = 40% × доля партии, которая не продастся × срочность, с округлением вниз до 5%
+/// и не больше той, при которой цена ещё покрывает продукты блюда, которые не истекают:
+/// истекающий продукт пропадёт в любом случае, а остальные можно продать позже по полной цене.
 /// </summary>
 public static class HotOffers
 {
@@ -32,7 +42,8 @@ public static class HotOffers
         IReadOnlyCollection<Batch> batches,
         StockTotals stock,
         DateTimeOffset now,
-        double horizonHours)
+        double horizonHours,
+        IReadOnlyDictionary<Guid, decimal>? perHour = null)
     {
         var horizon = now.AddHours(horizonHours);
         var atRisk = batches
@@ -91,10 +102,36 @@ public static class HotOffers
                 Math.Min(recommended, portions), portions,
                 ingredients.Sum(i => i.ValueAtRisk),
                 ingredients,
-                Explain(ingredients, Math.Min(recommended, portions), horizonHours)));
+                Explain(ingredients, Math.Min(recommended, portions), horizonHours),
+                Discount(dish, ingredients, perHour, horizonHours)));
         }
 
         return offers.OrderByDescending(o => o.Score).ThenBy(o => o.DishName).ToList();
+    }
+
+    private const double MaxDiscountPercent = 40;
+
+    private static HotDiscount? Discount(
+        Dish dish, IReadOnlyList<HotIngredient> ingredients, IReadOnlyDictionary<Guid, decimal>? perHour, double horizonHours)
+    {
+        if (dish.Price <= 0) return null;
+        var main = ingredients[0];
+        var expiring = ingredients.Select(i => i.ProductId).ToHashSet();
+        var floor = dish.Recipe.Where(r => !expiring.Contains(r.ProductId)).Sum(r => r.Quantity * (r.Product?.Cost ?? 0));
+        var allowed = (double)(1 - floor / dish.Price) * 100;
+
+        var expected = (perHour?.GetValueOrDefault(main.ProductId) ?? 0) * (decimal)main.HoursLeft;
+        var unsold = (double)Math.Clamp(1 - expected / main.NearestQuantity, 0, 1);
+        var urgency = 1 - main.HoursLeft / horizonHours;
+        var percent = (int)Math.Floor(Math.Min(allowed, MaxDiscountPercent * unsold * urgency) / 5) * 5;
+        if (percent < 5) return null;
+
+        var price = Math.Round(dish.Price * (100 - percent) / 100);
+        var pace = expected > 0
+            ? $"При обычном спросе до конца срока уйдёт около {Ru.Qty(Math.Round(expected, 2), main.Unit)} из {Ru.Qty(main.NearestQuantity, main.Unit)}"
+            : $"Спроса на {main.ProductName.ToLowerInvariant()} в истории продаж пока нет";
+        return new HotDiscount(percent, price, Math.Round(floor),
+            $"{pace}. Скидка {percent}% — {Ru.Money(price)} вместо {Ru.Money(dish.Price)}. Ниже {Ru.Money(floor)} продавать невыгодно: столько стоят остальные продукты блюда.");
     }
 
     private static string Explain(IReadOnlyList<HotIngredient> ingredients, int portions, double horizonHours)

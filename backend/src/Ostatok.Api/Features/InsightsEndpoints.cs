@@ -16,6 +16,8 @@ public sealed record WriteOffReport(
 public sealed record DeficitRow(
     Guid ProductId, string ProductName, Unit Unit, int RejectedOrders, decimal MissingQuantity, double StopHours, IEnumerable<string> Dishes);
 
+public sealed record StopCostReport(int Days, decimal Total, IEnumerable<StopCostRow> Dishes);
+
 public sealed record AnalyticsSummary(int Orders, int RejectedOrders, double StopHours);
 
 /// <param name="Supplier">Поставщик из последней поставки этого продукта.</param>
@@ -35,7 +37,8 @@ public static class InsightsEndpoints
                 await db.LoadDishesAsync(ct),
                 await db.LoadFreshBatchesAsync(now, ct),
                 await db.LoadTotalsAsync(now, ct),
-                now, options.HotOfferHours);
+                now, options.HotOfferHours,
+                await db.LoadConsumptionPerHourAsync(now, options, ct));
         })
         .WithTags("Горячие предложения");
 
@@ -47,7 +50,7 @@ public static class InsightsEndpoints
                 products,
                 await db.LoadDishesAsync(ct),
                 (await db.LoadFreshBatchesAsync(now, ct)).ToLookup(b => b.ProductId),
-                await db.LoadConsumptionPerHourAsync(now, options.ConsumptionDays, ct),
+                await db.LoadConsumptionPerHourAsync(now, options, ct),
                 now, options.PurchaseCoverHours);
 
             // У кого этот продукт брали в последний раз — к тому и заявка.
@@ -121,6 +124,29 @@ public static class InsightsEndpoints
                     Math.Round(stops[id].Sum(l => StopTracker.Hours(l, since, now)), 1),
                     stops[id].Select(l => l.Dish!.Name).Distinct().Order()))
                 .OrderByDescending(r => r.StopHours).ThenByDescending(r => r.RejectedOrders).ThenBy(r => r.ProductName);
+        });
+
+        analytics.MapGet("/stop-cost", async (AppDbContext db, TimeProvider time, StockOptions options, RestaurantOptions restaurant, CancellationToken ct, int days = 14) =>
+        {
+            days = Math.Clamp(days, 1, 90);
+            var now = time.GetUtcNow();
+            var since = now.AddDays(-days);
+            var stops = (await db.StopLogs.AsNoTracking().Where(l => l.EndedAt == null || l.EndedAt >= since).ToListAsync(ct)).ToLookup(l => l.DishId);
+            var sold = await db.Orders
+                .Where(o => o.Status == OrderStatus.Accepted && o.CreatedAt >= since)
+                .SelectMany(o => o.Items)
+                .GroupBy(i => i.DishId)
+                .Select(g => new { DishId = g.Key, Portions = g.Sum(i => i.Quantity) })
+                .ToDictionaryAsync(g => g.DishId, g => g.Portions, ct);
+            var (start, end, zone) = (StopCost.ParseTime(restaurant.ShiftStart), StopCost.ParseTime(restaurant.ShiftEnd), TimeSpan.FromHours(options.UtcOffsetHours));
+
+            var rows = (await db.Dishes.AsNoTracking().ToListAsync(ct))
+                .Where(d => stops.Contains(d.Id))
+                .Select(d => StopCost.Of(d, stops[d.Id].Select(l => (l.StartedAt, l.EndedAt ?? now)), sold.GetValueOrDefault(d.Id), since, now, start, end, zone))
+                .Where(r => r.StopHours > 0)
+                .OrderByDescending(r => r.LostRevenue).ThenByDescending(r => r.StopHours)
+                .ToList();
+            return new StopCostReport(days, rows.Sum(r => r.LostRevenue), rows);
         });
 
         analytics.MapGet("/summary", async (AppDbContext db, TimeProvider time, CancellationToken ct, int days = 14) =>

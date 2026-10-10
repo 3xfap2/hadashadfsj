@@ -94,6 +94,13 @@ public static class DemoHistory
         for (var day = Days; day >= 1; day--)
         {
             var morning = today.AddDays(-day).AddHours(9);
+            // В пятницу и субботу гостей больше, в начале недели меньше; закупщик это знает и берёт соответственно.
+            var weekday = morning.ToOffset(Zone).DayOfWeek switch
+            {
+                DayOfWeek.Friday or DayOfWeek.Saturday => 1.3,
+                DayOfWeek.Monday or DayOfWeek.Tuesday => 0.75,
+                _ => 1.0,
+            };
             WriteOffExpired(morning);
 
             // Утренняя поставка: скоропорт каждый день, остальное раз в неделю. Объём «на глаз» — то больше, то меньше нужного,
@@ -106,7 +113,7 @@ public static class DemoHistory
                 if (!perishable && day % 7 != 0) continue;
                 // Обычно берут с запасом; изредка по какому-то продукту заказывают слишком мало.
                 var margin = random.Next(100) < 4 ? 0.55 + random.NextDouble() * 0.25 : 1.15 + random.NextDouble() * 0.45;
-                var target = dailyUse[product.Id] * (perishable ? (decimal)margin : 8.5m);
+                var target = dailyUse[product.Id] * (perishable ? (decimal)(margin * weekday) : 8.5m);
                 var quantity = target - totals.Fresh.GetValueOrDefault(product.Id);
                 var rounded = product.Unit == Unit.Pcs ? Math.Ceiling(quantity) : Math.Round(quantity, 1);
                 if (rounded > 0) wanted.Add((product, rounded));
@@ -135,7 +142,7 @@ public static class DemoHistory
 
             // Заказы с полудня до одиннадцати вечера.
             // Гостей в разные дни разное число: в тихий день продукты остаются и потом списываются.
-            var ordersToday = (int)(OrdersPerDay * (0.6 + random.NextDouble() * 0.6));
+            var ordersToday = (int)(OrdersPerDay * weekday * (0.75 + random.NextDouble() * 0.4));
             for (var i = 0; i < ordersToday; i++)
             {
                 var at = today.AddDays(-day).AddHours(12).AddMinutes(i * 660.0 / ordersToday + random.Next(0, 15));

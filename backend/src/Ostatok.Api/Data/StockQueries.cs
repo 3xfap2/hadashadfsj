@@ -35,12 +35,36 @@ public static class StockQueries
         db.Dishes.AsNoTracking().Include(d => d.Recipe).ThenInclude(r => r.Product).ToListAsync(ct);
 
     /// <summary>
-    /// Средний расход продуктов в час по заказам за последние дни.
-    /// Делится на фактическую длину истории, но не меньше суток: по паре заказов за час
-    /// нельзя судить о дневном расходе.
+    /// Ожидаемый расход продуктов в час на ближайшие дни. Если в истории есть хотя бы один полный день,
+    /// прогноз строится по дням недели (см. <see cref="Demand"/>); иначе берётся средний расход за то, что есть.
     /// </summary>
     public static async Task<Dictionary<Guid, decimal>> LoadConsumptionPerHourAsync(
-        this AppDbContext db, DateTimeOffset now, int days, CancellationToken ct)
+        this AppDbContext db, DateTimeOffset now, Features.StockOptions options, CancellationToken ct)
+    {
+        var zone = TimeSpan.FromHours(options.UtcOffsetHours);
+        var today = DateOnly.FromDateTime(now.ToOffset(zone).Date);
+        var from = new DateTimeOffset(today.AddDays(-options.DemandHistoryDays).ToDateTime(TimeOnly.MinValue), zone).ToUniversalTime();
+        // Сутки ресторана начинаются в его полночь, поэтому перед группировкой время сдвигается на часовой пояс.
+        var daily = await db.Database
+            .SqlQuery<DailyUse>($"""
+                SELECT "ProductId", (("At" AT TIME ZONE 'UTC') + {zone})::date AS "Day", SUM("Quantity") AS "Quantity"
+                FROM "Movements"
+                WHERE "Type" = {nameof(MovementType.Order)} AND "At" >= {from}
+                GROUP BY 1, 2
+                """)
+            .ToListAsync(ct);
+        var byWeekday = Demand.PerHour(daily, today, (int)Math.Ceiling(options.PurchaseCoverHours / 24));
+        if (byWeekday.Count > 0) return byWeekday;
+
+        return await LoadAverageConsumptionAsync(db, now, options.ConsumptionDays, ct);
+    }
+
+    /// <summary>
+    /// Средний расход в час, пока полных дней истории нет. Делится на фактическую длину истории,
+    /// но не меньше суток: по паре заказов за час нельзя судить о дневном расходе.
+    /// </summary>
+    private static async Task<Dictionary<Guid, decimal>> LoadAverageConsumptionAsync(
+        AppDbContext db, DateTimeOffset now, int days, CancellationToken ct)
     {
         var since = now.AddDays(-days);
         var orders = db.Movements.Where(m => m.Type == MovementType.Order && m.At >= since);

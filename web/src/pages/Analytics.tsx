@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useApi, type AnalyticsSummary, type DeficitRow, type WriteOffReport } from '../api';
-import { dayMonthShort, money, plural, qty, weekdayLong } from '../format';
+import { useApi, type AnalyticsSummary, type DeficitRow, type StopCostReport, type WriteOffReport } from '../api';
+import { dayMonthShort, money, plural, portions, qty, weekdayLong } from '../format';
 
 const PERIODS = [7, 14, 30];
 const AXIS_STEPS = 4;
@@ -10,11 +10,12 @@ export function Analytics() {
   const report = useApi<WriteOffReport>(`/analytics/write-offs?days=${days}`, 60_000);
   const deficit = useApi<DeficitRow[]>(`/analytics/deficit?days=${days}`, 60_000);
   const summary = useApi<AnalyticsSummary>(`/analytics/summary?days=${days}`, 60_000);
+  const stopCost = useApi<StopCostReport>(`/analytics/stop-cost?days=${days}`, 60_000);
 
-  const error = report.error ?? deficit.error ?? summary.error;
+  const error = report.error ?? deficit.error ?? summary.error ?? stopCost.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить аналитику</h3><span>{error}</span></div>;
   // При смене периода старые данные остаются на экране, пока грузятся новые, — без мигания.
-  if (!report.data || !deficit.data || !summary.data) return <p className="muted">Считаем аналитику…</p>;
+  if (!report.data || !deficit.data || !summary.data || !stopCost.data) return <p className="muted">Считаем аналитику…</p>;
 
   const byDay = report.data.byDay;
   const peak = byDay.reduce((max, d) => (d.value > max.value ? d : max), byDay[0]);
@@ -52,7 +53,7 @@ export function Analytics() {
         <div className="g-kpi">
           <dt>Блюда в стопе</dt>
           <dd className="v num">{Math.round(summary.data.stopHours)} ч</dd>
-          <dd className="n">суммарно по всем блюдам</dd>
+          <dd className="n num">{stopCost.data.total > 0 ? `недополучено около ${money(stopCost.data.total)}` : 'суммарно по всем блюдам'}</dd>
         </div>
         <div className="g-kpi">
           <dt>Отказов в заказе</dt>
@@ -133,6 +134,35 @@ export function Analytics() {
           )}
         </section>
       </div>
+
+      <section className="g-panel" aria-labelledby="cost-h">
+        <div className="g-panel__head an-wrap">
+          <h2 id="cost-h">Цена стопа</h2>
+          <span className="end">сколько выручки блюдо не принесло, пока стояло в стопе в часы смены</span>
+        </div>
+        {stopCost.data.dishes.length === 0 ? (
+          <p className="g-empty"><strong>Стопов не было</strong>За выбранный период ни одно блюдо не стояло в стопе в часы смены.</p>
+        ) : (
+          <div className="g-table-wrap">
+            <table className="g-table">
+              <thead>
+                <tr><th>Блюдо</th><th className="r">В стопе</th><th className="r">Обычно продаёт</th><th className="r">Не продано</th><th className="r">Недополучено</th></tr>
+              </thead>
+              <tbody>
+                {stopCost.data.dishes.map((d) => (
+                  <tr key={d.dishId}>
+                    <td className="g-name">{d.dishName}</td>
+                    <td className="r num">{hours(d.stopHours)}</td>
+                    <td className="r num">{d.portionsPerHour > 0 ? `${d.portionsPerHour.toLocaleString('ru-RU')} в час` : 'нет продаж'}</td>
+                    <td className="r num">{d.lostPortions > 0 ? `≈ ${portions(Math.round(d.lostPortions))}` : '—'}</td>
+                    <td className="r num hd"><strong>{d.lostRevenue > 0 ? money(d.lostRevenue) : '—'}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </>
   );
 }

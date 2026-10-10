@@ -216,7 +216,7 @@ export function Supplies() {
                 <div className="sup__top"><span className="g-name num">{s.number}</span><span className="num muted small">{dueLong(s.createdAt)}</span></div>
                 {s.supplier && <span className="muted small">{s.supplier}</span>}
                 <span className="sup__items">{s.items.map((i) => `${i.productName} ${qty(i.quantity, i.unit)}`).join(' · ')}</span>
-                <div className="sup__bottom"><strong className="num hd">{money(s.total)}</strong><span className="muted small">Принята</span></div>
+                <div className="sup__bottom"><strong className="num hd">{money(s.total)}</strong><span className="muted small">Принята · <Link to={`/app/labels?supply=${encodeURIComponent(s.number)}`}>этикетки</Link></span></div>
               </li>
             ))}
           </ul>

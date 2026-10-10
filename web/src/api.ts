@@ -25,6 +25,7 @@ export interface HotOffer {
   valueAtRisk: number;
   ingredients: HotIngredient[];
   reason: string;
+  discount: { percent: number; price: number; floorPrice: number; reason: string } | null;
 }
 
 export interface StopListRow {
@@ -78,6 +79,12 @@ export interface DeficitRow {
   missingQuantity: number;
   stopHours: number;
   dishes: string[];
+}
+
+export interface StopCostReport {
+  days: number;
+  total: number;
+  dishes: { dishId: string; dishName: string; stopHours: number; portionsPerHour: number; lostPortions: number; lostRevenue: number }[];
 }
 
 export interface AnalyticsSummary {

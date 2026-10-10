@@ -45,8 +45,8 @@ internal sealed class Kitchen
         Batches.Where(b => b.ExpiresAt > Now).GroupBy(b => b.ProductId).ToDictionary(g => g.Key, g => g.Sum(b => b.Remaining)),
         Batches.Where(b => b.ExpiresAt <= Now).Select(b => b.ProductId).ToHashSet());
 
-    public IReadOnlyList<HotOffer> HotOffers(double horizonHours = 48) =>
-        Ostatok.Api.Domain.HotOffers.Rank(Dishes, Batches, Totals, Now, horizonHours);
+    public IReadOnlyList<HotOffer> HotOffers(double horizonHours = 48, Dictionary<Guid, decimal>? perHour = null) =>
+        Ostatok.Api.Domain.HotOffers.Rank(Dishes, Batches, Totals, Now, horizonHours, perHour);
 }
 
 public class HotOffersTests
@@ -170,6 +170,72 @@ public class ForecastTests
         k.Stock(p, 1, 5).Stock(p, 1, 30);
 
         Assert.Equal(Now.AddHours(30), Forecast.RunOutAt(k.Batches, perHour: 0, threshold: 0.2m, Now));
+    }
+
+    [Fact]
+    public void Прогноз_расхода_берёт_такие_же_дни_недели()
+    {
+        var product = Guid.NewGuid();
+        var today = new DateOnly(2026, 10, 9);   // пятница
+        // Две недели: по будням уходит 2 кг, в пятницу и субботу — 6 кг, в воскресенье продаж не было.
+        var history = Enumerable.Range(1, 14)
+            .Select(i => today.AddDays(-i))
+            .Where(d => d.DayOfWeek != DayOfWeek.Sunday)
+            .Select(d => new DailyUse(product, d, d.DayOfWeek is DayOfWeek.Friday or DayOfWeek.Saturday ? 6 : 2))
+            .ToList();
+
+        // Пятница + суббота + воскресенье: 6 + 6 + 0 кг за 72 часа.
+        Assert.Equal(12m / 72, Demand.PerHour(history, today, 3)[product]);
+        // Понедельник + вторник + среда: по 2 кг.
+        Assert.Equal(6m / 72, Demand.PerHour(history, today.AddDays(3), 3)[product]);
+        // Сегодняшние продажи в прогноз не входят: день ещё не закончился.
+        Assert.Empty(Demand.PerHour([new DailyUse(product, today, 5)], today, 3));
+    }
+
+    [Fact]
+    public void Цена_стопа_считает_только_часы_смены()
+    {
+        var zone = TimeSpan.FromHours(3);
+        var (start, end) = (StopCost.ParseTime("12:00"), StopCost.ParseTime("24:00"));
+        var now = new DateTimeOffset(2026, 10, 9, 12, 0, 0, zone);
+        var since = now.AddDays(-2);
+        var dish = new Dish { Id = Guid.NewGuid(), Name = "Стейк", Price = 1000 };
+        // Стоп с 20:00 позавчера до 14:00 вчера: 4 часа вечером и 2 часа после открытия, ночь не считается.
+        var stop = (new DateTimeOffset(2026, 10, 7, 20, 0, 0, zone), new DateTimeOffset(2026, 10, 8, 14, 0, 0, zone));
+
+        var row = StopCost.Of(dish, [stop], soldPortions: 36, since, now, start, end, zone);
+
+        Assert.Equal(6, row.StopHours);
+        // За два дня смена длилась 24 часа, 18 из них блюдо продавалось: 36 порций ÷ 18 ч = 2 в час.
+        Assert.Equal(2, row.PortionsPerHour);
+        Assert.Equal(12, row.LostPortions);
+        Assert.Equal(12_000, row.LostRevenue);
+    }
+
+    [Fact]
+    public void Скидка_не_опускает_цену_ниже_стоимости_неистекающих_продуктов()
+    {
+        var kitchen = new Kitchen();
+        var salmon = kitchen.Product("Лосось", cost: 1900);
+        var beef = kitchen.Product("Вырезка", cost: 2400);
+        kitchen.Stock(salmon, 2, expiresInHours: 4).Stock(beef, 5, expiresInHours: 200);
+        kitchen.Dish("Стейк из лосося", (salmon, 0.2m));
+        // В этом блюде вырезка стоит 432 ₽ при цене 500 ₽: скидка больше 13% съела бы её стоимость.
+        kitchen.Dish("Сёрф-энд-тёрф", (salmon, 0.1m), (beef, 0.18m));
+
+        var offers = kitchen.HotOffers();
+        var steak = offers.Single(o => o.DishName == "Стейк из лосося").Discount!;
+        var surf = offers.Single(o => o.DishName == "Сёрф-энд-тёрф").Discount!;
+
+        // Срочность 1 − 4/48, спроса нет: 40% × 0,92 = 36,7% → 35%.
+        Assert.Equal(35, steak.Percent);
+        Assert.Equal(325, steak.Price);
+        Assert.Equal(10, surf.Percent);
+        Assert.True(surf.Price >= surf.FloorPrice);
+
+        // Если партия и так продастся до конца срока, скидка не нужна.
+        var selling = kitchen.HotOffers(perHour: new() { [salmon.Id] = 1 });
+        Assert.All(selling, o => Assert.Null(o.Discount));
     }
 
     [Fact]

@@ -80,7 +80,7 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
                 products,
                 await db.LoadDishesAsync(ct),
                 (await db.LoadFreshBatchesAsync(now, ct)).ToLookup(b => b.ProductId),
-                await db.LoadConsumptionPerHourAsync(now, options.ConsumptionDays, ct),
+                await db.LoadConsumptionPerHourAsync(now, options, ct),
                 now, options.PurchaseCoverHours)
             .Where(s => (s.HoursCovered ?? 0) < 12)
             .Take(4)

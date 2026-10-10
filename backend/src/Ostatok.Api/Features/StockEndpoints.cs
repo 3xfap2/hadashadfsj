@@ -39,8 +39,10 @@ public sealed class StockOptions
     public bool TrackStops { get; set; } = true;
     /// <summary>Сколько часов просрочка ждёт ручного списания, прежде чем спишется сама.</summary>
     public double AutoWriteOffAfterHours { get; set; } = 12;
-    /// <summary>За сколько дней считается средний расход продуктов.</summary>
+    /// <summary>За сколько дней считается средний расход, пока нет полных дней истории.</summary>
     public int ConsumptionDays { get; set; } = 7;
+    /// <summary>Сколько дней истории берётся для прогноза расхода по дням недели.</summary>
+    public int DemandHistoryDays { get; set; } = 28;
     /// <summary>На сколько часов вперёд должно хватать запаса; на этот же срок строится прогноз стопа.</summary>
     public double PurchaseCoverHours { get; set; } = 72;
     /// <summary>Часовой пояс ресторана для отчётов по дням.</summary>
@@ -107,7 +109,7 @@ public static class StockEndpoints
             var now = time.GetUtcNow();
             var totals = await db.LoadTotalsAsync(now, ct);
             var batches = (await db.LoadFreshBatchesAsync(now, ct)).ToLookup(b => b.ProductId);
-            var perHour = await db.LoadConsumptionPerHourAsync(now, options.ConsumptionDays, ct);
+            var perHour = await db.LoadConsumptionPerHourAsync(now, options, ct);
             return (await db.LoadDishesAsync(ct))
                 .Select(d =>
                 {
