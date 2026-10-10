@@ -30,12 +30,21 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
 builder.Services.AddSingleton<IConfigureOptions<JwtBearerOptions>>(sp =>
     new ConfigureNamedOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+    {
+        var time = sp.GetRequiredService<TimeProvider>();
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidIssuer = AuthOptions.Issuer,
             ValidAudience = AuthOptions.Issuer,
             IssuerSigningKey = sp.GetRequiredService<AuthOptions>().SigningKey,
-        }));
+            // Срок токена проверяется по тем же часам, по которым он выдан.
+            LifetimeValidator = (notBefore, expires, _, _) =>
+            {
+                var now = time.GetUtcNow().UtcDateTime;
+                return notBefore <= now && now < expires;
+            },
+        };
+    }));
 builder.Services.AddAuthorization();
 
 // Общий предел запросов на вход с одного адреса; подбор пароля к логину отсекает LoginAttempts.

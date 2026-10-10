@@ -11,10 +11,11 @@ public sealed record SupplyItemRequest(Guid ProductId, decimal Quantity, int? Sh
 
 /// <param name="Id">Идентификатор поставки во внешней системе; повторная отправка с тем же Id не создаст дубль.</param>
 /// <param name="CreatedAt">Дата создания поставки; по умолчанию — текущее время.</param>
-public sealed record SupplyRequest(Guid? Id, string? Number, DateTimeOffset? CreatedAt, List<SupplyItemRequest>? Items);
+public sealed record SupplyRequest(Guid? Id, string? Number, DateTimeOffset? CreatedAt, List<SupplyItemRequest>? Items, string? Supplier = null);
 
 public sealed record SupplyBatchResponse(Guid BatchId, Guid ProductId, string ProductName, Unit Unit, decimal Quantity, decimal Remaining, DateTimeOffset ExpiresAt);
-public sealed record SupplyResponse(Guid Id, string Number, DateTimeOffset CreatedAt, IEnumerable<SupplyBatchResponse> Items);
+/// <param name="Total">Стоимость поставки по закупочным ценам из справочника.</param>
+public sealed record SupplyResponse(Guid Id, string Number, string? Supplier, DateTimeOffset CreatedAt, decimal Total, IEnumerable<SupplyBatchResponse> Items);
 
 public static class SupplyEndpoints
 {
@@ -43,12 +44,24 @@ public static class SupplyEndpoints
             if (buffer.Length > MaxImportBytes)
                 return Results.Problem("Файл больше 1 МБ.", statusCode: StatusCodes.Status413PayloadTooLarge);
 
-            var rows = SupplyImport.Parse(Decode(buffer.ToArray()), await db.Products.AsNoTracking().ToListAsync(ct));
+            var bytes = buffer.ToArray();
+            var products = await db.Products.AsNoTracking().ToListAsync(ct);
+            IReadOnlyList<ImportRow> rows;
+            try
+            {
+                // Файл Excel — это архив, он начинается с букв «PK»; всё остальное читается как CSV.
+                rows = bytes is [(byte)'P', (byte)'K', ..]
+                    ? SupplyImport.ParseRows(ReadExcel(bytes), products)
+                    : SupplyImport.Parse(Decode(bytes), products);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                return Results.Problem("Файл не удалось прочитать. Подходит Excel (.xlsx) или CSV.", statusCode: StatusCodes.Status400BadRequest);
+            }
             return rows.Count == 0
                 ? Results.Problem("В файле нет строк с продуктами. Первая строка — заголовки колонок.", statusCode: StatusCodes.Status400BadRequest)
                 : Results.Ok(rows);
         })
-        .Accepts<string>("text/csv")
         .Produces<IReadOnlyList<ImportRow>>()
         .RequireRoles(Access.Stock);
 
@@ -60,6 +73,7 @@ public static class SupplyEndpoints
 
             var errors = new Errors()
                 .Check(!string.IsNullOrWhiteSpace(req.Number) && req.Number.Length <= 40, "number", "Укажите номер поставки до 40 символов.")
+                .Check((req.Supplier?.Length ?? 0) <= 120, "supplier", "Название поставщика — до 120 символов.")
                 .Check(createdAt <= now, "createdAt", "Дата поставки не может быть в будущем.")
                 .Check(items.Count > 0, "items", "В поставке должен быть хотя бы один продукт.")
                 .Check(items.All(i => i.Quantity > 0), "items", "Количество каждого продукта должно быть больше нуля.")
@@ -70,7 +84,13 @@ public static class SupplyEndpoints
             errors.Check(products.Count == ids.Length, "items", "В поставке есть неизвестный продукт.");
             if (errors.Any) return errors.ToResult();
 
-            var supply = new Supply { Id = req.Id ?? Guid.NewGuid(), Number = req.Number!.Trim(), CreatedAt = createdAt };
+            var supply = new Supply
+            {
+                Id = req.Id ?? Guid.NewGuid(),
+                Number = req.Number!.Trim(),
+                Supplier = string.IsNullOrWhiteSpace(req.Supplier) ? null : req.Supplier.Trim(),
+                CreatedAt = createdAt,
+            };
             foreach (var item in items)
             {
                 var product = products[item.ProductId];
@@ -108,6 +128,19 @@ public static class SupplyEndpoints
         }).RequireRoles(Access.Stock);
     }
 
+    /// <summary>Первый лист книги Excel: каждая строка — массив значений ячеек.</summary>
+    private static List<string[]> ReadExcel(byte[] bytes)
+    {
+        using var workbook = new ClosedXML.Excel.XLWorkbook(new MemoryStream(bytes));
+        var sheet = workbook.Worksheets.First();
+        var lastColumn = sheet.LastColumnUsed()?.ColumnNumber() ?? 0;
+        return sheet.RowsUsed()
+            .Select(row => Enumerable.Range(1, lastColumn)
+                .Select(c => row.Cell(c).Value.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                .ToArray())
+            .ToList();
+    }
+
     /// <summary>Читает файл как UTF-8, а если это не UTF-8 — как Windows-1251: так CSV сохраняет русский Excel.</summary>
     private static string Decode(byte[] bytes)
     {
@@ -123,6 +156,6 @@ public static class SupplyEndpoints
     }
 
     private static SupplyResponse ToResponse(Supply s) => new(
-        s.Id, s.Number, s.CreatedAt,
+        s.Id, s.Number, s.Supplier, s.CreatedAt, s.Batches.Sum(b => b.Quantity * b.Product!.Cost),
         s.Batches.Select(b => new SupplyBatchResponse(b.Id, b.ProductId, b.Product!.Name, b.Product.Unit, b.Quantity, b.Remaining, b.ExpiresAt)));
 }

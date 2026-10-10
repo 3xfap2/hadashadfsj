@@ -45,7 +45,7 @@ export function Today() {
         <h1>Сегодня</h1>
         <span className="sub">{today()}</span>
         <div className="end">
-          {canStock && <Link className={`g-btn${canOrder ? ' title-secondary' : ''}`} to="/app/stock">Принять поставку</Link>}
+          {canStock && <Link className={`g-btn${canOrder ? ' title-secondary' : ''}`} to="/app/stock/supplies">Принять поставку</Link>}
           {canOrder && <Link className="g-btn g-btn--primary" to="/app/orders"><PlusIcon />Новый заказ</Link>}
         </div>
       </div>

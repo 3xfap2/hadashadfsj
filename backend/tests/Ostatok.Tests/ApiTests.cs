@@ -426,4 +426,41 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.Forbidden, order.StatusCode);
         Assert.Equal(["today", "stock", "purchasing"], me.Sections);
     }
+
+    [Fact]
+    public async Task Поставка_хранит_поставщика_и_сумму_а_партия_дату_приёмки()
+    {
+        var product = await Product();
+        var response = await Api.PostAsJsonAsync("/api/supplies",
+            new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 2.5m, null)], "Северная рыба"));
+
+        var supply = await Read<SupplyResponse>(response);
+
+        Assert.Equal(("Северная рыба", 2500m), (supply.Supplier, supply.Total));
+        Assert.Equal(fx.Time.GetUtcNow(), (await Batches(product)).Single().ReceivedAt);
+    }
+
+    [Fact]
+    public async Task Файл_Excel_разбирается_так_же_как_CSV()
+    {
+        var product = await Product();
+        using var workbook = new ClosedXML.Excel.XLWorkbook();
+        var sheet = workbook.AddWorksheet("Поставка");
+        string[] header = ["продукт", "количество", "единица", "срок хранения", "цена"];
+        for (var c = 0; c < header.Length; c++) sheet.Cell(1, c + 1).Value = header[c];
+        sheet.Cell(2, 1).Value = product.Name;
+        sheet.Cell(2, 2).Value = 2.5;
+        sheet.Cell(2, 3).Value = "кг";
+        sheet.Cell(2, 4).Value = "3 дня";
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+
+        // Браузер отправляет файл как «application/octet-stream» — сервер определяет формат по содержимому.
+        var file = new ByteArrayContent(stream.ToArray());
+        file.Headers.ContentType = new("application/octet-stream");
+        var response = await Api.PostAsync("/api/supplies/import/preview", file);
+
+        var row = Assert.Single(await Read<List<ImportRow>>(response));
+        Assert.Equal((ImportRowStatus.Ok, 2.5m, 72), (row.Status, row.Quantity!.Value, row.ShelfLifeHours!.Value));
+    }
 }

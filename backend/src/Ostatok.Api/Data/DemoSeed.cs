@@ -52,9 +52,9 @@ public static class DemoSeed
             D("Тартар из говядины", 890, "tartare", (beef, 0.13m), (egg, 1), (parmesan, 0.01m)));
 
         // Поставки заданы через «сколько часов осталось до конца срока»: отрицательное значение — уже просрочено.
-        Supply S(string number, params (Product Product, decimal Quantity, double HoursLeft)[] items)
+        Supply S(string number, string supplier, params (Product Product, decimal Quantity, double HoursLeft)[] items)
         {
-            var supply = new Supply { Id = Guid.NewGuid(), Number = number, CreatedAt = now };
+            var supply = new Supply { Id = Guid.NewGuid(), Number = number, Supplier = supplier, CreatedAt = now };
             foreach (var (product, quantity, hoursLeft) in items)
             {
                 var expiresAt = now.AddHours(hoursLeft);
@@ -67,10 +67,10 @@ public static class DemoSeed
 
         var supplies = new[]
         {
-            S("П-0409", (cream, 0.9m, -3), (mozzarella, 1.1m, -1.5), (parmesan, 1.4m, 500), (pasta, 5, 3000), (potato, 18, 400), (egg, 60, 300)),
-            S("П-0410", (salmon, 0.7m, 5), (shrimp, 1.2m, 7), (tomYum, 2.4m, 6), (romaine, 0.9m, 9), (dough, 1.4m, 10), (chicken, 1.8m, 20)),
-            S("П-0411", (caesar, 0.6m, 30), (shrimp, 2, 40), (romaine, 1.5m, 50), (beef, 2.6m, 52)),
-            S("П-0412", (chicken, 3, 60), (tomato, 5.2m, 70), (cream, 4, 90)),
+            S("П-0409", "Молочный двор", (cream, 0.9m, -3), (mozzarella, 1.1m, -1.5), (parmesan, 1.4m, 500), (pasta, 5, 3000), (potato, 18, 400), (egg, 60, 300)),
+            S("П-0410", "«Северная рыба»", (salmon, 0.7m, 5), (shrimp, 1.2m, 7), (tomYum, 2.4m, 6), (romaine, 0.9m, 9), (dough, 1.4m, 10), (chicken, 1.8m, 20)),
+            S("П-0411", "«Северная рыба»", (caesar, 0.6m, 30), (shrimp, 2, 40), (romaine, 1.5m, 50), (beef, 2.6m, 52)),
+            S("П-0412", "Овощная база №3", (chicken, 3, 60), (tomato, 5.2m, 70), (cream, 4, 90)),
         };
         db.Supplies.AddRange(supplies);
         db.Movements.AddRange(supplies.SelectMany(s => s.Batches.Select(b => new Movement

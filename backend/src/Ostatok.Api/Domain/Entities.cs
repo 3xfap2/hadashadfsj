@@ -17,6 +17,7 @@ public class Supply
 {
     public Guid Id { get; set; }
     public required string Number { get; set; }
+    public string? Supplier { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public List<Batch> Batches { get; set; } = [];
 }

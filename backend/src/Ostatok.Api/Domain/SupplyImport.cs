@@ -23,15 +23,19 @@ public static partial class SupplyImport
     public static IReadOnlyList<ImportRow> Parse(string text, IReadOnlyCollection<Product> products)
     {
         var lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
-        var rows = new List<ImportRow>();
-        if (lines.Count == 0) return rows;
-
         // Русский Excel сохраняет CSV через точку с запятой, остальные программы — через запятую.
         var separator = lines[0].Contains(';') ? ';' : ',';
-        for (var i = 1; i < lines.Count; i++)
+        return ParseRows(lines.Select(l => l.Split(separator)).ToList(), products);
+    }
+
+    /// <summary>Разбор уже разделённой на ячейки таблицы; первая строка — заголовки колонок.</summary>
+    public static IReadOnlyList<ImportRow> ParseRows(IReadOnlyList<string[]> table, IReadOnlyCollection<Product> products)
+    {
+        var rows = new List<ImportRow>();
+        for (var i = 1; i < table.Count; i++)
         {
-            if (string.IsNullOrWhiteSpace(lines[i])) continue;
-            var cells = lines[i].Split(separator).Select(c => c.Trim().Trim('"')).ToArray();
+            var cells = table[i].Select(c => c.Trim().Trim('"')).ToArray();
+            if (cells.All(c => c == "")) continue;
             rows.Add(ParseRow(i + 1, cells, products));
         }
         return rows;

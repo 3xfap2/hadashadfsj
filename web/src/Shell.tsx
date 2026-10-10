@@ -4,6 +4,9 @@ import { logout, useApi, type Me, type StopListRow } from './api';
 import { clock } from './format';
 import { AccessContext, useCan } from './ui';
 import { Orders } from './pages/Orders';
+import { Stock } from './pages/Stock';
+import { Supplies } from './pages/Supplies';
+import { SupplyImport } from './pages/SupplyImport';
 import { Today } from './pages/Today';
 
 const SECTIONS = [
@@ -85,6 +88,9 @@ export function Shell() {
         <Routes>
           <Route index element={<Today />} />
           <Route path="orders" element={<Guard section="orders"><Orders /></Guard>} />
+          <Route path="stock" element={<Guard section="stock"><Stock /></Guard>} />
+          <Route path="stock/supplies" element={<Guard section="stock"><Supplies /></Guard>} />
+          <Route path="stock/import" element={<Guard section="stock"><SupplyImport /></Guard>} />
           <Route path="more" element={<More sections={extra} />} />
           <Route path="*" element={<p className="g-empty"><strong>Раздел в работе</strong>Скоро появится.</p>} />
         </Routes>

@@ -105,12 +105,15 @@ public static class AuthEndpoints
             }
 
             attempts.Reset(req.Login);
-            var expiresAt = time.GetUtcNow().AddHours(options.TokenHours);
+            var now = time.GetUtcNow();
+            var expiresAt = now.AddHours(options.TokenHours);
             var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
             {
                 Issuer = AuthOptions.Issuer,
                 Audience = AuthOptions.Issuer,
                 Subject = new ClaimsIdentity([new Claim(ClaimTypes.Name, user.Login), new Claim(ClaimTypes.Role, user.Role.ToString())]),
+                IssuedAt = now.UtcDateTime,
+                NotBefore = now.UtcDateTime,
                 Expires = expiresAt.UtcDateTime,
                 SigningCredentials = new SigningCredentials(options.SigningKey, SecurityAlgorithms.HmacSha256),
             });

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
-import { login } from '../api';
+import { Link, useLocation } from 'react-router-dom';
+import { login, type LoginError } from '../api';
 
 // Открытая учётная запись демо-ресторана: по ней жюри и гости смотрят систему без регистрации.
 const DEMO = { login: 'demo', password: 'demo2026' };
@@ -11,12 +11,13 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [tried, setTried] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // С лендинга сюда приводит неудачный вход в демо — причина приходит вместе с переходом.
+  const [error, setError] = useState<LoginError | null>((useLocation().state as { error?: LoginError } | null)?.error ?? null);
   const [busy, setBusy] = useState(false);
 
   const enter = async (l: string, p: string) => {
     setBusy(true);
-    setError(await login(l, p).catch(() => 'Сервер не отвечает. Попробуйте ещё раз.'));
+    setError(await login(l, p));
     setBusy(false);
   };
 
@@ -47,8 +48,8 @@ export function Login() {
 
           {error && (
             <div className="g-note g-note--err" role="alert">
-              <h3>Неверный логин или пароль</h3>
-              <span>{error}</span>
+              <h3>{error.title}</h3>
+              <span>{error.text}</span>
             </div>
           )}
 

@@ -31,6 +31,8 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("ConnectionStrings:Db", _postgres.GetConnectionString());
         builder.UseSetting("Auth:Key", "integration-tests-signing-key-0123456789");
         builder.UseSetting("Seed:Demo", "false");
+        // Сценарии переводят часы вперёд на сутки и больше — токен не должен истечь посреди теста.
+        builder.UseSetting("Auth:TokenHours", "720");
         // Автосписание в тестах вызывается явно, фоновый запуск мешал бы сценариям с переводом часов.
         builder.UseSetting("Stock:AutoWriteOff", "false");
         builder.ConfigureServices(services =>

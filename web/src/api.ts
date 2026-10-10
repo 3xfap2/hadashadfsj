@@ -34,6 +34,7 @@ export interface StopListRow {
   price: number;
   status: DishStatus;
   portions: number;
+  limitingProductId: string;
   limitingProductName: string;
   reason: StopReason | null;
   stopForecastAt: string | null;
@@ -41,14 +42,55 @@ export interface StopListRow {
 
 export interface BatchRow {
   id: string;
+  productId: string;
   productName: string;
   unit: Unit;
   supplyNumber: string;
+  quantity: number;
   remaining: number;
   value: number;
+  receivedAt: string;
   expiresAt: string;
   hoursLeft: number;
   status: BatchStatus;
+}
+
+export interface StockRow {
+  productId: string;
+  productName: string;
+  unit: Unit;
+  fresh: number;
+  expired: number;
+  freshValue: number;
+}
+
+export interface ProductRow {
+  id: string;
+  name: string;
+  unit: Unit;
+  shelfLifeHours: number;
+  cost: number;
+}
+
+export interface SupplyRow {
+  id: string;
+  number: string;
+  supplier: string | null;
+  createdAt: string;
+  total: number;
+  items: { productName: string; unit: Unit; quantity: number }[];
+}
+
+export interface ImportRow {
+  line: number;
+  productText: string;
+  productId: string | null;
+  quantity: number | null;
+  unit: Unit | null;
+  shelfLifeHours: number | null;
+  price: number | null;
+  status: 'Ok' | 'Warning' | 'Error';
+  message: string;
 }
 
 export interface Shortage {
@@ -117,25 +159,35 @@ export function onAuthChange(listener: () => void) {
 
 export const logout = () => setSession(null, null);
 
-/** Возвращает текст ошибки или null, если вход выполнен. */
-export async function login(name: string, password: string): Promise<string | null> {
+export interface LoginError {
+  title: string;
+  text: string;
+}
+
+const NO_SERVER: LoginError = { title: 'Сервер не отвечает', text: 'Войти сейчас нельзя. Попробуйте ещё раз через минуту.' };
+
+/** Возвращает ошибку или null, если вход выполнен. */
+export async function login(name: string, password: string): Promise<LoginError | null> {
   const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ login: name, password }),
-  });
+  }).catch(() => null);
+  if (!response) return NO_SERVER;
   if (response.status === 401 || response.status === 429) {
     const problem = await response.json().catch(() => ({}));
     if (typeof problem.attemptsLeft === 'number') {
       const left = pluralRules.select(problem.attemptsLeft) === 'one' ? 'Осталась' : 'Осталось';
       const word = { one: 'попытка', few: 'попытки' }[pluralRules.select(problem.attemptsLeft) as 'one' | 'few'] ?? 'попыток';
-      return `Проверьте раскладку и Caps Lock. ${left} ${problem.attemptsLeft} ${word}.`;
+      return { title: 'Неверный логин или пароль', text: `Проверьте раскладку и Caps Lock. ${left} ${problem.attemptsLeft} ${word}.` };
     }
     if (typeof problem.retryAfterMinutes === 'number')
-      return `Слишком много неверных попыток. Вход откроется через ${problem.retryAfterMinutes} мин.`;
-    return response.status === 401 ? 'Проверьте раскладку и Caps Lock.' : 'Слишком много попыток. Подождите минуту и попробуйте снова.';
+      return { title: 'Вход временно закрыт', text: `Слишком много неверных попыток. Вход откроется через ${problem.retryAfterMinutes} мин.` };
+    return response.status === 401
+      ? { title: 'Неверный логин или пароль', text: 'Проверьте раскладку и Caps Lock.' }
+      : { title: 'Слишком много попыток', text: 'Подождите минуту и попробуйте снова.' };
   }
-  if (!response.ok) return 'Сервер не отвечает. Попробуйте ещё раз.';
+  if (!response.ok) return NO_SERVER;
   setSession((await response.json()).token, name);
   return null;
 }
@@ -165,6 +217,11 @@ export function post(path: string, body?: unknown): Promise<Response> {
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+/** Отправляет файл как есть: сервер сам определяет, Excel это или CSV. */
+export function postFile(path: string, file: File): Promise<Response> {
+  return request(path, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
 }
 
 /** Загружает данные и обновляет их раз в refreshMs, пока экран открыт. */

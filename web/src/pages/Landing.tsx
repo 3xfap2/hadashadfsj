@@ -16,10 +16,11 @@ export function Landing() {
 
   const openDemo = async () => {
     setOpening(true);
-    const error = await login(DEMO.login, DEMO.password).catch(() => 'нет связи');
+    const error = await login(DEMO.login, DEMO.password);
     setOpening(false);
-    // Если демо-вход не удался, на экране входа будет видно, что именно не так.
-    navigate(error ? '/login' : '/app');
+    // Если демо-вход не удался, экран входа покажет, что именно не так.
+    if (error) navigate('/login', { state: { error } });
+    else navigate('/app');
   };
 
   return (

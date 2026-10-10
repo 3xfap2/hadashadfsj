@@ -31,6 +31,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         model.Entity<Supply>(e =>
         {
             e.Property(s => s.Number).HasMaxLength(40);
+            e.Property(s => s.Supplier).HasMaxLength(120);
             e.HasIndex(s => s.Number).IsUnique();
         });
 
