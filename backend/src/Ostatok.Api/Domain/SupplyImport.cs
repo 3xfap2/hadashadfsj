@@ -53,7 +53,8 @@ public static partial class SupplyImport
         var product = products.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
         if (product is null)
         {
-            var closest = products.MinBy(p => Distance(p.Name.ToLowerInvariant(), name.ToLowerInvariant()));
+            // Подсказку «может быть, …» ищем только для названий обычной длины: сравнение растёт с длиной строки.
+            var closest = name.Length > 120 ? null : products.MinBy(p => Distance(p.Name.ToLowerInvariant(), name.ToLowerInvariant()));
             var similar = closest is not null && Distance(closest.Name.ToLowerInvariant(), name.ToLowerInvariant()) <= Math.Max(2, name.Length / 3);
             return Fail("Такого продукта нет в справочнике." + (similar ? $" Может быть, «{closest!.Name}»?" : ""));
         }
@@ -91,6 +92,8 @@ public static partial class SupplyImport
         "шт" or "штук" or "pcs" => Unit.Pcs,
         _ => null,
     };
+
+    public const int MaxRows = 5000;
 
     private static string UnitName(Unit unit) => unit switch { Unit.Kg => "кг", Unit.L => "л", _ => "шт" };
 

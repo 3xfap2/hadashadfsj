@@ -26,7 +26,7 @@ public static class CatalogEndpoints
         products.MapPost("", async (ProductRequest req, AppDbContext db, CancellationToken ct) =>
         {
             if (await ValidateAsync(req, null, db, ct) is { Any: true } errors) return errors.ToResult();
-            if (await db.Products.AnyAsync(p => p.Name == req.Name, ct)) return NameTaken("Продукт");
+            if (await db.Products.AnyAsync(p => p.Name == req.Name!.Trim(), ct)) return NameTaken("Продукт");
 
             var product = new Product { Name = req.Name!.Trim(), Unit = req.Unit, ShelfLifeHours = req.ShelfLifeHours, Cost = req.Cost };
             await SetPrepRecipeAsync(product, req, db, ct);
@@ -40,7 +40,7 @@ public static class CatalogEndpoints
             if (await ValidateAsync(req, id, db, ct) is { Any: true } errors) return errors.ToResult();
             var product = await db.Products.Include(p => p.PrepRecipe).FirstOrDefaultAsync(p => p.Id == id, ct);
             if (product is null) return Results.NotFound();
-            if (await db.Products.AnyAsync(p => p.Name == req.Name && p.Id != id, ct)) return NameTaken("Продукт");
+            if (await db.Products.AnyAsync(p => p.Name == req.Name!.Trim() && p.Id != id, ct)) return NameTaken("Продукт");
 
             (product.Name, product.Unit, product.ShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit, req.ShelfLifeHours, req.Cost);
             await SetPrepRecipeAsync(product, req, db, ct);
@@ -123,6 +123,8 @@ public static class CatalogEndpoints
             await request.Body.CopyToAsync(buffer, ct);
             if (buffer.Length is 0 or > MaxPhotoBytes)
                 return Results.Problem("Фото пустое или больше 10 МБ.", statusCode: StatusCodes.Status413PayloadTooLarge);
+            if (!LooksLikeImage(buffer.GetBuffer().AsSpan(0, (int)Math.Min(buffer.Length, 12)), contentType))
+                return Results.Problem("Файл не похож на фото в формате JPG, PNG или WebP.", statusCode: StatusCodes.Status415UnsupportedMediaType);
 
             var photo = await db.DishPhotos.FindAsync([id], ct);
             if (photo is null) db.DishPhotos.Add(new DishPhoto { DishId = id, ContentType = contentType, Data = buffer.ToArray() });
@@ -136,10 +138,19 @@ public static class CatalogEndpoints
 
     private const int MaxPhotoBytes = 10_000_000;
 
+    /// <summary>Сверяет первые байты файла с заявленным типом: заголовку запроса верить нельзя.</summary>
+    private static bool LooksLikeImage(ReadOnlySpan<byte> head, string contentType) => contentType switch
+    {
+        "image/jpeg" => head.StartsWith<byte>([0xFF, 0xD8, 0xFF]),
+        "image/png" => head.StartsWith<byte>([0x89, 0x50, 0x4E, 0x47]),
+        "image/webp" => head.Length >= 12 && head[..4].SequenceEqual("RIFF"u8) && head[8..12].SequenceEqual("WEBP"u8),
+        _ => false,
+    };
+
     private static async Task<IResult> SetStopped(Guid id, bool stopped, AppDbContext db, EventBus bus, CancellationToken ct)
     {
         var updated = await db.Dishes.Where(d => d.Id == id).ExecuteUpdateAsync(s => s.SetProperty(d => d.ManuallyStopped, stopped), ct);
-        if (updated > 0) bus.Publish();
+        if (updated > 0) bus.Publish(db.TenantId);
         return updated == 0 ? Results.NotFound() : Results.NoContent();
     }
 
@@ -159,7 +170,7 @@ public static class CatalogEndpoints
 
         var ids = recipe.Select(r => r.ProductId).ToArray();
         errors
-            .Check(recipe.All(r => r.Quantity is > 0 and <= 1000), "prepRecipe", "Количество каждого продукта — больше нуля и не больше 1000.")
+            .Check(recipe.All(r => r.Quantity is >= Validation.MinQuantity and <= 1000), "prepRecipe", "Количество каждого продукта — от 0,001 до 1000.")
             .Check(ids.Distinct().Count() == ids.Length, "prepRecipe", "Продукт указан в составе дважды.")
             .Check(id is null || !ids.Contains(id.Value), "prepRecipe", "Заготовка не может входить в собственный состав.");
         var known = await db.Products.Where(p => ids.Contains(p.Id)).Select(p => new { IsPrep = p.PrepRecipe.Any() }).ToListAsync(ct);
@@ -188,14 +199,15 @@ public static class CatalogEndpoints
         var errors = new Errors()
             .Check(!string.IsNullOrWhiteSpace(req.Name) && req.Name.Length <= 120, "name", "Укажите название до 120 символов.")
             .Check(req.Price is >= 0 and <= 10_000_000, "price", "Цена — от 0 до 10 000 000 ₽.")
-            .Check(req.PhotoUrl is null or { Length: <= 300 }, "photoUrl", "Ссылка на фото — до 300 символов.")
+            // Фото — только с этого же сайта: внешний адрес стал бы маячком на экранах всех сотрудников.
+            .Check(req.PhotoUrl is null || (req.PhotoUrl.Length <= 300 && req.PhotoUrl.StartsWith('/') && !req.PhotoUrl.StartsWith("//")), "photoUrl", "Фото загружается файлом; внешние ссылки не принимаются.")
             .Check((req.Category?.Length ?? 0) <= 60, "category", "Раздел меню — до 60 символов.");
 
         var recipe = req.Recipe ?? [];
         if (recipe.Count == 0) return errors.Add("recipe", "В составе блюда должен быть хотя бы один продукт.");
 
         errors
-            .Check(recipe.All(r => r.Quantity is > 0 and <= 1000), "recipe", "Количество каждого продукта — больше нуля и не больше 1000.")
+            .Check(recipe.All(r => r.Quantity is >= Validation.MinQuantity and <= 1000), "recipe", "Количество каждого продукта — от 0,001 до 1000.")
             .Check(recipe.Select(r => r.ProductId).Distinct().Count() == recipe.Count, "recipe", "Продукт указан в составе дважды.");
 
         var ids = recipe.Select(r => r.ProductId).ToArray();

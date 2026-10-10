@@ -87,6 +87,9 @@ builder.Services.AddRateLimiter(options =>
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
     // Открытый чат лендинга раз в несколько секунд спрашивает, нет ли ответа, поэтому предел выше.
+    options.AddPolicy(AuthEndpoints.RegisterRateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
     options.AddPolicy(ChatEndpoints.RateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) }));
@@ -98,7 +101,9 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .AllowAnyMethod()));
 
 builder.Services.ConfigureHttpJsonOptions(options =>
-    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+    // Перечисления — только названием: число 0 иначе молча превращалось бы в первую роль или единицу.
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
+builder.Services.AddExceptionHandler<DbErrors>();
 builder.Services.AddProblemDetails();
 // Запрос, который не удалось разобрать (дробь вместо целого, оборванный JSON), — ошибка клиента (400),
 // одинаково в разработке и на сервере.

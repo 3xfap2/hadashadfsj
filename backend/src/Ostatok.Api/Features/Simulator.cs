@@ -144,7 +144,7 @@ public static class SimulatorEndpoints
             if (req.OrdersPerMinute is < 1 or > 120)
                 return new Errors().Add("ordersPerMinute", "Заказов в минуту — от 1 до 120.").ToResult();
             state.Set(tenant.Id, req, time.GetUtcNow());
-            bus.Publish();
+            bus.Publish(tenant.Id);
             return Results.Ok(req);
         });
 
@@ -161,7 +161,7 @@ public static class SimulatorEndpoints
             var now = time.GetUtcNow();
             // Количества хватает на пять порций самого «прожорливого» блюда с этим продуктом.
             var portion = await db.Dishes.SelectMany(d => d.Recipe).Where(r => r.ProductId == req.ProductId).MaxAsync(r => (decimal?)r.Quantity, ct) ?? 0.2m;
-            var number = $"Т-{await db.Supplies.CountAsync(s => s.Supplier == CheckSupplier, ct) + 1:0000}";
+            var number = $"Т-{await db.NextCheckNumberAsync(ct):0000}";
             var supply = new Supply { Id = Guid.NewGuid(), Number = number, Supplier = CheckSupplier, CreatedAt = now };
             var batch = new Batch
             {

@@ -13,19 +13,21 @@ namespace Ostatok.Api.Features;
 /// </summary>
 public sealed class EventBus
 {
-    private readonly ConcurrentDictionary<Guid, Channel<string>> _subscribers = new();
+    private readonly ConcurrentDictionary<Guid, (Guid Restaurant, Channel<string> Channel)> _subscribers = new();
 
-    public void Publish(string kind = "changed")
+    /// <summary>Сообщает кабинетам ресторана об изменении; без ресторана (фоновая задача по всем сразу) — всем.</summary>
+    public void Publish(Guid? restaurant = null)
     {
-        foreach (var channel in _subscribers.Values) channel.Writer.TryWrite(kind);
+        foreach (var (owner, channel) in _subscribers.Values)
+            if (restaurant is null || owner == restaurant) channel.Writer.TryWrite("changed");
     }
 
-    public async IAsyncEnumerable<string> Subscribe([EnumeratorCancellation] CancellationToken ct)
+    public async IAsyncEnumerable<string> Subscribe(Guid restaurant, [EnumeratorCancellation] CancellationToken ct)
     {
         var id = Guid.NewGuid();
         // Если клиент не успевает читать, старые сообщения отбрасываются: ему достаточно одного «изменилось».
         var channel = Channel.CreateBounded<string>(new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.DropOldest });
-        _subscribers[id] = channel;
+        _subscribers[id] = (restaurant, channel);
         try
         {
             await foreach (var message in channel.Reader.ReadAllAsync(ct)) yield return message;
@@ -45,17 +47,20 @@ public sealed class PublishChanges(EventBus bus) : SaveChangesInterceptor, IDbTr
 {
     public override ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData e, int result, CancellationToken ct = default)
     {
-        if (result > 0 && e.Context?.Database.CurrentTransaction is null) bus.Publish();
+        if (result > 0 && e.Context?.Database.CurrentTransaction is null) bus.Publish(Owner(e.Context));
         return ValueTask.FromResult(result);
     }
 
     public Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData e, CancellationToken ct = default)
     {
-        bus.Publish();
+        bus.Publish(Owner(e.Context));
         return Task.CompletedTask;
     }
 
-    public void TransactionCommitted(DbTransaction transaction, TransactionEndEventData e) => bus.Publish();
+    public void TransactionCommitted(DbTransaction transaction, TransactionEndEventData e) => bus.Publish(Owner(e.Context));
+
+    private static Guid? Owner(DbContext? context) =>
+        context is Data.AppDbContext { TenantId: var id } && id != Guid.Empty ? id : null;
 }
 
 public static class RealtimeEndpoints
@@ -65,7 +70,7 @@ public static class RealtimeEndpoints
     public static void MapRealtime(this IEndpointRouteBuilder app)
     {
         // Поток событий (SSE). Браузер держит соединение открытым и сам переподключается при обрыве.
-        app.MapGet(Path, async (HttpContext http, EventBus bus, CancellationToken ct) =>
+        app.MapGet(Path, async (HttpContext http, EventBus bus, Data.Tenant tenant, CancellationToken ct) =>
         {
             http.Response.Headers.ContentType = "text/event-stream";
             http.Response.Headers.CacheControl = "no-cache";
@@ -75,7 +80,7 @@ public static class RealtimeEndpoints
 
             try
             {
-                await using var events = bus.Subscribe(ct).GetAsyncEnumerator(ct);
+                await using var events = bus.Subscribe(tenant.Id, ct).GetAsyncEnumerator(ct);
                 var next = events.MoveNextAsync().AsTask();
                 while (!ct.IsCancellationRequested)
                 {

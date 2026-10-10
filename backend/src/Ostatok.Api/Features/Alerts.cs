@@ -65,7 +65,7 @@ public static class AlertEndpoints
         {
             var now = time.GetUtcNow();
             await db.Alerts.Where(a => a.ReadAt == null).ExecuteUpdateAsync(s => s.SetProperty(a => a.ReadAt, now), ct);
-            bus.Publish();
+            bus.Publish(db.TenantId);
             return Results.NoContent();
         });
     }

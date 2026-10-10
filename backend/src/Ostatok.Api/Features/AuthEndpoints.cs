@@ -21,6 +21,12 @@ public sealed class AuthOptions
     public List<DemoUser> Users { get; set; } = [];
     public string DemoPassword { get; set; } = "";
     /// <summary>Сколько неверных паролей подряд допускается для одного логина.</summary>
+    /// <summary>
+    /// Закрытая учётная запись команды продукта: только ей видны заявки и вопросы с лендинга.
+    /// Пароль задаётся переменной окружения Auth__SupportPassword; без него запись не создаётся.
+    /// </summary>
+    public string SupportLogin { get; set; } = "support";
+    public string SupportPassword { get; set; } = "";
     public int MaxFailedLogins { get; set; } = 5;
     public int LockoutMinutes { get; set; } = 10;
 
@@ -93,6 +99,8 @@ public sealed class LoginAttempts(AuthOptions options, TimeProvider time)
 public static class AuthEndpoints
 {
     public const string LoginRateLimit = "login";
+    public const string RegisterRateLimit = "register";
+    private static readonly string DummyHash = new PasswordHasher<User>().HashPassword(null!, "нет такой учётной записи");
 
     public static void MapAuth(this IEndpointRouteBuilder app)
     {
@@ -105,7 +113,9 @@ public static class AuthEndpoints
             // До входа ресторан неизвестен: учётная запись ищется по логину среди всех.
             var user = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Login == req.Login, ct);
             var hasher = new PasswordHasher<User>();
-            if (user is null || hasher.VerifyHashedPassword(user, user.PasswordHash, req.Password ?? "") == PasswordVerificationResult.Failed)
+            // Для несуществующего логина хеш считается так же долго, как для настоящего: по времени ответа их не различить.
+            var matches = hasher.VerifyHashedPassword(user!, user?.PasswordHash ?? DummyHash, req.Password ?? "") != PasswordVerificationResult.Failed;
+            if (user is null || !matches)
             {
                 var left = attempts.Fail(req.Login, address);
                 return left == 0
@@ -150,15 +160,15 @@ public static class AuthEndpoints
         })
         .WithTags("Вход")
         .AllowAnonymous()
-        .RequireRateLimiting(LeadEndpoints.RateLimit);
+        .RequireRateLimiting(RegisterRateLimit);
 
-        app.MapGet("/api/me", async (ClaimsPrincipal principal, AppDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/me", async (ClaimsPrincipal principal, AppDbContext db, AuthOptions options, CancellationToken ct) =>
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Login == principal.Identity!.Name, ct);
             if (user is null) return Results.Unauthorized();
             var restaurant = await db.CurrentRestaurantAsync(ct);
             return Results.Ok(new MeResponse(
-                user.Login, user.Title, user.Role, Access.Sections(user.Role, user.RestaurantId == Restaurant.DemoId),
+                user.Login, user.Title, user.Role, Access.Sections(user.Role, Access.IsVendor(user.Login, user.RestaurantId, options)),
                 new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places(), restaurant.Name));
         })
         .WithTags("Вход")
@@ -176,8 +186,11 @@ public static class AuthEndpoints
     {
         var login = principal.Identity?.Name;
         if (!Guid.TryParse(principal.FindFirst(RestaurantClaim)?.Value, out var restaurant)
-            || !int.TryParse(principal.FindFirst(VersionClaim)?.Value, out var version)) return Task.FromResult(false);
-        return db.Users.IgnoreQueryFilters().AnyAsync(u => u.Login == login && u.RestaurantId == restaurant && u.TokenVersion == version, ct);
+            || !int.TryParse(principal.FindFirst(VersionClaim)?.Value, out var version)
+            || !Enum.TryParse<Role>(principal.FindFirst(ClaimTypes.Role)?.Value, out var role)) return Task.FromResult(false);
+        // Роль тоже сверяется с базой: токену с подправленной ролью сервер не верит.
+        return db.Users.IgnoreQueryFilters().AnyAsync(
+            u => u.Login == login && u.RestaurantId == restaurant && u.TokenVersion == version && u.Role == role, ct);
     }
 
     /// <summary>Токен несёт логин, роль и ресторан: по ресторану сервер отбирает данные для каждого запроса.</summary>
@@ -227,6 +240,18 @@ public static class AuthEndpoints
                 db.Users.Add(user);
             }
             (user.Title, user.Role) = (demo.Title, demo.Role);
+        }
+
+        if (options.SupportPassword != "")
+        {
+            if (!existing.TryGetValue(options.SupportLogin, out var support))
+            {
+                support = new User { Id = Guid.NewGuid(), Login = options.SupportLogin, PasswordHash = "" };
+                db.Users.Add(support);
+            }
+            (support.Title, support.Role) = ("Поддержка", Role.Manager);
+            if (support.PasswordHash == "" || hasher.VerifyHashedPassword(support, support.PasswordHash, options.SupportPassword) == PasswordVerificationResult.Failed)
+                support.PasswordHash = hasher.HashPassword(support, options.SupportPassword);
         }
         await db.SaveChangesAsync(ct);
     }

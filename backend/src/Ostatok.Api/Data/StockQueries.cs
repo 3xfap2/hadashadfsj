@@ -41,6 +41,20 @@ public static class StockQueries
     public static Task<Restaurant> CurrentRestaurantAsync(this AppDbContext db, CancellationToken ct) =>
         db.Restaurants.AsNoTracking().FirstAsync(r => r.Id == db.TenantId, ct);
 
+    /// <summary>
+    /// Следующий номер заготовки ресторана. Счётчик увеличивается одной командой, поэтому два одновременных
+    /// запроса получают разные номера.
+    /// </summary>
+    public static async Task<int> NextPrepNumberAsync(this AppDbContext db, CancellationToken ct) =>
+        (await db.Database
+            .SqlQuery<int>($"""UPDATE "Restaurants" SET "LastPrepNumber" = "LastPrepNumber" + 1 WHERE "Id" = {db.TenantId} RETURNING "LastPrepNumber" """)
+            .ToListAsync(ct)).Single();
+
+    public static async Task<int> NextCheckNumberAsync(this AppDbContext db, CancellationToken ct) =>
+        (await db.Database
+            .SqlQuery<int>($"""UPDATE "Restaurants" SET "LastCheckNumber" = "LastCheckNumber" + 1 WHERE "Id" = {db.TenantId} RETURNING "LastCheckNumber" """)
+            .ToListAsync(ct)).Single();
+
     public static Task<List<Dish>> LoadDishesAsync(this AppDbContext db, CancellationToken ct) =>
         db.Dishes.AsNoTracking().Include(d => d.Recipe).ThenInclude(r => r.Product).ToListAsync(ct);
 

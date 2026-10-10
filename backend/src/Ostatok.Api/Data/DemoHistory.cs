@@ -161,7 +161,7 @@ public static class DemoHistory
                 {
                     // Идентификатор растёт со временем: заказы вставляются по порядку, и номера идут подряд.
                     Id = Guid.CreateVersion7(at), CreatedAt = at, Place = Places[random.Next(Places.Length)],
-                    Items = lines.Select(l => new OrderItem { DishId = l.Dish.Id, Quantity = l.Quantity }).ToList(),
+                    Items = lines.Select(l => new OrderItem { DishId = l.Dish.Id, Quantity = l.Quantity, Price = l.Dish.Price }).ToList(),
                 };
                 var result = Fefo.Allocate(batches, required, at);
                 if (result.Ok)
@@ -174,7 +174,7 @@ public static class DemoHistory
                         movements.Add(new Movement
                         {
                             At = at, Type = MovementType.Order, ProductId = a.ProductId, BatchId = a.BatchId,
-                            Quantity = a.Quantity, OrderId = order.Id, Actor = "cook",
+                            Quantity = a.Quantity, OrderId = order.Id, Actor = "waiter",
                         });
                     }
                 }

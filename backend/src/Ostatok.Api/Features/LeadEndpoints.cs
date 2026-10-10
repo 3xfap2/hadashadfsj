@@ -19,7 +19,8 @@ public static partial class LeadEndpoints
     [GeneratedRegex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
     private static partial Regex Email();
 
-    public static bool IsContact(string value) => Phone().IsMatch(value) || Email().IsMatch(value);
+    public static bool IsContact(string value) =>
+        (Phone().IsMatch(value) && value.Count(char.IsDigit) >= 10) || Email().IsMatch(value);
 
     public static void MapLeads(this IEndpointRouteBuilder app)
     {

@@ -16,7 +16,7 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
     /// </summary>
     public async Task<Order> PlaceAsync(
         IReadOnlyCollection<OrderLine> lines, string place, string actor, CancellationToken ct,
-        IReadOnlyDictionary<Guid, int>? discounts = null)
+        IReadOnlyDictionary<Guid, (int Percent, int Portions)>? discounts = null)
     {
         var quantities = lines.GroupBy(l => l.DishId).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
         var dishes = await db.Dishes
@@ -35,9 +35,16 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
             Id = Guid.NewGuid(),
             CreatedAt = now,
             Place = place,
-            Items = quantities
-                .Select(q => new OrderItem { DishId = q.Key, Quantity = q.Value, DiscountPercent = discounts?.GetValueOrDefault(q.Key) ?? 0 })
-                .ToList(),
+            Items = quantities.Select(q =>
+            {
+                var discount = discounts?.GetValueOrDefault(q.Key) ?? default;
+                return new OrderItem
+                {
+                    DishId = q.Key, Quantity = q.Value, Price = dishes.First(d => d.Id == q.Key).Price,
+                    DiscountPercent = discount.Portions > 0 ? discount.Percent : 0,
+                    DiscountQuantity = Math.Min(discount.Portions, q.Value),
+                };
+            }).ToList(),
         };
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);

@@ -100,10 +100,18 @@ public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions optio
                     var restaurants = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Restaurants.Select(r => r.Id).ToListAsync(stop);
                     foreach (var id in restaurants)
                     {
-                        await using var own = scopes.CreateAsyncScope();
-                        own.ServiceProvider.GetRequiredService<Tenant>().Id = id;
-                        await own.ServiceProvider.GetRequiredService<AlertService>().RaiseBatchAlertsAsync(stop);
-                        await own.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(stop);
+                        try
+                        {
+                            await using var own = scopes.CreateAsyncScope();
+                            own.ServiceProvider.GetRequiredService<Tenant>().Id = id;
+                            await own.ServiceProvider.GetRequiredService<AlertService>().RaiseBatchAlertsAsync(stop);
+                            await own.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(stop);
+                        }
+                        catch (Exception e) when (e is not OperationCanceledException)
+                        {
+                            // Сбой в данных одного ресторана не должен оставить без сигналов остальных.
+                            log.LogError(e, "Сигналы и стоп-лист ресторана {Restaurant} не обновлены", id);
+                        }
                     }
                 }
             }

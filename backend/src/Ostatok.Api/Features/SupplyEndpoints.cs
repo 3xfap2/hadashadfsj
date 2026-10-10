@@ -76,7 +76,11 @@ public static class SupplyEndpoints
                 .Check((req.Supplier?.Length ?? 0) <= 120, "supplier", "Название поставщика — до 120 символов.")
                 .Check(createdAt <= now, "createdAt", "Дата поставки не может быть в будущем.")
                 .Check(items.Count > 0, "items", "В поставке должен быть хотя бы один продукт.")
-                .Check(items.All(i => i.Quantity is > 0 and <= 1_000_000), "items", "Количество каждого продукта — больше нуля и не больше 1 000 000.")
+                // Номера с такими началами выдаёт сама система: заготовкам, проверочным партиям и генератору.
+                .Check(!(req.Number ?? "").TrimStart().StartsWith("З-") && !(req.Number ?? "").TrimStart().StartsWith("Т-") && !(req.Number ?? "").TrimStart().StartsWith("Г-"),
+                    "number", "Номера, которые начинаются на «З-», «Т-» и «Г-», заняты системой. Выберите другой.")
+                .Check(items.Count <= 500, "items", "В поставке не больше 500 позиций.")
+                .Check(items.All(i => i.Quantity is >= Validation.MinQuantity and <= 1_000_000), "items", "Количество каждого продукта — от 0,001 до 1 000 000.")
                 .Check(items.All(i => i.ShelfLifeHours is null or (> 0 and <= 100_000)), "items", "Срок хранения — от 1 до 100 000 часов.");
 
             var ids = items.Select(i => i.ProductId).Distinct().ToArray();
@@ -134,7 +138,8 @@ public static class SupplyEndpoints
         using var workbook = new ClosedXML.Excel.XLWorkbook(new MemoryStream(bytes));
         var sheet = workbook.Worksheets.First();
         var lastColumn = sheet.LastColumnUsed()?.ColumnNumber() ?? 0;
-        return sheet.RowsUsed()
+        // Больше пяти тысяч строк в одной накладной не бывает; лишнее не читается.
+        return sheet.RowsUsed().Take(SupplyImport.MaxRows + 1)
             .Select(row => Enumerable.Range(1, lastColumn)
                 .Select(c => row.Cell(c).Value.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 .ToArray())

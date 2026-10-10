@@ -6,6 +6,8 @@ public sealed record PurchaseSuggestion(
 
 public static class Forecast
 {
+    private const double TenYearsHours = 24 * 365 * 10;
+
     /// <summary>
     /// Момент, когда годного остатка продукта станет меньше порога.
     /// Учитывает и расход (из партии с ранним сроком), и то, что партии истекают сами.
@@ -27,7 +29,9 @@ public static class Forecast
             var expiry = batches[i].ExpiresAt;
             if (perHour > 0)
             {
-                var hit = t.AddHours((double)((total - threshold) / perHour));
+                // Запаса на годы вперёд хватает «дольше любого горизонта»: без границы дата вышла бы за пределы календаря.
+                var hours = Math.Min((double)((total - threshold) / perHour), TenYearsHours);
+                var hit = t.AddHours(hours);
                 if (hit <= expiry) return hit;
 
                 var consume = perHour * (decimal)(expiry - t).TotalHours;

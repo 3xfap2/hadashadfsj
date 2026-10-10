@@ -33,6 +33,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("ConnectionStrings:Db", _postgres.GetConnectionString());
         builder.UseSetting("Auth:Key", "integration-tests-signing-key-0123456789");
         builder.UseSetting("Seed:Demo", "false");
+        builder.UseSetting("Auth:SupportPassword", SupportPassword);
         // Сценарии переводят часы вперёд на сутки и больше — токен не должен истечь посреди теста.
         builder.UseSetting("Auth:TokenHours", "720");
         // Автосписание в тестах вызывается явно, фоновый запуск мешал бы сценариям с переводом часов.
@@ -53,10 +54,15 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     }
 
     /// <summary>Клиент, вошедший под одной из демо-записей: demo (шеф-повар), manager, cook, storekeeper, waiter.</summary>
-    public async Task<HttpClient> SignInAsync(string login)
+    public const string SupportPassword = "support-tests-2026";
+
+    /// <summary>Закрытая учётная запись команды продукта: только она видит заявки и вопросы с лендинга.</summary>
+    public Task<HttpClient> SignInAsSupportAsync() => SignInAsync("support", SupportPassword);
+
+    public async Task<HttpClient> SignInAsync(string login, string password = "demo2026")
     {
         var client = CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(login, "demo2026"));
+        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(login, password));
         response.EnsureSuccessStatusCode();
         var token = (await response.Content.ReadFromJsonAsync<LoginResponse>(Json))!.Token;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);

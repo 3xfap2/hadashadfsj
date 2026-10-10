@@ -69,12 +69,15 @@ public sealed class PrepService(AppDbContext db, TimeProvider time)
         }
 
         // Заготовка приходит на склад как поставка из собственного цеха: у неё есть номер, партия и этикетка.
-        var number = $"З-{await db.Supplies.CountAsync(s => s.Number.StartsWith("З-"), ct) + 1:0000}";
+        var number = $"З-{await db.NextPrepNumberAsync(ct):0000}";
+        // Заготовка годна не дольше самого раннего срока сырья, которое в неё ушло.
+        var byNorm = now.AddHours(prep.ShelfLifeHours);
+        var byRaw = result.Allocations.Min(a => byId[a.BatchId].ExpiresAt);
         var supply = new Supply { Id = Guid.NewGuid(), Number = number, Supplier = Workshop, CreatedAt = now };
         var batch = new Batch
         {
             Id = Guid.NewGuid(), SupplyId = supply.Id, ProductId = prep.Id,
-            Quantity = quantity, Remaining = quantity, ExpiresAt = now.AddHours(prep.ShelfLifeHours),
+            Quantity = quantity, Remaining = quantity, ExpiresAt = byRaw < byNorm ? byRaw : byNorm,
         };
         supply.Batches.Add(batch);
         db.Supplies.Add(supply);
@@ -126,7 +129,7 @@ public static class PrepEndpoints
 
         preps.MapPost("", async (PrepRequest req, PrepService service, ClaimsPrincipal user, CancellationToken ct) =>
         {
-            var errors = new Errors().Check(req.Quantity is > 0 and <= 1000, "quantity", "Количество — больше нуля и не больше 1000.");
+            var errors = new Errors().Check(req.Quantity is >= Validation.MinQuantity and <= 1000, "quantity", "Количество — от 0,001 до 1000.");
             if (errors.Any) return errors.ToResult();
 
             var made = await service.MakeAsync(req.ProductId, req.Quantity, user.Identity?.Name ?? "", ct);

@@ -69,6 +69,8 @@ namespace Ostatok.Api.Data.Migrations
                         .IsUnique()
                         .HasFilter("\"BatchId\" IS NOT NULL");
 
+                    b.HasIndex("RestaurantId", "ReadAt");
+
                     b.ToTable("Alerts");
                 });
 
@@ -100,12 +102,16 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("RestaurantId");
+
                     b.HasIndex("SupplyId");
 
                     b.HasIndex("ProductId", "ExpiresAt");
 
                     b.ToTable("Batches", t =>
                         {
+                            t.HasCheckConstraint("CK_Batches_Quantity", "\"Quantity\" > 0");
+
                             t.HasCheckConstraint("CK_Batches_Remaining", "\"Remaining\" >= 0 AND \"Remaining\" <= \"Quantity\"");
                         });
                 });
@@ -238,7 +244,6 @@ namespace Ostatok.Api.Data.Migrations
             modelBuilder.Entity("Ostatok.Api.Domain.HotSettings", b =>
                 {
                     b.Property<Guid>("RestaurantId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<double>("HorizonHours")
@@ -337,9 +342,13 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("At");
+                    b.HasIndex("BatchId");
+
+                    b.HasIndex("OrderId");
 
                     b.HasIndex("ProductId");
+
+                    b.HasIndex("RestaurantId", "At");
 
                     b.ToTable("Movements");
                 });
@@ -376,7 +385,8 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("RestaurantId", "Number");
+                    b.HasIndex("RestaurantId", "Number")
+                        .IsUnique();
 
                     b.ToTable("Orders");
                 });
@@ -391,6 +401,13 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.Property<int>("DiscountPercent")
                         .HasColumnType("integer");
+
+                    b.Property<int>("DiscountQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");
@@ -441,7 +458,10 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.ToTable("PrepItem");
+                    b.ToTable("PrepItem", t =>
+                        {
+                            t.HasCheckConstraint("CK_PrepItem_Quantity", "\"Quantity\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Product", b =>
@@ -494,7 +514,10 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.ToTable("RecipeItem");
+                    b.ToTable("RecipeItem", t =>
+                        {
+                            t.HasCheckConstraint("CK_RecipeItem_Quantity", "\"Quantity\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Restaurant", b =>
@@ -509,7 +532,13 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<bool>("HasBar")
                         .HasColumnType("boolean");
 
+                    b.Property<int>("LastCheckNumber")
+                        .HasColumnType("integer");
+
                     b.Property<int>("LastOrderNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LastPrepNumber")
                         .HasColumnType("integer");
 
                     b.Property<string>("Name")
@@ -568,6 +597,8 @@ namespace Ostatok.Api.Data.Migrations
                     b.HasIndex("DishId");
 
                     b.HasIndex("StartedAt");
+
+                    b.HasIndex("RestaurantId", "EndedAt");
 
                     b.ToTable("StopLogs");
                 });
@@ -637,7 +668,18 @@ namespace Ostatok.Api.Data.Migrations
                     b.HasIndex("Login")
                         .IsUnique();
 
+                    b.HasIndex("RestaurantId");
+
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Alert", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Batch", b =>
@@ -645,6 +687,12 @@ namespace Ostatok.Api.Data.Migrations
                     b.HasOne("Ostatok.Api.Domain.Product", "Product")
                         .WithMany()
                         .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -668,6 +716,15 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.Dish", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.DishPhoto", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Dish", null)
@@ -677,15 +734,50 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.HotSettings", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Movement", b =>
                 {
+                    b.HasOne("Ostatok.Api.Domain.Batch", null)
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.Order", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Ostatok.Api.Domain.Product", "Product")
                         .WithMany()
                         .HasForeignKey("ProductId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Order", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.OrderItem", b =>
@@ -737,6 +829,15 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.Product", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.RecipeItem", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Dish", null)
@@ -762,7 +863,31 @@ namespace Ostatok.Api.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Dish");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Supply", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.User", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Chat", b =>

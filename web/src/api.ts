@@ -266,7 +266,7 @@ export interface OrderRow {
   status: 'Accepted' | 'Rejected';
   place: string;
   total: number;
-  items: { dishId: string; dishName: string; quantity: number; discountPercent: number }[];
+  items: { dishId: string; dishName: string; quantity: number; discountPercent: number; discountQuantity: number; price: number }[];
   /** Когда стол закрыли; null, пока заказ открыт. */
   closedAt: string | null;
   shortages: Shortage[];

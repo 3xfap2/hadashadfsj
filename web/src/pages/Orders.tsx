@@ -38,8 +38,14 @@ export function Orders() {
   const count = inCart.reduce((s, d) => s + cart[d.dishId], 0);
   // Скидка действует, пока блюдо остаётся в горячих предложениях; её размер считает сервер.
   const discountOf = (dishId: string) => (discounted[dishId] ? offers.data!.find((o) => o.dishId === dishId)?.discount ?? null : null);
-  const priceOf = (d: StopListRow) => discountOf(d.dishId)?.price ?? d.price;
-  const total = inCart.reduce((s, d) => s + priceOf(d) * cart[d.dishId], 0);
+  // Скидка действует только на порции, которые спасают истекающий продукт; остальные — по полной цене.
+  const discountedPortions = (d: StopListRow) =>
+    discountOf(d.dishId) ? Math.min(cart[d.dishId] ?? 0, offers.data!.find((o) => o.dishId === d.dishId)!.portions) : 0;
+  const lineSum = (d: StopListRow) => {
+    const cheaper = discountedPortions(d);
+    return cheaper * (discountOf(d.dishId)?.price ?? d.price) + (cart[d.dishId] - cheaper) * d.price;
+  };
+  const total = inCart.reduce((s, d) => s + lineSum(d), 0);
 
   const change = (dishId: string, delta: number) =>
     setCart((c) => {
@@ -177,11 +183,11 @@ export function Orders() {
                     <span className="ord-row__text">
                       <span className="g-name">{d.dishName}</span>
                       <span className="muted num small">
-                        {cart[d.dishId]} × {money(priceOf(d))}
-                        {discountOf(d.dishId) && ` · скидка ${discountOf(d.dishId)!.percent}%`}
+                        {cart[d.dishId]} × {money(d.price)}
+                        {discountOf(d.dishId) && ` · скидка ${discountOf(d.dishId)!.percent}% на ${portions(discountedPortions(d))}`}
                       </span>
                     </span>
-                    <span className="num r hd ord-row__sum">{money(priceOf(d) * cart[d.dishId])}</span>
+                    <span className="num r hd ord-row__sum">{money(lineSum(d))}</span>
                     <button className="x" type="button" aria-label={`Удалить ${d.dishName}`} onClick={() => change(d.dishId, -cart[d.dishId])}>
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
                     </button>

@@ -42,7 +42,17 @@ public static class Access
     /// <summary>Заявки и вопросы с лендинга адресованы команде продукта, а не каждому ресторану.</summary>
     public static TBuilder VendorOnly<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder =>
         builder.AddEndpointFilter(async (context, next) =>
-            context.HttpContext.RequestServices.GetRequiredService<Tenant>().Id == Restaurant.DemoId
+        {
+            var services = context.HttpContext.RequestServices;
+            return IsVendor(context.HttpContext.User.Identity?.Name, services.GetRequiredService<Tenant>().Id, services.GetRequiredService<AuthOptions>())
                 ? await next(context)
-                : Results.Forbid());
+                : Results.Forbid();
+        });
+
+    /// <summary>
+    /// Команда продукта — одна закрытая учётная запись. Открытые демо-записи заявок и переписки не видят:
+    /// их пароль опубликован.
+    /// </summary>
+    public static bool IsVendor(string? login, Guid restaurant, AuthOptions options) =>
+        restaurant == Restaurant.DemoId && options.SupportPassword != "" && login == options.SupportLogin;
 }

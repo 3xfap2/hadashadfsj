@@ -23,6 +23,9 @@ public class Restaurant
     public bool HasBar { get; set; } = true;
     /// <summary>Номер последнего заказа: у каждого ресторана своя нумерация с единицы.</summary>
     public int LastOrderNumber { get; set; }
+    /// <summary>Счётчики номеров заготовок («З-0001») и проверочных партий («Т-0001»).</summary>
+    public int LastPrepNumber { get; set; }
+    public int LastCheckNumber { get; set; }
 
     /// <summary>Места, откуда приходят заказы: столы и бар.</summary>
     public IEnumerable<string> Places() =>
@@ -174,8 +177,12 @@ public class OrderItem
     public Guid DishId { get; set; }
     public Dish? Dish { get; set; }
     public int Quantity { get; set; }
+    /// <summary>Цена блюда на момент заказа: сумма заказа не меняется, если блюдо потом подорожает.</summary>
+    public decimal Price { get; set; }
     /// <summary>Скидка по горячему предложению, действовавшая в момент заказа; 0 — без скидки.</summary>
     public int DiscountPercent { get; set; }
+    /// <summary>На сколько порций действует скидка: не больше, чем нужно продать, чтобы истекающий продукт не пропал.</summary>
+    public int DiscountQuantity { get; set; }
 }
 
 public class OrderShortage

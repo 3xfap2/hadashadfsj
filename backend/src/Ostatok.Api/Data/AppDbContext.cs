@@ -57,7 +57,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.HasOne(b => b.Product).WithMany().HasForeignKey(b => b.ProductId).OnDelete(DeleteBehavior.Restrict);
             // Выборка годных партий продукта в порядке срока — основной запрос при заказе.
             e.HasIndex(b => new { b.ProductId, b.ExpiresAt });
-            e.ToTable(t => t.HasCheckConstraint("CK_Batches_Remaining", "\"Remaining\" >= 0 AND \"Remaining\" <= \"Quantity\""));
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Batches_Remaining", "\"Remaining\" >= 0 AND \"Remaining\" <= \"Quantity\"");
+                t.HasCheckConstraint("CK_Batches_Quantity", "\"Quantity\" > 0");
+            });
         });
 
         model.Entity<Dish>(e =>
@@ -79,7 +83,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
         {
             // Номер выдаёт счётчик ресторана (см. OrderService): у каждого ресторана нумерация своя.
             e.Property(o => o.Number).ValueGeneratedNever();
-            e.HasIndex(o => new { o.RestaurantId, o.Number });
+            e.HasIndex(o => new { o.RestaurantId, o.Number }).IsUnique();
             e.Property(o => o.Place).HasMaxLength(40);
             e.HasIndex(o => o.CreatedAt);
             e.HasMany(o => o.Items).WithOne().HasForeignKey(i => i.OrderId);
@@ -99,6 +103,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
         });
 
         model.Entity<HotSettings>(e => e.HasKey(s => s.RestaurantId));
+        // Нулевое количество в составе делит на ноль расчёт порций, поэтому его не пускает и сама база.
+        model.Entity<RecipeItem>().ToTable(t => t.HasCheckConstraint("CK_RecipeItem_Quantity", "\"Quantity\" > 0"));
+        model.Entity<PrepItem>().ToTable(t => t.HasCheckConstraint("CK_PrepItem_Quantity", "\"Quantity\" > 0"));
+        model.Entity<Alert>().HasIndex(a => new { a.RestaurantId, a.ReadAt });
+        model.Entity<StopLog>().HasIndex(l => new { l.RestaurantId, l.EndedAt });
         model.Entity<Restaurant>(e =>
         {
             e.Property(r => r.Name).HasMaxLength(120);
@@ -118,7 +127,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(m => m.Note).HasMaxLength(200);
             e.Property(m => m.Actor).HasMaxLength(60);
             e.HasOne(m => m.Product).WithMany().HasForeignKey(m => m.ProductId).OnDelete(DeleteBehavior.Restrict);
-            e.HasIndex(m => m.At);
+            e.HasOne<Batch>().WithMany().HasForeignKey(m => m.BatchId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Order>().WithMany().HasForeignKey(m => m.OrderId).OnDelete(DeleteBehavior.Restrict);
+            // Журнал ресторана читается от новых записей к старым.
+            e.HasIndex(m => new { m.RestaurantId, m.At });
         });
 
         model.Entity<DishPhoto>(e =>
@@ -179,8 +191,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
                 .MakeGenericMethod(type.ClrType).Invoke(this, [model]);
     }
 
-    private void FilterByRestaurant<T>(ModelBuilder model) where T : class, IOwned =>
+    private void FilterByRestaurant<T>(ModelBuilder model) where T : class, IOwned
+    {
         model.Entity<T>().HasQueryFilter(e => e.RestaurantId == TenantId);
+        model.Entity<T>().HasOne<Restaurant>().WithMany().HasForeignKey(e => e.RestaurantId).OnDelete(DeleteBehavior.Restrict);
+    }
 
     /// <summary>Новая запись получает ресторан того, кто её создаёт, если он не задан явно.</summary>
     private void Own()

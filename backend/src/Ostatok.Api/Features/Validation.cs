@@ -1,5 +1,11 @@
 namespace Ostatok.Api.Features;
 
+public static class Validation
+{
+    /// <summary>Наименьшее количество: в базе три знака после запятой, меньшее значение превратилось бы в ноль.</summary>
+    public const decimal MinQuantity = 0.001m;
+}
+
 /// <summary>Сбор ошибок входных данных в формате, который отдаёт ValidationProblem.</summary>
 public sealed class Errors
 {

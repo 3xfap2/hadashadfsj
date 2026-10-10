@@ -55,14 +55,21 @@ public static class DemoSeed
             D("Филе миньон", 1890, "filet-mignon", "Горячее", (beef, 0.22m), (potato, 0.2m)),
             D("Тартар из говядины", 890, "tartare", "Закуски", (beef, 0.13m), (egg, 1), (parmesan, 0.01m)));
 
+        var zone = TimeSpan.FromHours(3);
+        var morning = new DateTimeOffset(now.ToOffset(zone).Date, zone).AddHours(8).ToUniversalTime();
+        if (morning > now.AddMinutes(-30)) morning = now.AddMinutes(-30);
+
         // Поставки заданы через «сколько часов осталось до конца срока»: отрицательное значение — уже просрочено.
         Supply S(string number, string supplier, params (Product Product, decimal Quantity, double HoursLeft)[] items)
         {
-            var supply = new Supply { Id = Guid.NewGuid(), Number = number, Supplier = supplier, CreatedAt = now };
+            // Текущие поставки приняты сегодня утром, уже после истории: так они не «лежали на складе», пока история
+            // расходовала другие партии. Срок у партии свой — остаточный, как у товара с коротким сроком от поставщика.
+            var supply = new Supply { Id = Guid.NewGuid(), Number = number, Supplier = supplier, CreatedAt = morning };
             foreach (var (product, quantity, hoursLeft) in items)
             {
                 var expiresAt = now.AddHours(hoursLeft);
-                var createdAt = expiresAt.AddHours(-product.ShelfLifeHours);
+                // Просроченная партия должна была пролежать хотя бы полсуток, иначе её сразу спишет автосписание.
+                var createdAt = expiresAt.AddHours(-13);
                 if (createdAt < supply.CreatedAt) supply.CreatedAt = createdAt;
                 supply.Batches.Add(new Batch { Id = Guid.NewGuid(), ProductId = product.Id, Quantity = quantity, Remaining = quantity, ExpiresAt = expiresAt });
             }
