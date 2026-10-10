@@ -14,7 +14,10 @@ public sealed class StopTracker(AppDbContext db, TimeProvider time)
     {
         var now = time.GetUtcNow();
         var totals = await db.LoadTotalsAsync(now, ct);
-        var stopped = (await db.LoadDishesAsync(ct))
+        var dishes = await db.LoadDishesAsync(ct);
+        var names = dishes.ToDictionary(d => d.Id, d => d.Name);
+        var products = dishes.SelectMany(d => d.Recipe).Select(r => r.Product!).DistinctBy(p => p.Id).ToDictionary(p => p.Id, p => p.Name);
+        var stopped = dishes
             .Select(d => (Dish: d, State: Availability.Of(d, totals)))
             .Where(x => x.State.Status == DishStatus.Stop)
             .ToDictionary(x => x.Dish.Id, x => x.State);
@@ -24,15 +27,36 @@ public sealed class StopTracker(AppDbContext db, TimeProvider time)
         {
             // Блюдо вернулось в продажу либо стоит уже по другой причине — прежний интервал закрывается.
             var same = stopped.TryGetValue(log.DishId, out var state) && state.LimitingProductId == log.ProductId && state.Reason == log.Reason;
-            if (!same) log.EndedAt = now;
+            if (same) continue;
+            log.EndedAt = now;
+            // Вернулось в продажу — отдельный сигнал; смена причины стопа сигналом о возврате не считается.
+            if (!stopped.ContainsKey(log.DishId) && names.TryGetValue(log.DishId, out var name))
+                db.Alerts.Add(new Alert { At = now, Kind = AlertKind.DishBack, DishId = log.DishId, Title = $"{name}: снова в продаже", Detail = "Блюдо вышло из стоп-листа" });
         }
 
         var continuing = open.Where(l => l.EndedAt == null).Select(l => l.DishId).ToHashSet();
         foreach (var (dishId, state) in stopped.Where(s => !continuing.Contains(s.Key)))
+        {
             db.StopLogs.Add(new StopLog { DishId = dishId, ProductId = state.LimitingProductId, Reason = state.Reason!.Value, StartedAt = now });
+            db.Alerts.Add(new Alert
+            {
+                At = now, Kind = AlertKind.DishStopped, DishId = dishId, Title = $"{names[dishId]}: в стоп-листе",
+                Detail = state.Reason == StopReason.Manual
+                    ? "Снято с продажи вручную"
+                    : $"{products.GetValueOrDefault(state.LimitingProductId, "Продукт")}: {Reasons[state.Reason!.Value]}",
+            });
+        }
 
         await db.SaveChangesAsync(ct);
     }
+
+    private static readonly Dictionary<StopReason, string> Reasons = new()
+    {
+        [StopReason.Expired] = "просрочено",
+        [StopReason.OutOfStock] = "нет на складе",
+        [StopReason.NotEnough] = "не хватает на порцию",
+        [StopReason.Manual] = "снято вручную",
+    };
 
     /// <summary>Сколько часов интервал стопа пересекается с периодом [from, now].</summary>
     public static double Hours(StopLog log, DateTimeOffset from, DateTimeOffset now)

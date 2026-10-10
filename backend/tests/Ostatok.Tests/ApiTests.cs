@@ -558,4 +558,90 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
 
         Assert.Equal(("Мясной двор", 5m, 5000m), (row.Supplier, row.Quantity, row.Sum));
     }
+
+    [Fact]
+    public async Task Сигнал_о_сроке_поднимается_один_раз_когда_партия_истекает_и_когда_просрочена()
+    {
+        var product = await Product();
+        await Supply(new SupplyItemRequest(product.Id, 2, 30));
+        async Task<int> Raise()
+        {
+            await using var scope = fx.Services.CreateAsyncScope();
+            return await scope.ServiceProvider.GetRequiredService<AlertService>().RaiseBatchAlertsAsync(default);
+        }
+        async Task<List<AlertResponse>> Mine() =>
+            (await Get<AlertsResponse>("/api/alerts?take=100")).Items.Where(a => a.Title.StartsWith(product.Name)).ToList();
+
+        await Raise();
+        Assert.Empty(await Mine());                              // до срока больше суток — сигнала нет
+
+        fx.Time.Advance(TimeSpan.FromHours(10));                 // осталось 20 часов
+        await Raise();
+        await Raise();                                           // повторный проход не дублирует
+        var expiring = Assert.Single(await Mine());
+        Assert.Equal((AlertKind.BatchExpiring, false), (expiring.Kind, expiring.Read));
+
+        fx.Time.Advance(TimeSpan.FromHours(21));                 // срок прошёл
+        await Raise();
+        Assert.Equal([AlertKind.BatchExpired, AlertKind.BatchExpiring], (await Mine()).Select(a => a.Kind));
+
+        (await Api.PostAsync("/api/alerts/read", null)).EnsureSuccessStatusCode();
+        Assert.All(await Mine(), a => Assert.True(a.Read));
+    }
+
+    [Fact]
+    public async Task Стоп_блюда_и_возврат_в_продажу_дают_сигналы()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.5m));
+        async Task Track()
+        {
+            await using var scope = fx.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(default);
+        }
+
+        await Track();
+        await Supply(new SupplyItemRequest(product.Id, 5, null));
+        await Track();
+
+        var kinds = (await Get<AlertsResponse>("/api/alerts?take=100")).Items.Where(a => a.Title.StartsWith(dish.Name)).Select(a => a.Kind);
+        Assert.Equal([AlertKind.DishBack, AlertKind.DishStopped], kinds);
+    }
+
+    [Fact]
+    public async Task Поток_событий_сообщает_об_изменении_после_заказа()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.1m));
+        await Supply(new SupplyItemRequest(product.Id, 1, null));
+        var token = Api.DefaultRequestHeaders.Authorization!.Parameter;
+
+        // Токен идёт в адресе: так поток открывает браузер.
+        using var client = fx.CreateClient();
+        using var stream = await client.GetStreamAsync($"/api/events?access_token={token}");
+        using var reader = new StreamReader(stream);
+        Assert.Equal(": connected", await reader.ReadLineAsync());
+
+        (await Order(dish)).EnsureSuccessStatusCode();
+
+        string? line;
+        do line = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        while (line != "data: changed");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await fx.CreateClient().GetAsync("/api/events")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Генератор_включается_только_с_правами_и_проверяет_настройки()
+    {
+        using var cook = await fx.SignInAsync("cook");
+
+        var started = await Api.PutAsJsonAsync("/api/simulator", new SimulatorSettings(true, 12));
+        var tooFast = await Api.PutAsJsonAsync("/api/simulator", new SimulatorSettings(true, 500));
+        var byCook = await cook.PutAsJsonAsync("/api/simulator", new SimulatorSettings(true, 6));
+        await Api.PutAsJsonAsync("/api/simulator", new SimulatorSettings(false, 6));
+
+        Assert.Equal(new SimulatorSettings(true, 12), await Read<SimulatorSettings>(started));
+        Assert.Equal(HttpStatusCode.BadRequest, tooFast.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, byCook.StatusCode);
+    }
 }

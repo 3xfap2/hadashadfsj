@@ -15,6 +15,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<DishPhoto> DishPhotos => Set<DishPhoto>();
     public DbSet<StopLog> StopLogs => Set<StopLog>();
+    public DbSet<Alert> Alerts => Set<Alert>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
     {
@@ -101,6 +102,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasOne(l => l.Dish).WithMany().HasForeignKey(l => l.DishId);
             e.HasIndex(l => l.StartedAt);
+        });
+
+        model.Entity<Alert>(e =>
+        {
+            e.Property(a => a.Title).HasMaxLength(200);
+            e.Property(a => a.Detail).HasMaxLength(300);
+            // Один сигнал каждого вида на партию: повторный проход не создаёт дубль.
+            e.HasIndex(a => new { a.BatchId, a.Kind }).IsUnique().HasFilter("\"BatchId\" IS NOT NULL");
         });
 
         model.Entity<Lead>(e =>

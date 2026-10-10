@@ -13,7 +13,7 @@ internal sealed class Kitchen
 
     public Product Product(string name, decimal cost = 1000)
     {
-        var product = new Product { Id = Guid.NewGuid(), Name = name, Unit = Unit.Kg, ShelfLifeHours = 48, Cost = cost };
+        var product = new Product { Id = Guid.NewGuid(), Name = name, Unit = Unit.Kg, ShelfLifeHours = 240, Cost = cost };
         Products.Add(product);
         return product;
     }

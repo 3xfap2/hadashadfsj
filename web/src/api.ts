@@ -139,6 +139,37 @@ export interface ImportRow {
   message: string;
 }
 
+export interface MovementRow {
+  id: number;
+  at: string;
+  type: 'Supply' | 'Order' | 'WriteOff';
+  productName: string;
+  unit: Unit;
+  quantity: number;
+  note: string | null;
+  actor: string;
+}
+
+export interface AlertRow {
+  id: number;
+  at: string;
+  kind: 'BatchExpiring' | 'BatchExpired' | 'DishStopped' | 'DishBack';
+  title: string;
+  detail: string;
+  expiresAt: string | null;
+  read: boolean;
+}
+
+export interface AlertsResponse {
+  unread: number;
+  items: AlertRow[];
+}
+
+export interface SimulatorSettings {
+  running: boolean;
+  ordersPerMinute: number;
+}
+
 export interface Shortage {
   productName: string;
   unit: Unit;
@@ -284,8 +315,34 @@ export function postFile(path: string, file: File): Promise<Response> {
   return request(path, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
 }
 
-/** Загружает данные и обновляет их раз в refreshMs, пока экран открыт. */
-export function useApi<T>(path: string, refreshMs = 15_000) {
+// Все открытые на экране запросы: по сигналу сервера «данные изменились» они перечитываются.
+const liveReloads = new Set<() => void>();
+
+/**
+ * Подключается к потоку событий сервера (SSE). Сообщение не несёт данных — оно только говорит,
+ * что что-то изменилось; экраны перечитывают своё. Возвращает функцию отключения.
+ */
+export function connectEvents(): () => void {
+  const token = getToken();
+  if (!token || typeof EventSource === 'undefined') return () => {};
+  const source = new EventSource(`/api/events?access_token=${encodeURIComponent(token)}`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  source.onmessage = () => {
+    // Несколько изменений подряд (заказ списывает сразу много партий) сливаются в одно обновление.
+    clearTimeout(timer);
+    timer = setTimeout(() => liveReloads.forEach((reload) => reload()), 150);
+  };
+  return () => {
+    clearTimeout(timer);
+    source.close();
+  };
+}
+
+/**
+ * Загружает данные и держит их свежими: сразу перечитывает по сигналу сервера,
+ * а раз в refreshMs — на случай, если поток событий оборвался или изменилось только время.
+ */
+export function useApi<T>(path: string, refreshMs = 30_000) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -303,7 +360,11 @@ export function useApi<T>(path: string, refreshMs = 15_000) {
   useEffect(() => {
     void reload();
     const timer = setInterval(reload, refreshMs);
-    return () => clearInterval(timer);
+    liveReloads.add(reload);
+    return () => {
+      clearInterval(timer);
+      liveReloads.delete(reload);
+    };
   }, [reload, refreshMs]);
 
   return { data, error, reload };

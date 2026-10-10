@@ -9,12 +9,18 @@ using Ostatok.Api.Features;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDbContext<AppDbContext>((sp, options) =>
-    options.UseNpgsql(sp.GetRequiredService<IConfiguration>().GetConnectionString("Db")));
+builder.Services.AddSingleton<EventBus>();
+builder.Services.AddSingleton<PublishChanges>();
+builder.Services.AddDbContext<AppDbContext>((sp, options) => options
+    .UseNpgsql(sp.GetRequiredService<IConfiguration>().GetConnectionString("Db"))
+    .AddInterceptors(sp.GetRequiredService<PublishChanges>()));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<WriteOffService>();
 builder.Services.AddScoped<StopTracker>();
+builder.Services.AddScoped<AlertService>();
+builder.Services.AddSingleton<SimulatorState>();
+builder.Services.AddHostedService<Simulator>();
 builder.Services.AddSingleton(sp =>
     sp.GetRequiredService<IConfiguration>().GetSection("Stock").Get<StockOptions>() ?? new StockOptions());
 builder.Services.AddHostedService<ExpiryWorker>();
@@ -33,6 +39,16 @@ builder.Services.AddSingleton<IConfigureOptions<JwtBearerOptions>>(sp =>
     new ConfigureNamedOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
     {
         var time = sp.GetRequiredService<TimeProvider>();
+        // Поток событий открывает сам браузер и не может добавить заголовок — токен для него идёт в адресе.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (context.Request.Path.StartsWithSegments(RealtimeEndpoints.Path) && context.Request.Query.TryGetValue("access_token", out var token))
+                    context.Token = token;
+                return Task.CompletedTask;
+            },
+        };
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidIssuer = AuthOptions.Issuer,
@@ -83,6 +99,7 @@ app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
 app.MapAuth();
 app.MapLeads();
+app.MapRealtime();
 
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapCatalog();
@@ -90,6 +107,8 @@ api.MapSupplies();
 api.MapOrders();
 api.MapStock();
 api.MapInsights();
+api.MapAlerts();
+api.MapSimulator();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

@@ -93,8 +93,8 @@ public static class CatalogEndpoints
         }).RequireRoles(Access.Catalog);
 
         // Снять блюдо с продажи вручную и вернуть: стоп-лист при этом не ждёт, пока закончатся продукты.
-        dishes.MapPost("{id:guid}/stop", (Guid id, AppDbContext db, CancellationToken ct) => SetStopped(id, true, db, ct)).RequireRoles(Access.Orders);
-        dishes.MapPost("{id:guid}/resume", (Guid id, AppDbContext db, CancellationToken ct) => SetStopped(id, false, db, ct)).RequireRoles(Access.Orders);
+        dishes.MapPost("{id:guid}/stop", (Guid id, AppDbContext db, EventBus bus, CancellationToken ct) => SetStopped(id, true, db, bus, ct)).RequireRoles(Access.Orders);
+        dishes.MapPost("{id:guid}/resume", (Guid id, AppDbContext db, EventBus bus, CancellationToken ct) => SetStopped(id, false, db, bus, ct)).RequireRoles(Access.Orders);
 
         // Фото отдаётся без входа: браузер запрашивает картинки без токена, а секрета в них нет.
         dishes.MapGet("{id:guid}/photo", async (Guid id, AppDbContext db, CancellationToken ct) =>
@@ -131,9 +131,10 @@ public static class CatalogEndpoints
 
     private const int MaxPhotoBytes = 10_000_000;
 
-    private static async Task<IResult> SetStopped(Guid id, bool stopped, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> SetStopped(Guid id, bool stopped, AppDbContext db, EventBus bus, CancellationToken ct)
     {
         var updated = await db.Dishes.Where(d => d.Id == id).ExecuteUpdateAsync(s => s.SetProperty(d => d.ManuallyStopped, stopped), ct);
+        if (updated > 0) bus.Publish();
         return updated == 0 ? Results.NotFound() : Results.NoContent();
     }
 

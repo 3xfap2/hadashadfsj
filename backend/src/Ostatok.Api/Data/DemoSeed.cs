@@ -84,6 +84,8 @@ public static class DemoSeed
             Note = $"Поставка {s.Number}",
         })));
 
+        DemoHistory.Add(db, db.Products.Local.ToList(), db.Dishes.Local.ToList(), now);
+
         await db.SaveChangesAsync(ct);
     }
 }

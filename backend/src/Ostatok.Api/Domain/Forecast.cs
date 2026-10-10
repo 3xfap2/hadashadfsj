@@ -54,7 +54,7 @@ public static class Forecast
     }
 
     /// <summary>
-    /// Что и сколько заказать, чтобы запаса хватило на coverHours.
+    /// Что и сколько заказать, чтобы запаса хватило на coverHours (но не дольше срока хранения продукта).
     /// Продукт попадает в список, если годного остатка не хватает на порцию или он закончится раньше срока покрытия.
     /// </summary>
     public static IReadOnlyList<PurchaseSuggestion> Purchases(
@@ -88,10 +88,14 @@ public static class Forecast
             {
                 // Без истории продаж спрос неизвестен: заказывать нечего, пока продукт есть.
                 if (rate == 0) continue;
+                // Скоропортящийся продукт нет смысла запасать дольше, чем он хранится.
+                var cover = Math.Min(coverHours, product.ShelfLifeHours);
                 var hours = (RunOutAt(batches[product.Id], rate, portion, now) - now).TotalHours;
-                if (hours >= coverHours) continue;
+                if (hours >= cover) continue;
 
-                quantity = rate * (decimal)(coverHours - hours);
+                quantity = rate * (decimal)(cover - hours);
+                // Ради пары порций заявку не собирают.
+                if (quantity < largestPortion * 3) continue;
                 hoursCovered = Math.Round(hours, 1);
                 var byConsumption = (double)((fresh - portion) / rate);
                 reason = hours < byConsumption - 0.5

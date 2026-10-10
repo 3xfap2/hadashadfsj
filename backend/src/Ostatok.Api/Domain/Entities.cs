@@ -68,6 +68,23 @@ public class StopLog
     public DateTimeOffset? EndedAt { get; set; }
 }
 
+public enum AlertKind { BatchExpiring, BatchExpired, DishStopped, DishBack }
+
+/// <summary>Сигнал для сотрудников; ReadAt пуст, пока сигнал не прочитан.</summary>
+public class Alert
+{
+    public long Id { get; set; }
+    public DateTimeOffset At { get; set; }
+    public AlertKind Kind { get; set; }
+    public required string Title { get; set; }
+    public required string Detail { get; set; }
+    /// <summary>Срок годности партии, о которой сигнал, — чтобы экран сам посчитал, сколько осталось.</summary>
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public Guid? BatchId { get; set; }
+    public Guid? DishId { get; set; }
+    public DateTimeOffset? ReadAt { get; set; }
+}
+
 public class RecipeItem
 {
     public Guid DishId { get; set; }

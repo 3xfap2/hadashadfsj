@@ -35,7 +35,7 @@ public sealed class StockOptions
     /// <summary>Горизонт горячих предложений: учитываются партии, истекающие в эти часы.</summary>
     public double HotOfferHours { get; set; } = 48;
     public bool AutoWriteOff { get; set; } = true;
-    /// <summary>Записывать историю стоп-листа для аналитики.</summary>
+    /// <summary>Записывать историю стоп-листа для аналитики и поднимать сигналы о сроках и стопах.</summary>
     public bool TrackStops { get; set; } = true;
     /// <summary>Сколько часов просрочка ждёт ручного списания, прежде чем спишется сама.</summary>
     public double AutoWriteOffAfterHours { get; set; } = 12;

@@ -1,9 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { logout, useApi, type Me, type StopListRow } from './api';
+import { connectEvents, logout, useApi, type Me, type StopListRow } from './api';
+import { Alerts } from './Alerts';
 import { clock } from './format';
 import { AccessContext, useCan } from './ui';
 import { Analytics } from './pages/Analytics';
+import { Demo } from './pages/Demo';
+import { Journal } from './pages/Journal';
 import { Dishes, Products } from './pages/Catalog';
 import { Menu } from './pages/Menu';
 import { Orders } from './pages/Orders';
@@ -45,6 +48,7 @@ export function Shell() {
   const stopList = useApi<StopListRow[]>('/stop-list');
   const stopped = stopList.data?.filter((d) => d.status === 'Stop').length ?? 0;
   const time = useClock();
+  useEffect(connectEvents, []);
   const me = useApi<Me>('/me', 300_000).data;
   const title = me?.title || me?.login || '';
   // Инициалы: первые буквы слов должности («Шеф-повар» → «ШП»).
@@ -70,8 +74,9 @@ export function Shell() {
           ))}
         </nav>
         <div className="g-end">
+          <Alerts />
           <span className="muted">
-            {me && `Смена ${me.shift.start}–${me.shift.end} · `}
+            {me && <span className="shell__shift">Смена {me.shift.start}–{me.shift.end} · </span>}
             <b className="num hd">{time}</b>
           </span>
           <span className="shell__user">
@@ -86,6 +91,7 @@ export function Shell() {
         <span className="g-brand">Остаток</span>
         {me && <span className="muted">смена до {me.shift.end}</span>}
         <b className="num hd">{time}</b>
+        <Alerts />
       </header>
 
       <main className="g-page">
@@ -94,6 +100,8 @@ export function Shell() {
           <Route path="orders" element={<Guard section="orders"><Orders /></Guard>} />
           <Route path="stock" element={<Guard section="stock"><Stock /></Guard>} />
           <Route path="stock/supplies" element={<Guard section="stock"><Supplies /></Guard>} />
+          <Route path="stock/journal" element={<Guard section="stock"><Journal /></Guard>} />
+          <Route path="demo" element={<Guard section="catalog"><Demo /></Guard>} />
           <Route path="stock/import" element={<Guard section="stock"><SupplyImport /></Guard>} />
           <Route path="menu" element={<Guard section="menu"><Menu /></Guard>} />
           <Route path="purchasing" element={<Guard section="purchasing"><Purchasing /></Guard>} />
@@ -104,6 +112,12 @@ export function Shell() {
           <Route path="*" element={<p className="g-empty"><strong>Раздел в работе</strong>Скоро появится.</p>} />
         </Routes>
       </main>
+
+      {allowed.includes('catalog') && (
+        <footer className="shell__foot">
+          <NavLink to="/app/demo">Генератор событий</NavLink>
+        </footer>
+      )}
 
       <nav className="g-tabs shell__tabs" aria-label="Разделы">
         {tabs.map((t) => (

@@ -30,6 +30,7 @@ export function StockTabs() {
     <nav className="g-seg" aria-label="Раздел склада">
       <NavLink to="/app/stock" end>Остатки</NavLink>
       <NavLink to="/app/stock/supplies">Поставки</NavLink>
+      <NavLink to="/app/stock/journal">Журнал</NavLink>
     </nav>
   );
 }

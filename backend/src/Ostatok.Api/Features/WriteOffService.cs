@@ -65,7 +65,7 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
     }
 }
 
-/// <summary>Раз в минуту записывает историю стоп-листа и списывает просрочку, которую не списали вручную за время отсрочки.</summary>
+/// <summary>Раз в минуту поднимает сигналы о сроках, записывает историю стоп-листа и списывает просрочку, которую не списали вручную за время отсрочки.</summary>
 public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions options, ILogger<ExpiryWorker> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stop)
@@ -83,7 +83,11 @@ public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions optio
                         .WriteOffExpiredAsync(TimeSpan.FromHours(options.AutoWriteOffAfterHours), stop);
                     if (count > 0) log.LogInformation("Автосписание: {Count} партий", count);
                 }
-                if (options.TrackStops) await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(stop);
+                if (options.TrackStops)
+                {
+                    await scope.ServiceProvider.GetRequiredService<AlertService>().RaiseBatchAlertsAsync(stop);
+                    await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(stop);
+                }
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
