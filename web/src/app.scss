@@ -2711,6 +2711,15 @@ body {
   cursor: pointer;
 }
 
+// На телефоне таблица сотрудников прокручивается вбок, логины не переносятся по буквам.
+.staff-table {
+  min-width: 560px;
+
+  .g-name {
+    white-space: nowrap;
+  }
+}
+
 .staff-acts {
   display: inline-flex;
   align-items: center;
@@ -2732,6 +2741,73 @@ body {
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+}
+
+// ---------- С чего начать, настройки ресторана ----------
+
+.start {
+  &__steps {
+    margin: 0;
+    padding: 16px 20px 4px;
+    list-style: none;
+    counter-reset: start;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+
+    li {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-left: 38px;
+      counter-increment: start;
+
+      &::before {
+        content: counter(start);
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 1.5px solid var(--brand);
+        color: var(--brand);
+        font-size: 14px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      &.done::before {
+        content: '✓';
+        background: var(--brand);
+        color: #fff;
+      }
+
+      strong {
+        color: var(--h);
+      }
+    }
+  }
+
+  &__note {
+    margin: 0;
+    padding: 8px 20px 18px;
+  }
+}
+
+.rest-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .start__steps {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

@@ -42,6 +42,11 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
+        // Счётчик заказов ресторана: строка блокируется до конца транзакции, поэтому номера идут подряд без повторов.
+        order.Number = (await db.Database
+            .SqlQuery<int>($"""UPDATE "Restaurants" SET "LastOrderNumber" = "LastOrderNumber" + 1 WHERE "Id" = {db.TenantId} RETURNING "LastOrderNumber" """)
+            .ToListAsync(ct)).Single();
+
         var productIds = required.Keys.ToArray();
         // Единый порядок блокировки во всех заказах исключает взаимные блокировки.
         var batches = await db.Batches

@@ -136,7 +136,7 @@ public static class InsightsEndpoints
                 .OrderByDescending(r => r.StopHours).ThenByDescending(r => r.RejectedOrders).ThenBy(r => r.ProductName);
         });
 
-        analytics.MapGet("/stop-cost", async (AppDbContext db, TimeProvider time, StockOptions options, RestaurantOptions restaurant, CancellationToken ct, int days = 14) =>
+        analytics.MapGet("/stop-cost", async (AppDbContext db, TimeProvider time, StockOptions options, CancellationToken ct, int days = 14) =>
         {
             days = Math.Clamp(days, 1, 90);
             var now = time.GetUtcNow();
@@ -148,6 +148,7 @@ public static class InsightsEndpoints
                 .GroupBy(i => i.DishId)
                 .Select(g => new { DishId = g.Key, Portions = g.Sum(i => i.Quantity) })
                 .ToDictionaryAsync(g => g.DishId, g => g.Portions, ct);
+            var restaurant = await db.CurrentRestaurantAsync(ct);
             var (start, end, zone) = (StopCost.ParseTime(restaurant.ShiftStart), StopCost.ParseTime(restaurant.ShiftEnd), TimeSpan.FromHours(options.UtcOffsetHours));
 
             var rows = (await db.Dishes.AsNoTracking().ToListAsync(ct))

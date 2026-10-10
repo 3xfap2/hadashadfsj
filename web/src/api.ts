@@ -284,6 +284,14 @@ export interface Me {
   restaurant: string;
 }
 
+export interface RestaurantSettings {
+  name: string;
+  shiftStart: string;
+  shiftEnd: string;
+  tables: number;
+  hasBar: boolean;
+}
+
 export interface StaffRow {
   id: string;
   login: string;

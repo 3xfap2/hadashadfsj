@@ -77,7 +77,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
 
         model.Entity<Order>(e =>
         {
-            e.Property(o => o.Number).UseIdentityAlwaysColumn();
+            // Номер выдаёт счётчик ресторана (см. OrderService): у каждого ресторана нумерация своя.
+            e.Property(o => o.Number).ValueGeneratedNever();
+            e.HasIndex(o => new { o.RestaurantId, o.Number });
             e.Property(o => o.Place).HasMaxLength(40);
             e.HasIndex(o => o.CreatedAt);
             e.HasMany(o => o.Items).WithOne().HasForeignKey(i => i.OrderId);
@@ -97,7 +99,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
         });
 
         model.Entity<HotSettings>(e => e.HasKey(s => s.RestaurantId));
-        model.Entity<Restaurant>(e => e.Property(r => r.Name).HasMaxLength(120));
+        model.Entity<Restaurant>(e =>
+        {
+            e.Property(r => r.Name).HasMaxLength(120);
+            e.Property(r => r.ShiftStart).HasMaxLength(5);
+            e.Property(r => r.ShiftEnd).HasMaxLength(5);
+        });
 
         model.Entity<PrepItem>(e =>
         {
@@ -137,17 +144,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
 
         model.Entity<Lead>(e =>
         {
-            e.Property(l => l.Name).HasMaxLength(120);
-            e.Property(l => l.Organization).HasMaxLength(120);
-            e.Property(l => l.Contact).HasMaxLength(120);
+            // Личные данные посетителя лежат в базе зашифрованными; длину проверяет приём заявки.
+            e.Property(l => l.Name).HasConversion(PersonalData.Converter);
+            e.Property(l => l.Organization).HasConversion(PersonalData.Converter);
+            e.Property(l => l.Contact).HasConversion(PersonalData.Converter);
             e.Property(l => l.Points).HasMaxLength(20);
-            e.Property(l => l.Comment).HasMaxLength(1000);
+            e.Property(l => l.Comment).HasConversion(PersonalData.NullableConverter);
         });
 
         model.Entity<Chat>(e =>
         {
-            e.Property(c => c.Name).HasMaxLength(120);
-            e.Property(c => c.Contact).HasMaxLength(120);
+            e.Property(c => c.Name).HasConversion(PersonalData.Converter);
+            e.Property(c => c.Contact).HasConversion(PersonalData.Converter);
             e.HasMany(c => c.Messages).WithOne().HasForeignKey(m => m.ChatId);
             e.HasIndex(c => c.LastMessageAt);
         });
@@ -155,7 +163,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
         model.Entity<ChatMessage>(e =>
         {
             e.Property(m => m.Author).HasMaxLength(100);
-            e.Property(m => m.Text).HasMaxLength(1000);
+            e.Property(m => m.Text).HasConversion(PersonalData.Converter);
         });
 
         model.Entity<User>(e =>

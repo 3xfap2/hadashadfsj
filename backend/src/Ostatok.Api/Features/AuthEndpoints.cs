@@ -43,12 +43,11 @@ public sealed record MeResponse(
 /// <param name="Restaurant">Название нового ресторана; его первый пользователь становится управляющим.</param>
 public sealed record RegisterRequest(string? Restaurant, string? Login, string? Password);
 
+/// <summary>Часы смены, с которыми создаётся новый ресторан; дальше каждый ресторан настраивает свои.</summary>
 public sealed class RestaurantOptions
 {
     public string ShiftStart { get; set; } = "12:00";
     public string ShiftEnd { get; set; } = "24:00";
-    /// <summary>Места, откуда приходят заказы: столы и бар.</summary>
-    public string[] Places { get; set; } = [];
 }
 
 /// <summary>
@@ -117,7 +116,7 @@ public static class AuthEndpoints
         .RequireRateLimiting(LoginRateLimit);
 
         // Новый ресторан — отдельное рабочее пространство: свой склад, меню и сотрудники.
-        app.MapPost("/api/auth/register", async (RegisterRequest req, AppDbContext db, AuthOptions options, TimeProvider time, CancellationToken ct) =>
+        app.MapPost("/api/auth/register", async (RegisterRequest req, AppDbContext db, AuthOptions options, RestaurantOptions defaults, TimeProvider time, CancellationToken ct) =>
         {
             var (name, login) = ((req.Restaurant ?? "").Trim(), (req.Login ?? "").Trim().ToLowerInvariant());
             var errors = new Errors()
@@ -128,7 +127,11 @@ public static class AuthEndpoints
             if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Login == login, ct))
                 return Results.Problem("Такой логин уже занят.", statusCode: StatusCodes.Status409Conflict);
 
-            var restaurant = new Restaurant { Id = Guid.NewGuid(), Name = name, CreatedAt = time.GetUtcNow() };
+            var restaurant = new Restaurant
+            {
+                Id = Guid.NewGuid(), Name = name, CreatedAt = time.GetUtcNow(),
+                ShiftStart = defaults.ShiftStart, ShiftEnd = defaults.ShiftEnd,
+            };
             var user = new User
             {
                 Id = Guid.NewGuid(), RestaurantId = restaurant.Id, Login = login, PasswordHash = "", Title = "Управляющий", Role = Role.Manager,
@@ -143,20 +146,33 @@ public static class AuthEndpoints
         .AllowAnonymous()
         .RequireRateLimiting(LeadEndpoints.RateLimit);
 
-        app.MapGet("/api/me", async (ClaimsPrincipal principal, AppDbContext db, RestaurantOptions restaurant, CancellationToken ct) =>
+        app.MapGet("/api/me", async (ClaimsPrincipal principal, AppDbContext db, CancellationToken ct) =>
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Login == principal.Identity!.Name, ct);
             if (user is null) return Results.Unauthorized();
-            var name = await db.Restaurants.Where(r => r.Id == user.RestaurantId).Select(r => r.Name).FirstAsync(ct);
+            var restaurant = await db.CurrentRestaurantAsync(ct);
             return Results.Ok(new MeResponse(
                 user.Login, user.Title, user.Role, Access.Sections(user.Role, user.RestaurantId == Restaurant.DemoId),
-                new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places, name));
+                new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places(), restaurant.Name));
         })
         .WithTags("Вход")
         .RequireAuthorization();
     }
 
     public const string RestaurantClaim = "restaurant";
+    public const string VersionClaim = "ver";
+
+    /// <summary>
+    /// Токен действует, пока учётная запись существует и не менялась: после удаления сотрудника,
+    /// смены роли или пароля старый токен перестаёт работать сразу, а не через часы.
+    /// </summary>
+    public static Task<bool> IsCurrentAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    {
+        var login = principal.Identity?.Name;
+        if (!Guid.TryParse(principal.FindFirst(RestaurantClaim)?.Value, out var restaurant)
+            || !int.TryParse(principal.FindFirst(VersionClaim)?.Value, out var version)) return Task.FromResult(false);
+        return db.Users.IgnoreQueryFilters().AnyAsync(u => u.Login == login && u.RestaurantId == restaurant && u.TokenVersion == version, ct);
+    }
 
     /// <summary>Токен несёт логин, роль и ресторан: по ресторану сервер отбирает данные для каждого запроса.</summary>
     private static LoginResponse Issue(User user, AuthOptions options, TimeProvider time)
@@ -171,6 +187,7 @@ public static class AuthEndpoints
                 new Claim(ClaimTypes.Name, user.Login),
                 new Claim(ClaimTypes.Role, user.Role.ToString()),
                 new Claim(RestaurantClaim, user.RestaurantId.ToString()),
+                new Claim(VersionClaim, user.TokenVersion.ToString()),
             ]),
             IssuedAt = now.UtcDateTime,
             NotBefore = now.UtcDateTime,

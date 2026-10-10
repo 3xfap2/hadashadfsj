@@ -89,6 +89,11 @@ public static class DemoSeed
 
         DemoHistory.Add(db, db.Products.Local.ToList(), db.Dishes.Local.ToList(), now);
 
+        // Заказы истории нумеруются по времени, счётчик ресторана продолжает с последнего номера.
+        var number = 0;
+        foreach (var order in db.Orders.Local.OrderBy(o => o.CreatedAt)) order.Number = ++number;
+        (await db.Restaurants.FirstAsync(r => r.Id == db.TenantId, ct)).LastOrderNumber = number;
+
         await db.SaveChangesAsync(ct);
     }
 }

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { send, useApi, type Me, type StaffRow } from '../api';
+import { RestaurantSettings } from './RestaurantSettings';
 
 const ROLES: { id: StaffRow['role']; title: string; can: string }[] = [
   { id: 'Waiter', title: 'Официант', can: 'оформляет заказы и закрывает столы; видит меню, стоп-лист и горячие предложения' },
@@ -13,7 +14,8 @@ const roleTitle = (role: StaffRow['role']) => ROLES.find((r) => r.id === role)!.
 /** Сотрудники ресторана: управляющий заводит учётные записи и назначает роли. */
 export function Staff() {
   const staff = useApi<StaffRow[]>('/users', 60_000);
-  const me = useApi<Me>('/me', 300_000).data;
+  const profile = useApi<Me>('/me', 300_000);
+  const me = profile.data;
   const [form, setForm] = useState({ login: '', password: '', title: '', role: 'Waiter' as StaffRow['role'] });
   // Сотрудник, которого сейчас правят; null — форма создаёт нового.
   const [editing, setEditing] = useState<StaffRow | null>(null);
@@ -45,7 +47,7 @@ export function Staff() {
       setNote({
         kind: 'ok',
         text: editing
-          ? `Изменения для «${editing.login}» сохранены.${form.password ? ' Передайте сотруднику новый пароль.' : ''} Новая роль действует со следующего входа.`
+          ? `Изменения для «${editing.login}» сохранены.${form.password ? ' Передайте сотруднику новый пароль.' : ''}${form.password || form.role !== editing.role ? ' Его попросят войти заново.' : ''}`
           : `Учётная запись «${form.login.trim().toLowerCase()}» создана. Передайте сотруднику логин и пароль.`,
       });
       setEditing(null);
@@ -76,7 +78,7 @@ export function Staff() {
         <section className="sup-main g-panel" aria-labelledby="staff-h">
           <div className="g-panel__head"><h2 id="staff-h">Учётные записи</h2><span className="end">{staff.data.length}</span></div>
           <div className="g-table-wrap">
-            <table className="g-table">
+            <table className="g-table staff-table">
               <thead><tr><th>Логин</th><th>Должность</th><th>Роль</th><th /></tr></thead>
               <tbody>
                 {staff.data.map((u) => (
@@ -138,6 +140,7 @@ export function Staff() {
               <button className="g-btn g-btn--primary" type="submit" disabled={busy}>{editing ? 'Сохранить' : 'Создать'}</button>
             </div>
           </form>
+          <RestaurantSettings onSaved={profile.reload} />
         </aside>
       </div>
     </>

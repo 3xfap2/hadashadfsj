@@ -65,6 +65,8 @@ public static partial class StaffEndpoints
             if (user.Login == principal.Identity?.Name && req.Role != user.Role)
                 return Results.Problem("Свою роль изменить нельзя.", statusCode: StatusCodes.Status409Conflict);
 
+            // Смена роли или пароля обнуляет выданные токены: сотруднику придётся войти заново.
+            if (req.Role != user.Role || !string.IsNullOrEmpty(req.Password)) user.TokenVersion++;
             (user.Title, user.Role) = (title, req.Role);
             if (!string.IsNullOrEmpty(req.Password)) user.PasswordHash = new PasswordHasher<User>().HashPassword(user, req.Password);
             await db.SaveChangesAsync(ct);

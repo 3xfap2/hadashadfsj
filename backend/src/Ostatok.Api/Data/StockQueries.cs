@@ -37,6 +37,10 @@ public static class StockQueries
             ? new HotRules(row.HorizonHours, row.UrgencyWeight, row.ShareAcrossDishes, row.MaxDiscountPercent)
             : new HotRules(options.HotOfferHours);
 
+    /// <summary>Ресторан, от имени которого идёт запрос.</summary>
+    public static Task<Restaurant> CurrentRestaurantAsync(this AppDbContext db, CancellationToken ct) =>
+        db.Restaurants.AsNoTracking().FirstAsync(r => r.Id == db.TenantId, ct);
+
     public static Task<List<Dish>> LoadDishesAsync(this AppDbContext db, CancellationToken ct) =>
         db.Dishes.AsNoTracking().Include(d => d.Recipe).ThenInclude(r => r.Product).ToListAsync(ct);
 

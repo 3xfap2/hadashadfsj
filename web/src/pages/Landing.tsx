@@ -315,6 +315,7 @@ export function Landing() {
               <p className="lead" style={{ color: '#d7ecc6' }}>Пришлите заявку — подготовим демо с вашими блюдами и покажем, как Остаток встанет в работу кухни.</p>
               <p className="muted">Стоимость рассчитываем под число точек.</p>
               <p>Хотите посмотреть сами? <a className="lnk" href="/app" onClick={(e) => { e.preventDefault(); void openDemo(); }}>Открыть демо-ресторан</a></p>
+              <p>Готовы попробовать на своих продуктах? <Link className="lnk" to="/register">Создать ресторан</Link></p>
               <figure className="pic pic--hall"><img src="/photos/hall.jpg" alt="Зал ресторана вечером" loading="lazy" /></figure>
             </div>
             <RequestForm />

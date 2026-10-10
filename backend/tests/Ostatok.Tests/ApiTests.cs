@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -499,6 +500,34 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task Личные_данные_посетителей_лежат_в_базе_зашифрованными()
+    {
+        using var visitor = fx.CreateClient();
+        var contact = $"secret{Guid.NewGuid():N}@example.com";
+        await visitor.PostAsJsonAsync("/api/leads", new LeadRequest("Анна Тайная", "Кафе", contact, "1", "Перезвоните после шести"));
+        var chat = await Read<ChatResponse>(await visitor.PostAsJsonAsync("/api/chats", new ChatStartRequest("Анна Тайная", contact, "Сколько стоит подключение?")));
+
+        await using var scope = fx.DemoScope();
+        var db = scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.AppDbContext>();
+        // Сырые значения из базы, в обход расшифровки.
+        var raw = await db.Database
+            .SqlQuery<string>($"""
+                SELECT "Contact" || ' ' || "Name" || ' ' || "Organization" || ' ' || COALESCE("Comment", '') AS "Value" FROM "Leads"
+                UNION ALL SELECT "Contact" || ' ' || "Name" AS "Value" FROM "Chats"
+                UNION ALL SELECT "Text" AS "Value" FROM "ChatMessages"
+                """)
+            .ToListAsync();
+
+        Assert.NotEmpty(raw);
+        Assert.All(raw, value => Assert.StartsWith("v1:", value));
+        Assert.DoesNotContain(raw, value => value.Contains(contact) || value.Contains("Анна") || value.Contains("подключение"));
+        // Через API те же данные читаются как обычно.
+        using var manager = await fx.SignInAsync("manager");
+        Assert.Contains((await manager.GetFromJsonAsync<List<LeadResponse>>("/api/leads", ApiFixture.Json))!, l => l.Contact == contact && l.Name == "Анна Тайная");
+        Assert.Equal(contact, (await manager.GetFromJsonAsync<ChatDetails>($"/api/support/chats/{chat.Id}", ApiFixture.Json))!.Contact);
+    }
+
+    [Fact]
     public async Task Заявка_с_лендинга_принимается_без_входа_и_видна_в_кабинете()
     {
         using var visitor = fx.CreateClient();
@@ -629,7 +658,25 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var own = await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 2)]));
         var foreign = await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(theirDish.Id, 1)]));
         Assert.Equal((HttpStatusCode.Created, HttpStatusCode.BadRequest), (own.StatusCode, foreign.StatusCode));
+        // У ресторана своя нумерация заказов и свой зал.
+        Assert.Equal(1, (await Read<OrderResponse>(own)).Number);
+        var hall = await owner.PutAsJsonAsync("/api/restaurant", new RestaurantSettings("Траттория на углу", "10:00", "23:00", 3, false));
+        Assert.Equal(HttpStatusCode.OK, hall.StatusCode);
+        var renamed = (await owner.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!;
+        Assert.Equal(("Траттория на углу", "10:00"), (renamed.Restaurant, renamed.Shift.Start));
+        Assert.Equal(["Стол 1", "Стол 2", "Стол 3"], renamed.Places);
+        Assert.Equal(HttpStatusCode.BadRequest, (await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)], "Стол 7"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PutAsJsonAsync("/api/restaurant", new RestaurantSettings("Траттория", "23:00", "10:00", 3, false))).StatusCode);
         Assert.Equal(0.6m, (await owner.GetFromJsonAsync<List<BatchRow>>("/api/stock/batches", ApiFixture.Json))!.Single().Remaining);
+
+        // Удалённый сотрудник теряет доступ сразу, а не когда истечёт его токен.
+        var temp = await Read<StaffResponse>(await owner.PostAsJsonAsync("/api/users", new StaffRequest($"t{login}"[..20], "temp-2026-pw", "Стажёр", Role.Cook), ApiFixture.Json));
+        using var fired = fx.CreateClient();
+        fired.DefaultRequestHeaders.Authorization = new("Bearer",
+            (await Read<LoginResponse>(await anonymous.PostAsJsonAsync("/api/auth/login", new LoginRequest(temp.Login, "temp-2026-pw")))).Token);
+        Assert.Equal(HttpStatusCode.OK, (await fired.GetAsync("/api/stop-list")).StatusCode);
+        await owner.DeleteAsync($"/api/users/{temp.Id}");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await fired.GetAsync("/api/stop-list")).StatusCode);
         var people = (await owner.GetFromJsonAsync<List<StaffResponse>>("/api/users", ApiFixture.Json))!;
         Assert.Equal(2, people.Count);
 
@@ -642,6 +689,8 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         using var chef = fx.CreateClient();
         chef.DefaultRequestHeaders.Authorization = new("Bearer",
             (await Read<LoginResponse>(await anonymous.PostAsJsonAsync("/api/auth/login", new LoginRequest(waiterLogin, "chef-2026-new")))).Token);
+        // Токен, выданный до смены роли и пароля, больше не действует.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await waiter.GetAsync("/api/stop-list")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await chef.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)]))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await chef.GetAsync("/api/analytics/summary")).StatusCode);
         // Себя управляющий понизить не может, чужого сотрудника не видит.

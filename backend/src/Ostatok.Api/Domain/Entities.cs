@@ -17,6 +17,16 @@ public class Restaurant
     public Guid Id { get; set; }
     public required string Name { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public string ShiftStart { get; set; } = "12:00";
+    public string ShiftEnd { get; set; } = "24:00";
+    public int Tables { get; set; } = 12;
+    public bool HasBar { get; set; } = true;
+    /// <summary>Номер последнего заказа: у каждого ресторана своя нумерация с единицы.</summary>
+    public int LastOrderNumber { get; set; }
+
+    /// <summary>Места, откуда приходят заказы: столы и бар.</summary>
+    public IEnumerable<string> Places() =>
+        Enumerable.Range(1, Tables).Select(n => $"Стол {n}").Concat(HasBar ? ["Бар"] : []);
 }
 
 public class Product : IOwned
@@ -243,4 +253,9 @@ public class User : IOwned
     /// <summary>Должность, которая показывается в шапке кабинета.</summary>
     public string Title { get; set; } = "";
     public Role Role { get; set; }
+    /// <summary>
+    /// Растёт при смене роли или пароля. Токен помнит значение на момент входа: если оно устарело,
+    /// сотрудника просят войти заново.
+    /// </summary>
+    public int TokenVersion { get; set; }
 }

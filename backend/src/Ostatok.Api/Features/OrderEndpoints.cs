@@ -44,13 +44,14 @@ public static class OrderEndpoints
         })
         .RequireRoles(Access.Orders);
 
-        orders.MapPost("", async (OrderRequest req, OrderService service, AppDbContext db, RestaurantOptions restaurant, ClaimsPrincipal user,
+        orders.MapPost("", async (OrderRequest req, OrderService service, AppDbContext db, ClaimsPrincipal user,
             TimeProvider time, StockOptions options, CancellationToken ct) =>
         {
             var items = req.Items ?? [];
             var place = req.Place?.Trim() ?? "";
+            var places = (await db.CurrentRestaurantAsync(ct)).Places();
             var errors = new Errors()
-                .Check(place == "" || restaurant.Places.Contains(place), "place", "Такого места в ресторане нет.")
+                .Check(place == "" || places.Contains(place), "place", "Такого места в ресторане нет.")
                 .Check(items.Count > 0, "items", "В заказе должно быть хотя бы одно блюдо.")
                 .Check(items.All(i => i.Quantity is > 0 and <= 1000), "items", "Количество порций — от 1 до 1000.");
 

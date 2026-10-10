@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { post, useApi, type BatchRow, type HotOffer, type OrderRow, type StopListRow } from '../api';
+import { post, useApi, type BatchRow, type HotOffer, type OrderRow, type ProductRow, type StopListRow, type SupplyRow } from '../api';
 import { clock, duration, isToday, money, plural, portions, qty, today, until } from '../format';
 import { BatchLabel, Photo, PlusIcon, URGENT_HOURS, useCan } from '../ui';
 
@@ -16,10 +16,13 @@ export function Today() {
   const stopList = useApi<StopListRow[]>('/stop-list');
   const batches = useApi<BatchRow[]>('/stock/batches');
   const orders = useApi<OrderRow[]>('/orders?take=200');
+  const products = useApi<ProductRow[]>('/products', 60_000);
+  const supplies = useApi<SupplyRow[]>('/supplies', 60_000);
   const [writingOff, setWritingOff] = useState(false);
   const canOrder = useCan('orders');
   const canStock = useCan('stock');
   const canTune = useCan('catalog');
+  const canStaff = useCan('staff');
 
   const error = offers.error ?? stopList.error ?? batches.error ?? orders.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить данные</h3><span>{error}</span></div>;
@@ -51,6 +54,27 @@ export function Today() {
           {canOrder && <Link className="g-btn g-btn--primary" to="/app/orders"><PlusIcon />Новый заказ</Link>}
         </div>
       </div>
+
+      {products.data && supplies.data && (products.data.length === 0 || stopList.data.length === 0 || supplies.data.length === 0) && (
+        <section className="g-panel start" aria-labelledby="start-h">
+          <div className="g-panel__head"><h2 id="start-h">С чего начать</h2><span className="end">три шага до первого заказа</span></div>
+          <ol className="start__steps">
+            <li className={products.data.length > 0 ? 'done' : ''}>
+              <strong>Заведите продукты</strong>
+              <span>Название, единица, срок хранения и цена закупки. {canTune ? <Link to="/app/catalog">Справочник продуктов</Link> : 'Это делает управляющий или шеф-повар.'}</span>
+            </li>
+            <li className={stopList.data.length > 0 ? 'done' : ''}>
+              <strong>Добавьте блюда и техкарты</strong>
+              <span>Сколько какого продукта идёт в порцию — по техкарте система списывает продукты и ведёт стоп-лист. {canTune && <Link to="/app/catalog/dishes">Блюда и техкарты</Link>}</span>
+            </li>
+            <li className={supplies.data.length > 0 ? 'done' : ''}>
+              <strong>Примите первую поставку</strong>
+              <span>Каждая позиция станет партией со своим сроком годности. {canStock && <Link to="/app/stock/supplies">Принять поставку</Link>}</span>
+            </li>
+          </ol>
+          {canStaff && <p className="muted start__note">Заказы оформляет официант: заведите ему учётную запись в разделе <Link to="/app/staff">«Сотрудники»</Link>.</p>}
+        </section>
+      )}
 
       <dl className="g-kpis">
         <div className={`g-kpi${stopped.length > 0 ? ' g-kpi--red' : ''}`}>

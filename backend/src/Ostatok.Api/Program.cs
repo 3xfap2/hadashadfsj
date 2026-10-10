@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -8,6 +9,9 @@ using Ostatok.Api.Data;
 using Ostatok.Api.Features;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Ключ шифрования личных данных; отдельной настройки может не быть — тогда он выводится из секрета токенов.
+PersonalData.Configure(builder.Configuration["Crypto:Key"] ?? builder.Configuration["Auth:Key"] ?? "");
 
 builder.Services.AddSingleton<EventBus>();
 builder.Services.AddScoped<Tenant>();
@@ -95,6 +99,19 @@ builder.Services.AddOpenApi();
 var app = builder.Build();
 
 app.UseExceptionHandler();
+if (!app.Environment.IsDevelopment()) app.UseHsts();
+// Заголовки защиты: не угадывать тип содержимого, не встраивать API во фреймы, не передавать адрес страницы
+// другим сайтам (в адресе потока событий есть токен).
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers.XContentTypeOptions = "nosniff";
+    headers.XFrameOptions = "DENY";
+    headers["Referrer-Policy"] = "no-referrer";
+    // Ответы API с данными ресторана не должны оседать в кэше браузера и прокси; фото блюд кэшировать можно.
+    if (!context.Request.Path.Value!.EndsWith("/photo", StringComparison.Ordinal)) headers.CacheControl = "no-store";
+    await next();
+});
 app.UseStatusCodePages();
 app.UseCors();
 app.UseRateLimiter();
@@ -104,8 +121,16 @@ app.UseAuthorization();
 // Ресторан берётся из токена: дальше все запросы к базе видят только его данные.
 app.Use(async (context, next) =>
 {
-    if (Guid.TryParse(context.User.FindFirst(AuthEndpoints.RestaurantClaim)?.Value, out var restaurant))
-        context.RequestServices.GetRequiredService<Tenant>().Id = restaurant;
+    if (context.User.Identity?.IsAuthenticated == true)
+    {
+        var db = context.RequestServices.GetRequiredService<AppDbContext>();
+        if (!await AuthEndpoints.IsCurrentAsync(context.User, db, context.RequestAborted))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+        context.RequestServices.GetRequiredService<Tenant>().Id = Guid.Parse(context.User.FindFirstValue(AuthEndpoints.RestaurantClaim)!);
+    }
     await next();
 });
 
@@ -127,6 +152,7 @@ api.MapHotSettings();
 api.MapAlerts();
 api.MapSimulator();
 api.MapStaff();
+api.MapRestaurant();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

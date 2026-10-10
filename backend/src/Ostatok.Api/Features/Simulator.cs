@@ -65,7 +65,7 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
         var db = services.GetRequiredService<AppDbContext>();
         var dishes = await db.Dishes.Where(d => !d.ManuallyStopped).Select(d => d.Id).ToListAsync(ct);
         if (dishes.Count == 0) return;
-        var places = services.GetRequiredService<RestaurantOptions>().Places;
+        var places = (await db.CurrentRestaurantAsync(ct)).Places().ToArray();
 
         // Блюда выбираются вслепую, как их заказывают гости: иногда заказ упирается в нехватку и отклоняется.
         var lines = Enumerable.Range(0, _random.Next(1, 3))
