@@ -316,6 +316,9 @@ namespace Ostatok.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -349,6 +352,9 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.Property<Guid>("DishId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("DiscountPercent")
+                        .HasColumnType("integer");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("integer");

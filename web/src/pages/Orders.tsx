@@ -20,6 +20,8 @@ export function Orders() {
   const [chosenPlace, setPlace] = useState('');
   const place = chosenPlace || places[0] || '';
   const [cart, setCart] = useState<Record<string, number>>({});
+  // Блюда, которые кассир продаёт со скидкой горячего предложения.
+  const [discounted, setDiscounted] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
   const [result, setResult] = useState<Result>(null);
   const [busy, setBusy] = useState(false);
@@ -34,7 +36,10 @@ export function Orders() {
   const stopped = dishes.filter((d) => d.status === 'Stop').length;
   const inCart = dishes.filter((d) => cart[d.dishId]);
   const count = inCart.reduce((s, d) => s + cart[d.dishId], 0);
-  const total = inCart.reduce((s, d) => s + d.price * cart[d.dishId], 0);
+  // Скидка действует, пока блюдо остаётся в горячих предложениях; её размер считает сервер.
+  const discountOf = (dishId: string) => (discounted[dishId] ? offers.data!.find((o) => o.dishId === dishId)?.discount ?? null : null);
+  const priceOf = (d: StopListRow) => discountOf(d.dishId)?.price ?? d.price;
+  const total = inCart.reduce((s, d) => s + priceOf(d) * cart[d.dishId], 0);
 
   const change = (dishId: string, delta: number) =>
     setCart((c) => {
@@ -43,10 +48,10 @@ export function Orders() {
       return next;
     });
 
-  // Что сегодня уже заказывали за каждым столом: сумма и время последнего заказа.
+  // Открытые заказы за каждым столом: сумма и время последнего. После «Закрыть стол» он снова свободен.
   const served = new Map<string, { total: number; last: string }>();
   for (const o of orders.data ?? []) {
-    if (o.status !== 'Accepted' || !o.place || !isToday(o.createdAt)) continue;
+    if (o.status !== 'Accepted' || !o.place || o.closedAt || !isToday(o.createdAt)) continue;
     const seen = served.get(o.place);
     served.set(o.place, { total: (seen?.total ?? 0) + o.total, last: seen && seen.last > o.createdAt ? seen.last : o.createdAt });
   }
@@ -54,10 +59,14 @@ export function Orders() {
   const submit = async () => {
     setBusy(true);
     try {
-      const response = await post('/orders', { place, items: Object.entries(cart).map(([dishId, quantity]) => ({ dishId, quantity })) });
+      const response = await post('/orders', {
+        place,
+        items: Object.entries(cart).map(([dishId, quantity]) => ({ dishId, quantity, discount: Boolean(discountOf(dishId)) })),
+      });
       if (response.status === 201) {
         setResult({ kind: 'ok', order: await response.json() });
         setCart({});
+        setDiscounted({});
       } else if (response.status === 409) {
         setResult({ kind: 'rejected', order: await response.json() });
       } else {
@@ -67,6 +76,14 @@ export function Orders() {
     } catch (e) {
       setResult({ kind: 'error', message: (e as Error).message });
     }
+    setBusy(false);
+  };
+
+  const open = served.get(place);
+  const closeTable = async () => {
+    setBusy(true);
+    await post('/orders/close', { place });
+    await orders.reload();
     setBusy(false);
   };
 
@@ -81,7 +98,13 @@ export function Orders() {
         <section className="g-panel hall" aria-labelledby="hall-h">
           <div className="g-panel__head">
             <h2 id="hall-h">Зал</h2>
-            <span className="end">выберите стол · под номером — заказы за сегодня</span>
+            {open ? (
+              <button className="g-btn g-btn--sm end" type="button" disabled={busy} onClick={closeTable}>
+                Закрыть {place.toLowerCase()} · <span className="num">{money(open.total)}</span>
+              </button>
+            ) : (
+              <span className="end">выберите стол · под номером — открытые заказы</span>
+            )}
           </div>
           <div className="hall__grid" role="group" aria-label="Стол">
             {places.map((p) => {
@@ -134,6 +157,8 @@ export function Orders() {
                   first={offers.data![0]?.dishId === d.dishId}
                   quantity={cart[d.dishId] ?? 0}
                   onChange={(delta) => change(d.dishId, delta)}
+                  discounted={Boolean(discounted[d.dishId])}
+                  onDiscount={() => setDiscounted((x) => ({ ...x, [d.dishId]: !x[d.dishId] }))}
                 />
               ))}
             </ul>
@@ -151,9 +176,12 @@ export function Orders() {
                   <li key={d.dishId} className="ord-row">
                     <span className="ord-row__text">
                       <span className="g-name">{d.dishName}</span>
-                      <span className="muted num small">{cart[d.dishId]} × {money(d.price)}</span>
+                      <span className="muted num small">
+                        {cart[d.dishId]} × {money(priceOf(d))}
+                        {discountOf(d.dishId) && ` · скидка ${discountOf(d.dishId)!.percent}%`}
+                      </span>
                     </span>
-                    <span className="num r hd ord-row__sum">{money(d.price * cart[d.dishId])}</span>
+                    <span className="num r hd ord-row__sum">{money(priceOf(d) * cart[d.dishId])}</span>
                     <button className="x" type="button" aria-label={`Удалить ${d.dishName}`} onClick={() => change(d.dishId, -cart[d.dishId])}>
                       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
                     </button>
@@ -187,8 +215,11 @@ export function Orders() {
   );
 }
 
-function DishRow(props: { dish: StopListRow; offer?: HotOffer; first: boolean; quantity: number; onChange: (delta: number) => void }) {
-  const { dish, offer, first, quantity, onChange } = props;
+function DishRow(props: {
+  dish: StopListRow; offer?: HotOffer; first: boolean; quantity: number; onChange: (delta: number) => void;
+  discounted: boolean; onDiscount: () => void;
+}) {
+  const { dish, offer, first, quantity, onChange, discounted, onDiscount } = props;
   const stop = dish.status === 'Stop';
   const expiring = offer?.ingredients[0];
 
@@ -216,6 +247,11 @@ function DishRow(props: { dish: StopListRow; offer?: HotOffer; first: boolean; q
             <span className={tag.className}>{tag.text}</span>
             {tag.note && <span>{tag.note}</span>}
           </span>
+        )}
+        {!stop && offer?.discount && (
+          <button className="dish-row__discount" type="button" aria-pressed={discounted} title={offer.discount.reason} onClick={onDiscount}>
+            {discounted ? `Со скидкой ${offer.discount.percent}% — ${money(offer.discount.price)}` : `Продать со скидкой ${offer.discount.percent}% — ${money(offer.discount.price)}`}
+          </button>
         )}
       </div>
       <span className="num r hd dish-row__wide">{money(dish.price)}</span>
@@ -253,7 +289,7 @@ function ResultNote({ result }: { result: Result }) {
   }
   return (
     <section className="g-note g-note--ok" aria-live="polite">
-      <h3>Заказ № {order.number} принят · <span className="num">{clock(order.createdAt)}</span></h3>
+      <h3>Заказ № {order.number} принят · <span className="num">{clock(order.createdAt)}</span> · <span className="num">{money(order.total)}</span></h3>
       <span className="muted small">Списано из партий с ближайшим сроком:</span>
       <ul>
         {order.writeOffs.map((w, i) => (

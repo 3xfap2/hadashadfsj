@@ -4,7 +4,8 @@ using Ostatok.Api.Domain;
 
 namespace Ostatok.Api.Features;
 
-public sealed record OrderLine(Guid DishId, int Quantity);
+/// <param name="Discount">Продать со скидкой горячего предложения, если она сейчас действует.</param>
+public sealed record OrderLine(Guid DishId, int Quantity, bool Discount = false);
 
 public sealed class OrderService(AppDbContext db, TimeProvider time)
 {
@@ -13,7 +14,9 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
     /// блокируются на время заказа, поэтому два одновременных заказа не спишут один и тот же остаток.
     /// Заказ с нехваткой сохраняется как отклонённый — по ним считается статистика дефицита.
     /// </summary>
-    public async Task<Order> PlaceAsync(IReadOnlyCollection<OrderLine> lines, string place, string actor, CancellationToken ct)
+    public async Task<Order> PlaceAsync(
+        IReadOnlyCollection<OrderLine> lines, string place, string actor, CancellationToken ct,
+        IReadOnlyDictionary<Guid, int>? discounts = null)
     {
         var quantities = lines.GroupBy(l => l.DishId).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
         var dishes = await db.Dishes
@@ -32,7 +35,9 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
             Id = Guid.NewGuid(),
             CreatedAt = now,
             Place = place,
-            Items = quantities.Select(q => new OrderItem { DishId = q.Key, Quantity = q.Value }).ToList(),
+            Items = quantities
+                .Select(q => new OrderItem { DishId = q.Key, Quantity = q.Value, DiscountPercent = discounts?.GetValueOrDefault(q.Key) ?? 0 })
+                .ToList(),
         };
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);

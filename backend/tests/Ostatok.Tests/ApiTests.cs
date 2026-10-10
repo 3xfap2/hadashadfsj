@@ -411,6 +411,31 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task Скидку_горячего_предложения_назначает_сервер_а_стол_закрывается()
+    {
+        var product = await Product(shelfLifeHours: 48);
+        var dish = await Dish((product, 0.2m));
+        var longLife = await Product(shelfLifeHours: 720);
+        var calm = await Dish((longLife, 0.2m));
+        // 2 кг истекают через 4 часа, продаж не было: горячее предложение со скидкой 35% (цена 500 → 325).
+        await Supply(new SupplyItemRequest(product.Id, 2, 4), new SupplyItemRequest(longLife.Id, 5, null));
+
+        var discounted = await Read<OrderResponse>(await Api.PostAsJsonAsync("/api/orders",
+            new OrderRequest([new OrderLine(dish.Id, 2, Discount: true), new OrderLine(calm.Id, 1, Discount: true)], "Стол 7")));
+
+        // У второго блюда ничего не истекает: скидку просили, но сервер её не дал.
+        Assert.Equal([35, 0], discounted.Items.Select(i => i.DiscountPercent).OrderDescending());
+        Assert.Equal(325 * 2 + 500, discounted.Total);
+
+        var closed = await Api.PostAsJsonAsync("/api/orders/close", new CloseTableRequest("Стол 7"));
+        var again = await Api.PostAsJsonAsync("/api/orders/close", new CloseTableRequest("Стол 7"));
+
+        Assert.True((await Read<CloseTableResponse>(closed)).Total >= 1150);
+        Assert.Equal(HttpStatusCode.NotFound, again.StatusCode);
+        Assert.NotNull((await Get<List<OrderResponse>>("/api/orders?take=200")).Single(o => o.Id == discounted.Id).ClosedAt);
+    }
+
+    [Fact]
     public async Task Заявка_с_лендинга_принимается_без_входа_и_видна_в_кабинете()
     {
         using var visitor = fx.CreateClient();

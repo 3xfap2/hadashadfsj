@@ -113,6 +113,8 @@ public class Order
     public OrderStatus Status { get; set; }
     /// <summary>Откуда заказ: стол или бар. Пусто, если заказ пришёл без места (например, из кассы).</summary>
     public string Place { get; set; } = "";
+    /// <summary>Когда стол закрыли (гость расплатился); пусто, пока заказ открыт.</summary>
+    public DateTimeOffset? ClosedAt { get; set; }
     public List<OrderItem> Items { get; set; } = [];
     /// <summary>Чего не хватило; заполнено только у отклонённого заказа.</summary>
     public List<OrderShortage> Shortages { get; set; } = [];
@@ -124,6 +126,8 @@ public class OrderItem
     public Guid DishId { get; set; }
     public Dish? Dish { get; set; }
     public int Quantity { get; set; }
+    /// <summary>Скидка по горячему предложению, действовавшая в момент заказа; 0 — без скидки.</summary>
+    public int DiscountPercent { get; set; }
 }
 
 public class OrderShortage

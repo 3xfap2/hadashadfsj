@@ -2461,6 +2461,29 @@ body {
   }
 }
 
+.dish-row__discount {
+  all: unset;
+  align-self: flex-start;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+
+  &[aria-pressed='true'] {
+    padding: 2px 8px;
+    border-radius: var(--r-tag);
+    background: var(--hl);
+    text-decoration: none;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+}
+
 // ---------- Журнал и генератор ----------
 
 .journal {

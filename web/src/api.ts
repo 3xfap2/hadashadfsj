@@ -240,7 +240,9 @@ export interface OrderRow {
   status: 'Accepted' | 'Rejected';
   place: string;
   total: number;
-  items: { dishId: string; dishName: string; quantity: number }[];
+  items: { dishId: string; dishName: string; quantity: number; discountPercent: number }[];
+  /** Когда стол закрыли; null, пока заказ открыт. */
+  closedAt: string | null;
   shortages: Shortage[];
   writeOffs: { productName: string; unit: Unit; supplyNumber: string; quantity: number }[];
 }
