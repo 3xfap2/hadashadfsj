@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -35,6 +36,9 @@ builder.Services.AddSingleton(sp =>
 {
     var auth = sp.GetRequiredService<IConfiguration>().GetSection("Auth").Get<AuthOptions>() ?? new AuthOptions();
     if (auth.Key.Length < 32) throw new InvalidOperationException("Задайте Auth:Key — секрет не короче 32 символов.");
+    // Ключ из настроек разработки лежит в репозитории: на сервере с ним токен мог бы подделать кто угодно.
+    if (!sp.GetRequiredService<IHostEnvironment>().IsDevelopment() && auth.Key.Contains("development", StringComparison.OrdinalIgnoreCase))
+        throw new InvalidOperationException("Auth:Key взят из настроек разработки. Задайте свой секрет переменной окружения Auth__Key.");
     return auth;
 });
 builder.Services.AddSingleton<LoginAttempts>();
@@ -60,6 +64,8 @@ builder.Services.AddSingleton<IConfigureOptions<JwtBearerOptions>>(sp =>
             ValidIssuer = AuthOptions.Issuer,
             ValidAudience = AuthOptions.Issuer,
             IssuerSigningKey = sp.GetRequiredService<AuthOptions>().SigningKey,
+            // Принимается только тот алгоритм подписи, которым токены выдаются.
+            ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
             // Срок токена проверяется по тем же часам, по которым он выдан.
             LifetimeValidator = (notBefore, expires, _, _) =>
             {
@@ -96,7 +102,20 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 
+// Тело запроса: самое большое, что принимает API, — фото блюда до 10 МБ.
+builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = 12_000_000);
+
 var app = builder.Build();
+
+// За обратным прокси хостинга адрес клиента приходит в заголовке X-Forwarded-For. Доверять ему можно,
+// только если перед сервером действительно стоит прокси: иначе заголовок подделывается и обходит ограничения частоты.
+if (app.Configuration.GetValue<bool>("Proxy:TrustForwardedHeaders"))
+{
+    var forwarded = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto };
+    forwarded.KnownIPNetworks.Clear();
+    forwarded.KnownProxies.Clear();
+    app.UseForwardedHeaders(forwarded);
+}
 
 app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment()) app.UseHsts();

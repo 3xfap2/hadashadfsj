@@ -6,7 +6,8 @@ services:
       POSTGRES_USER: ostatok
       POSTGRES_PASSWORD: ostatok
     ports:
-      - "5433:5432"
+      # Только с этого компьютера: база с паролем для разработки не должна быть видна из сети.
+      - "127.0.0.1:5433:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:

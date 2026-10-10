@@ -54,26 +54,31 @@ public sealed class RestaurantOptions
 /// Защита от подбора пароля: после нескольких неверных попыток подряд логин блокируется на время.
 /// Счёт ведётся по введённому логину, а не по учётной записи, поэтому ответ одинаков
 /// для существующих и несуществующих логинов и не выдаёт, какие из них заняты.
+/// Блокируется пара «логин + адрес»: чужие неверные попытки не закроют вход настоящему сотруднику.
 /// </summary>
 public sealed class LoginAttempts(AuthOptions options, TimeProvider time)
 {
     private readonly ConcurrentDictionary<string, (int Failed, DateTimeOffset LockedUntil)> _state = new();
 
-    private static string Key(string? login) => (login ?? "").Trim().ToLowerInvariant();
+    private const int MaxTracked = 50_000;
+
+    private static string Key(string? login, string address) => $"{(login ?? "").Trim().ToLowerInvariant()}|{address}";
 
     /// <summary>Сколько минут осталось до разблокировки; 0 — вход разрешён.</summary>
-    public int LockedMinutes(string? login)
+    public int LockedMinutes(string? login, string address)
     {
-        if (!_state.TryGetValue(Key(login), out var s)) return 0;
+        if (!_state.TryGetValue(Key(login, address), out var s)) return 0;
         var left = s.LockedUntil - time.GetUtcNow();
         return left > TimeSpan.Zero ? (int)Math.Ceiling(left.TotalMinutes) : 0;
     }
 
     /// <summary>Учитывает неверную попытку и возвращает, сколько попыток осталось.</summary>
-    public int Fail(string? login)
+    public int Fail(string? login, string address)
     {
         var now = time.GetUtcNow();
-        var state = _state.AddOrUpdate(Key(login), _ => (1, default), (_, s) =>
+        // Перебор случайных логинов не должен занять всю память: старые записи сбрасываются.
+        if (_state.Count > MaxTracked) _state.Clear();
+        var state = _state.AddOrUpdate(Key(login, address), _ => (1, default), (_, s) =>
         {
             // Блокировка истекла — счёт начинается заново.
             var failed = s.LockedUntil != default && s.LockedUntil <= now ? 1 : s.Failed + 1;
@@ -82,7 +87,7 @@ public sealed class LoginAttempts(AuthOptions options, TimeProvider time)
         return Math.Max(0, options.MaxFailedLogins - state.Failed);
     }
 
-    public void Reset(string? login) => _state.TryRemove(Key(login), out _);
+    public void Reset(string? login, string address) => _state.TryRemove(Key(login, address), out _);
 }
 
 public static class AuthEndpoints
@@ -91,9 +96,10 @@ public static class AuthEndpoints
 
     public static void MapAuth(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/api/auth/login", async (LoginRequest req, AppDbContext db, AuthOptions options, LoginAttempts attempts, TimeProvider time, CancellationToken ct) =>
+        app.MapPost("/api/auth/login", async (LoginRequest req, HttpContext http, AppDbContext db, AuthOptions options, LoginAttempts attempts, TimeProvider time, CancellationToken ct) =>
         {
-            if (attempts.LockedMinutes(req.Login) is > 0 and var minutes)
+            var address = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            if (attempts.LockedMinutes(req.Login, address) is > 0 and var minutes)
                 return Locked(minutes);
 
             // До входа ресторан неизвестен: учётная запись ищется по логину среди всех.
@@ -101,14 +107,14 @@ public static class AuthEndpoints
             var hasher = new PasswordHasher<User>();
             if (user is null || hasher.VerifyHashedPassword(user, user.PasswordHash, req.Password ?? "") == PasswordVerificationResult.Failed)
             {
-                var left = attempts.Fail(req.Login);
+                var left = attempts.Fail(req.Login, address);
                 return left == 0
                     ? Locked(options.LockoutMinutes)
                     : Results.Problem("Неверный логин или пароль.", statusCode: StatusCodes.Status401Unauthorized,
                         extensions: new Dictionary<string, object?> { ["attemptsLeft"] = left });
             }
 
-            attempts.Reset(req.Login);
+            attempts.Reset(req.Login, address);
             return Results.Ok(Issue(user, options, time));
         })
         .WithTags("Вход")

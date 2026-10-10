@@ -11,15 +11,22 @@ public sealed record SimulatorSettings(bool Running, int OrdersPerMinute);
 public sealed class SimulatorState
 {
     private static readonly SimulatorSettings Off = new(false, 6);
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SimulatorSettings> _settings = new();
+    /// <summary>Генератор выключается сам: забытый поток заказов не должен заполнять базу сутками.</summary>
+    public static readonly TimeSpan MaxRun = TimeSpan.FromMinutes(30);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (SimulatorSettings Settings, DateTimeOffset Since)> _settings = new();
 
     /// <summary>Настройки генератора ресторана; у каждого ресторана он свой.</summary>
-    public SimulatorSettings Get(Guid restaurant) => _settings.GetValueOrDefault(restaurant, Off);
+    public SimulatorSettings Get(Guid restaurant) => _settings.TryGetValue(restaurant, out var s) ? s.Settings : Off;
 
-    public void Set(Guid restaurant, SimulatorSettings settings) => _settings[restaurant] = settings;
+    public void Set(Guid restaurant, SimulatorSettings settings, DateTimeOffset now) => _settings[restaurant] = (settings, now);
 
-    public IReadOnlyList<(Guid Restaurant, SimulatorSettings Settings)> Running() =>
-        _settings.Where(s => s.Value.Running).Select(s => (s.Key, s.Value)).ToList();
+    public IReadOnlyList<(Guid Restaurant, SimulatorSettings Settings)> Running(DateTimeOffset now)
+    {
+        foreach (var (restaurant, state) in _settings)
+            if (state.Settings.Running && now - state.Since > MaxRun)
+                _settings[restaurant] = (state.Settings with { Running = false }, state.Since);
+        return _settings.Where(s => s.Value.Settings.Running).Select(s => (s.Key, s.Value.Settings)).ToList();
+    }
 }
 
 /// <summary>
@@ -40,7 +47,7 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
         while (await timer.WaitForNextTickAsync(stop))
         {
             _ticks++;
-            foreach (var (restaurant, settings) in state.Running())
+            foreach (var (restaurant, settings) in state.Running(time.GetUtcNow()))
             {
                 try
                 {
@@ -132,11 +139,11 @@ public static class SimulatorEndpoints
 
         simulator.MapGet("", (SimulatorState state, Tenant tenant) => state.Get(tenant.Id));
 
-        simulator.MapPut("", (SimulatorSettings req, SimulatorState state, Tenant tenant, EventBus bus) =>
+        simulator.MapPut("", (SimulatorSettings req, SimulatorState state, Tenant tenant, TimeProvider time, EventBus bus) =>
         {
             if (req.OrdersPerMinute is < 1 or > 120)
                 return new Errors().Add("ordersPerMinute", "Заказов в минуту — от 1 до 120.").ToResult();
-            state.Set(tenant.Id, req);
+            state.Set(tenant.Id, req, time.GetUtcNow());
             bus.Publish();
             return Results.Ok(req);
         });

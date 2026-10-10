@@ -4,3 +4,7 @@ bin
 obj
 *.user
 .vs
+.env
+.env.*
+*.pem
+*.key
