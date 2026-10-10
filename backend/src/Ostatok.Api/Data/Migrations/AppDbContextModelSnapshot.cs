@@ -383,6 +383,25 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("OrderShortage");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.PrepItem", b =>
+                {
+                    b.Property<Guid>("PrepId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.HasKey("PrepId", "ProductId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("PrepItem");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Product", b =>
                 {
                     b.Property<Guid>("Id")
@@ -608,6 +627,21 @@ namespace Ostatok.Api.Data.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.PrepItem", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Product", null)
+                        .WithMany("PrepRecipe")
+                        .HasForeignKey("PrepId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.RecipeItem", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Dish", null)
@@ -651,6 +685,11 @@ namespace Ostatok.Api.Data.Migrations
                     b.Navigation("Items");
 
                     b.Navigation("Shortages");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Product", b =>
+                {
+                    b.Navigation("PrepRecipe");
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Supply", b =>

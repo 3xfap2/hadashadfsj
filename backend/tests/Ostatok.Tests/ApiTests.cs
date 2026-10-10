@@ -370,6 +370,47 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task Заготовка_списывает_сырьё_и_приходит_на_склад_партией_со_своим_сроком()
+    {
+        var cream = await Product(shelfLifeHours: 120);
+        var cheese = await Product(shelfLifeHours: 720);
+        var created = await Api.PostAsJsonAsync("/api/products", new ProductRequest(
+            $"Соус {Guid.NewGuid():N}", Unit.L, 48, 0, [new RecipeItemDto(cream.Id, 0.5m), new RecipeItemDto(cheese.Id, 0.2m)]), ApiFixture.Json);
+        var sauce = await Read<ProductResponse>(created);
+        var dish = await Dish((sauce, 0.1m));
+        // Сливки двумя партиями: в заготовку должна уйти та, что истекает раньше.
+        await Supply(new SupplyItemRequest(cream.Id, 1, 100), new SupplyItemRequest(cream.Id, 1, 10), new SupplyItemRequest(cheese.Id, 1, null));
+
+        // Цена заготовки считается по составу: 0,5 × 1000 + 0,2 × 1000.
+        Assert.Equal(700, sauce.Cost);
+        Assert.Equal(DishStatus.Stop, (await StopListRow(dish)).Status);
+        var plan = (await Get<List<PrepRow>>("/api/preps")).Single(p => p.ProductId == sauce.Id);
+        Assert.Equal(4, plan.MaxQuantity);
+
+        var tooMuch = await Api.PostAsJsonAsync("/api/preps", new PrepRequest(sauce.Id, 6));
+        var made = await Api.PostAsJsonAsync("/api/preps", new PrepRequest(sauce.Id, 2));
+
+        // На 6 л не хватает сыра (нужно 1,2 кг, есть 1) и сливок: ничего не списано.
+        Assert.Equal(HttpStatusCode.Conflict, tooMuch.StatusCode);
+        Assert.Contains((await Read<PrepResponse>(tooMuch)).Shortages, s => s.ProductId == cheese.Id && s.Required == 1.2m && s.Available == 1);
+        Assert.Equal(HttpStatusCode.Created, made.StatusCode);
+        var response = await Read<PrepResponse>(made);
+        Assert.Equal(fx.Time.GetUtcNow().AddHours(48), response.ExpiresAt);
+        Assert.StartsWith("З-", response.SupplyNumber);
+        // Партия сливок с ранним сроком израсходована полностью, поздняя не тронута.
+        Assert.Equal([1m], (await Batches(cream)).Select(b => b.Remaining));
+        Assert.Equal(0.6m, (await Batches(cheese)).Single().Remaining);
+        Assert.Equal(2, (await Batches(sauce)).Single().Remaining);
+        Assert.Equal(DishStatus.Available, (await StopListRow(dish)).Status);
+
+        // Заготовку нельзя включить в состав другой заготовки, а закупать её не предлагают.
+        var nested = await Api.PostAsJsonAsync("/api/products", new ProductRequest(
+            $"Соус {Guid.NewGuid():N}", Unit.L, 48, 0, [new RecipeItemDto(sauce.Id, 0.5m)]), ApiFixture.Json);
+        Assert.Equal(HttpStatusCode.BadRequest, nested.StatusCode);
+        Assert.DoesNotContain(await Get<List<PurchaseRow>>("/api/purchase-suggestions"), p => p.ProductId == sauce.Id);
+    }
+
+    [Fact]
     public async Task Заявка_с_лендинга_принимается_без_входа_и_видна_в_кабинете()
     {
         using var visitor = fx.CreateClient();

@@ -41,13 +41,21 @@ interface ProductForm {
   /** Срок вводится в днях, если он длиннее пяти суток и кратен суткам, иначе в часах. */
   lifeInDays: boolean;
   cost: string;
+  /** Состав заготовки на единицу продукта; пусто у покупного продукта. */
+  prep: RecipeLine[];
 }
 
-const emptyProduct: ProductForm = { id: null, name: '', unit: 'Kg', life: '', lifeInDays: false, cost: '' };
+const emptyProduct: ProductForm = { id: null, name: '', unit: 'Kg', life: '', lifeInDays: false, cost: '', prep: [] };
 
-function toForm(p: ProductRow): ProductForm {
+function toForm(p: ProductRow, products: ProductRow[]): ProductForm {
   const inDays = p.shelfLifeHours > 120 && p.shelfLifeHours % 24 === 0;
-  return { id: p.id, name: p.name, unit: p.unit, life: String(inDays ? p.shelfLifeHours / 24 : p.shelfLifeHours), lifeInDays: inDays, cost: String(p.cost).replace('.', ',') };
+  return {
+    id: p.id, name: p.name, unit: p.unit, life: String(inDays ? p.shelfLifeHours / 24 : p.shelfLifeHours), lifeInDays: inDays, cost: String(p.cost).replace('.', ','),
+    prep: p.prepRecipe.map((r) => {
+      const unit = products.find((x) => x.id === r.productId)!.unit;
+      return { productId: r.productId, quantity: String(Math.round(r.quantity * small(unit) * 1000) / 1000).replace('.', ',') };
+    }),
+  };
 }
 
 export function Products() {
@@ -59,7 +67,7 @@ export function Products() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!form && products.data?.length) setForm(toForm(products.data[0]));
+    if (!form && products.data?.length) setForm(toForm(products.data[0], products.data));
   }, [form, products.data]);
 
   const error = products.error ?? dishes.error;
@@ -67,21 +75,31 @@ export function Products() {
   if (!products.data || !dishes.data || !form) return <p className="muted">Загружаем справочник…</p>;
 
   const usedIn = form.id ? dishes.data.filter((d) => d.recipe.some((r) => r.productId === form.id)).length : 0;
-  const bad = { name: tried && !form.name.trim(), life: tried && !(number(form.life) > 0), cost: tried && !(number(form.cost) > 0) };
+  const isPrep = form.prep.length > 0;
+  const prepOk = form.prep.every((l) => number(l.quantity) > 0);
+  const byId = (id: string) => products.data!.find((p) => p.id === id)!;
+  // В состав заготовки идут только покупные продукты, кроме неё самой и уже выбранных.
+  const raw = products.data.filter((p) => p.prepRecipe.length === 0 && p.id !== form.id && !form.prep.some((l) => l.productId === p.id));
+  const prepCost = form.prep.reduce((sum, l) => sum + ((number(l.quantity) || 0) / small(byId(l.productId).unit)) * byId(l.productId).cost, 0);
+  // У заготовки цена считается по составу, вводить её не нужно.
+  const bad = { name: tried && !form.name.trim(), life: tried && !(number(form.life) > 0), cost: tried && !isPrep && !(number(form.cost) > 0), prep: tried && !prepOk };
   const pick = (next: ProductForm) => { setForm(next); setTried(false); setNote(null); };
   const field = (invalid: boolean) => `g-field${invalid ? ' g-field--error' : ''}`;
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setTried(true);
-    if (!form.name.trim() || !(number(form.life) > 0) || !(number(form.cost) > 0)) return;
+    if (!form.name.trim() || !(number(form.life) > 0) || !(isPrep || number(form.cost) > 0) || !prepOk) return;
     setBusy(true);
-    const body = { name: form.name.trim(), unit: form.unit, shelfLifeHours: Math.round(number(form.life) * (form.lifeInDays ? 24 : 1)), cost: number(form.cost) };
+    const body = {
+      name: form.name.trim(), unit: form.unit, shelfLifeHours: Math.round(number(form.life) * (form.lifeInDays ? 24 : 1)), cost: isPrep ? 0 : number(form.cost),
+      prepRecipe: form.prep.map((l) => ({ productId: l.productId, quantity: number(l.quantity) / small(byId(l.productId).unit) })),
+    };
     const response = await send(form.id ? 'PUT' : 'POST', form.id ? `/products/${form.id}` : '/products', body);
     if (response.ok) {
       const saved: ProductRow = await response.json();
       await products.reload();
-      setForm(toForm(saved));
+      setForm(toForm(saved, products.data!));
       setTried(false);
       setNote({ kind: 'ok', text: 'Продукт сохранён.' });
     } else {
@@ -118,9 +136,9 @@ export function Products() {
           </div>
           <div>
             {products.data.map((p) => (
-              <button key={p.id} className="prod-row pcols" type="button" aria-pressed={form.id === p.id} onClick={() => pick(toForm(p))}>
+              <button key={p.id} className="prod-row pcols" type="button" aria-pressed={form.id === p.id} onClick={() => pick(toForm(p, products.data!))}>
                 <span className="g-photo prod-row__photo" role="img" aria-label={`Место для фото: ${p.name}`}><span aria-hidden="true">{initials(p.name)}</span></span>
-                <span className="g-name">{p.name}</span>
+                <span className="g-name">{p.name}{p.prepRecipe.length > 0 && <span className="muted small"> · заготовка</span>}</span>
                 <span>{unitName(p.unit)}</span>
                 <span className="s-hide num r">{shelfLife(p.shelfLifeHours)}</span>
                 <span className="s-hide num r hd prod-row__price">{money(p.cost)}</span>
@@ -156,14 +174,51 @@ export function Products() {
                 {bad.life && <span className="g-error-text">Укажите срок больше нуля, например 72</span>}
                 <span className="g-hint">От приёмки партии. По нему в поставке подставится «годен до».</span>
               </div>
-              <div className={field(bad.cost)}>
-                <label htmlFor="p-price">Цена закупки за единицу</label>
-                <div className="g-unit">
-                  <input className="g-input num" id="p-price" inputMode="decimal" value={form.cost} onChange={(e) => setForm({ ...form, cost: e.target.value })} aria-invalid={bad.cost} aria-describedby={bad.cost ? 'p-price-e' : undefined} />
-                  <span>₽ / {unitName(form.unit)}</span>
+              {isPrep ? (
+                <div className="g-field">
+                  <span className="lb">Себестоимость за единицу</span>
+                  <strong className="num hd">{money(prepCost)} / {unitName(form.unit)}</strong>
+                  <span className="g-hint">Считается по составу заготовки.</span>
                 </div>
-                {bad.cost && <span className="g-error-text" id="p-price-e">Укажите цену больше нуля, например 980</span>}
+              ) : (
+                <div className={field(bad.cost)}>
+                  <label htmlFor="p-price">Цена закупки за единицу</label>
+                  <div className="g-unit">
+                    <input className="g-input num" id="p-price" inputMode="decimal" value={form.cost} onChange={(e) => setForm({ ...form, cost: e.target.value })} aria-invalid={bad.cost} aria-describedby={bad.cost ? 'p-price-e' : undefined} />
+                    <span>₽ / {unitName(form.unit)}</span>
+                  </div>
+                  {bad.cost && <span className="g-error-text" id="p-price-e">Укажите цену больше нуля, например 980</span>}
+                </div>
+              )}
+
+              <h3 className="dish-form__tk-title">Заготовка: состав на 1 {unitName(form.unit)}</h3>
+              <span className="g-hint">Заполните, если кухня готовит этот продукт сама. Покупному продукту состав не нужен.</span>
+              <div>
+                {form.prep.map((l, i) => {
+                  const product = byId(l.productId);
+                  const update = (patch: Partial<RecipeLine>) => setForm({ ...form, prep: form.prep.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+                  return (
+                    <div className="tc tc--prep" key={l.productId}>
+                      <label className="sr" htmlFor={`pp${i}`}>Продукт</label>
+                      <select className="g-input" id={`pp${i}`} value={l.productId} onChange={(e) => update({ productId: e.target.value })}>
+                        {[product, ...raw].map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                      <div className="g-unit">
+                        <label className="sr" htmlFor={`pq${i}`}>Количество</label>
+                        <input className="g-input num" id={`pq${i}`} inputMode="decimal" value={l.quantity} onChange={(e) => update({ quantity: e.target.value })} />
+                        <span>{smallUnit(product.unit)}</span>
+                      </div>
+                      <button className="del" type="button" aria-label={`Убрать ${product.name} из состава`} onClick={() => setForm({ ...form, prep: form.prep.filter((_, j) => j !== i) })}>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                      </button>
+                    </div>
+                  );
+                })}
+                {bad.prep && <p className="g-error-text dish-form__tk-error">У каждого продукта в составе количество должно быть больше нуля.</p>}
               </div>
+              <button className="g-btn dish-form__add" type="button" disabled={raw.length === 0} onClick={() => setForm({ ...form, prep: [...form.prep, { productId: raw[0].id, quantity: '' }] })}>
+                <PlusIcon />Добавить продукт в состав
+              </button>
               {note && <div className={`g-note g-note--${note.kind}`} role={note.kind === 'err' ? 'alert' : 'status'}><span>{note.text}</span></div>}
             </div>
             <div className="g-panel__foot cat-foot">

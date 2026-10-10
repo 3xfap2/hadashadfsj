@@ -4,10 +4,11 @@ using Ostatok.Api.Domain;
 
 namespace Ostatok.Api.Features;
 
-public sealed record ProductRequest(string? Name, Unit Unit, int ShelfLifeHours, decimal Cost);
-public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal Cost);
-
 public sealed record RecipeItemDto(Guid ProductId, decimal Quantity);
+
+/// <param name="PrepRecipe">Состав на единицу продукта, если это заготовка; цена такой заготовки считается по составу.</param>
+public sealed record ProductRequest(string? Name, Unit Unit, int ShelfLifeHours, decimal Cost, List<RecipeItemDto>? PrepRecipe = null);
+public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal Cost, IEnumerable<RecipeItemDto> PrepRecipe);
 public sealed record DishRequest(string? Name, decimal Price, List<RecipeItemDto>? Recipe, string? PhotoUrl = null, string? Category = null);
 public sealed record DishResponse(
     Guid Id, string Name, decimal Price, string? PhotoUrl, IEnumerable<RecipeItemDto> Recipe, string? Category, bool ManuallyStopped);
@@ -19,14 +20,15 @@ public static class CatalogEndpoints
         var products = api.MapGroup("/products").WithTags("Справочник продуктов");
 
         products.MapGet("", async (AppDbContext db, CancellationToken ct) =>
-            await db.Products.OrderBy(p => p.Name).Select(p => ToResponse(p)).ToListAsync(ct));
+            (await db.Products.AsNoTracking().Include(p => p.PrepRecipe).OrderBy(p => p.Name).ToListAsync(ct)).Select(ToResponse));
 
         products.MapPost("", async (ProductRequest req, AppDbContext db, CancellationToken ct) =>
         {
-            if (Validate(req) is { Any: true } errors) return errors.ToResult();
+            if (await ValidateAsync(req, null, db, ct) is { Any: true } errors) return errors.ToResult();
             if (await db.Products.AnyAsync(p => p.Name == req.Name, ct)) return NameTaken("Продукт");
 
             var product = new Product { Name = req.Name!.Trim(), Unit = req.Unit, ShelfLifeHours = req.ShelfLifeHours, Cost = req.Cost };
+            await SetPrepRecipeAsync(product, req, db, ct);
             db.Products.Add(product);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/products/{product.Id}", ToResponse(product));
@@ -34,12 +36,13 @@ public static class CatalogEndpoints
 
         products.MapPut("{id:guid}", async (Guid id, ProductRequest req, AppDbContext db, CancellationToken ct) =>
         {
-            if (Validate(req) is { Any: true } errors) return errors.ToResult();
-            var product = await db.Products.FindAsync([id], ct);
+            if (await ValidateAsync(req, id, db, ct) is { Any: true } errors) return errors.ToResult();
+            var product = await db.Products.Include(p => p.PrepRecipe).FirstOrDefaultAsync(p => p.Id == id, ct);
             if (product is null) return Results.NotFound();
             if (await db.Products.AnyAsync(p => p.Name == req.Name && p.Id != id, ct)) return NameTaken("Продукт");
 
             (product.Name, product.Unit, product.ShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit, req.ShelfLifeHours, req.Cost);
+            await SetPrepRecipeAsync(product, req, db, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToResponse(product));
         }).RequireRoles(Access.Catalog);
@@ -47,7 +50,8 @@ public static class CatalogEndpoints
         products.MapDelete("{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
         {
             var used = await db.Batches.AnyAsync(b => b.ProductId == id, ct)
-                || await db.Dishes.AnyAsync(d => d.Recipe.Any(r => r.ProductId == id), ct);
+                || await db.Dishes.AnyAsync(d => d.Recipe.Any(r => r.ProductId == id), ct)
+                || await db.Products.AnyAsync(p => p.PrepRecipe.Any(i => i.ProductId == id), ct);
             if (used)
                 return Results.Problem("Продукт используется в поставках или техкартах, удалить его нельзя.", statusCode: StatusCodes.Status409Conflict);
             var deleted = await db.Products.Where(p => p.Id == id).ExecuteDeleteAsync(ct);
@@ -146,6 +150,38 @@ public static class CatalogEndpoints
         .Check(req.ShelfLifeHours > 0, "shelfLifeHours", "Срок хранения должен быть больше нуля.")
         .Check(req.Cost >= 0, "cost", "Цена не может быть отрицательной.");
 
+    private static async Task<Errors> ValidateAsync(ProductRequest req, Guid? id, AppDbContext db, CancellationToken ct)
+    {
+        var errors = Validate(req);
+        var recipe = req.PrepRecipe ?? [];
+        if (recipe.Count == 0) return errors;
+
+        var ids = recipe.Select(r => r.ProductId).ToArray();
+        errors
+            .Check(recipe.All(r => r.Quantity > 0), "prepRecipe", "Количество каждого продукта должно быть больше нуля.")
+            .Check(ids.Distinct().Count() == ids.Length, "prepRecipe", "Продукт указан в составе дважды.")
+            .Check(id is null || !ids.Contains(id.Value), "prepRecipe", "Заготовка не может входить в собственный состав.");
+        var known = await db.Products.Where(p => ids.Contains(p.Id)).Select(p => new { IsPrep = p.PrepRecipe.Any() }).ToListAsync(ct);
+        return errors
+            .Check(known.Count == ids.Distinct().Count(), "prepRecipe", "В составе есть неизвестный продукт.")
+            // Заготовка из заготовки не поддерживается: состав — только покупные продукты.
+            .Check(known.All(p => !p.IsPrep), "prepRecipe", "В состав заготовки нельзя включать другую заготовку.")
+            .Check(id is null || !await db.Products.AnyAsync(p => p.PrepRecipe.Any(i => i.ProductId == id), ct), "prepRecipe", "Этот продукт сам входит в состав заготовки.");
+    }
+
+    /// <summary>Записывает состав заготовки и пересчитывает её цену по составу.</summary>
+    private static async Task SetPrepRecipeAsync(Product product, ProductRequest req, AppDbContext db, CancellationToken ct)
+    {
+        var recipe = req.PrepRecipe ?? [];
+        product.PrepRecipe.Clear();
+        product.PrepRecipe.AddRange(recipe.Select(r => new PrepItem { ProductId = r.ProductId, Quantity = r.Quantity }));
+        if (recipe.Count == 0) return;
+
+        var ids = recipe.Select(r => r.ProductId).ToArray();
+        var costs = await db.Products.Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.Cost, ct);
+        product.Cost = Math.Round(recipe.Sum(r => r.Quantity * costs[r.ProductId]), 2);
+    }
+
     private static async Task<Errors> ValidateAsync(DishRequest req, AppDbContext db, CancellationToken ct)
     {
         var errors = new Errors()
@@ -169,7 +205,8 @@ public static class CatalogEndpoints
     private static List<RecipeItem> ToRecipe(DishRequest req) =>
         req.Recipe!.Select(r => new RecipeItem { ProductId = r.ProductId, Quantity = r.Quantity }).ToList();
 
-    private static ProductResponse ToResponse(Product p) => new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, p.Cost);
+    private static ProductResponse ToResponse(Product p) =>
+        new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, p.Cost, p.PrepRecipe.Select(i => new RecipeItemDto(i.ProductId, i.Quantity)));
 
     private static DishResponse ToResponse(Dish d) =>
         new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)), d.Category, d.ManuallyStopped);

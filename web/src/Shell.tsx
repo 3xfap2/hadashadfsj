@@ -11,6 +11,7 @@ import { Labels } from './pages/Labels';
 import { Dishes, Products } from './pages/Catalog';
 import { Menu } from './pages/Menu';
 import { Orders } from './pages/Orders';
+import { Preps } from './pages/Preps';
 import { Purchasing } from './pages/Purchasing';
 import { Stock } from './pages/Stock';
 import { Supplies } from './pages/Supplies';
@@ -104,6 +105,7 @@ export function Shell() {
           <Route path="orders" element={<Guard section="orders"><Orders /></Guard>} />
           <Route path="stock" element={<Guard section="stock"><Stock /></Guard>} />
           <Route path="stock/supplies" element={<Guard section="stock"><Supplies /></Guard>} />
+          <Route path="stock/preps" element={<Guard section="menu"><Preps /></Guard>} />
           <Route path="stock/journal" element={<Guard section="stock"><Journal /></Guard>} />
           <Route path="labels" element={<Guard section="stock"><Labels /></Guard>} />
           <Route path="support" element={<Guard section="support"><Support /></Guard>} />

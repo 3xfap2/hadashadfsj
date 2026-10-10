@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useSearchParams } from 'react-router-dom';
 import { post, useApi, type BatchRow, type ProductRow, type StockRow, type StopListRow } from '../api';
 import { dayMonthShort, dueLong, leftPrecise, money, qty, shelfLife, unitName } from '../format';
-import { URGENT_HOURS } from '../ui';
+import { URGENT_HOURS, useCan } from '../ui';
 
 type Kind = 'hot' | 'soon' | 'ok' | 'expired' | 'low';
 
@@ -26,10 +26,13 @@ const batchKind = (b: BatchRow): Kind =>
   b.status === 'Expired' ? 'expired' : b.hoursLeft < URGENT_HOURS ? 'hot' : b.status === 'ExpiringSoon' ? 'soon' : 'ok';
 
 export function StockTabs() {
+  // Заготовки делает кухня: вкладка видна тем, кто работает с меню.
+  const kitchen = useCan('menu');
   return (
     <nav className="g-seg" aria-label="Раздел склада">
       <NavLink to="/app/stock" end>Остатки</NavLink>
       <NavLink to="/app/stock/supplies">Поставки</NavLink>
+      {kitchen && <NavLink to="/app/stock/preps">Заготовки</NavLink>}
       <NavLink to="/app/stock/journal">Журнал</NavLink>
     </nav>
   );

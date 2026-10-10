@@ -3,15 +3,16 @@ import { useApi, type MovementRow } from '../api';
 import { dueLong, qty } from '../format';
 import { StockTabs } from './Stock';
 
-type Filter = 'all' | MovementRow['type'];
+type Filter = 'all' | 'Supply' | 'Order' | 'WriteOff' | 'Prep';
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'Все' },
   { id: 'Supply', label: 'Поставки' },
   { id: 'Order', label: 'Заказы' },
   { id: 'WriteOff', label: 'Списания' },
+  { id: 'Prep', label: 'Заготовки' },
 ];
-const TYPES = { Supply: 'Поставка', Order: 'Заказ', WriteOff: 'Списание' };
+const TYPES = { Supply: 'Поставка', Order: 'Заказ', WriteOff: 'Списание', PrepUse: 'В заготовку', PrepMade: 'Заготовка' };
 
 export function Journal() {
   const movements = useApi<MovementRow[]>('/movements?take=100');
@@ -20,7 +21,7 @@ export function Journal() {
   if (movements.error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить журнал</h3><span>{movements.error}</span></div>;
   if (!movements.data) return <p className="muted">Загружаем журнал…</p>;
 
-  const shown = movements.data.filter((m) => filter === 'all' || m.type === filter);
+  const shown = movements.data.filter((m) => filter === 'all' || m.type === filter || (filter === 'Prep' && m.type.startsWith('Prep')));
 
   return (
     <>
@@ -57,7 +58,7 @@ export function Journal() {
                     <td className="num muted">{dueLong(m.at)}</td>
                     <td>{m.type === 'WriteOff' ? <span className="g-tag g-tag--amber">{TYPES[m.type]}</span> : TYPES[m.type]}</td>
                     <td className="g-name">{m.productName}</td>
-                    <td className="r hd journal__qty">{m.type === 'Supply' ? '+' : '−'}{qty(m.quantity, m.unit)}</td>
+                    <td className="r hd journal__qty">{m.type === 'Supply' || m.type === 'PrepMade' ? '+' : '−'}{qty(m.quantity, m.unit)}</td>
                     <td>{m.note ?? (m.type === 'Order' ? 'Продажа блюда' : '—')}</td>
                     <td className="muted">{m.actor || '—'}</td>
                   </tr>

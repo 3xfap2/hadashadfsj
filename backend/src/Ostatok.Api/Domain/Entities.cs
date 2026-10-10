@@ -9,8 +9,18 @@ public class Product
     public Unit Unit { get; set; }
     /// <summary>Нормативный срок хранения; подставляется, если поставка не указала свой.</summary>
     public int ShelfLifeHours { get; set; }
-    /// <summary>Закупочная цена за единицу, ₽.</summary>
+    /// <summary>Закупочная цена за единицу, ₽. У заготовки — стоимость её состава.</summary>
     public decimal Cost { get; set; }
+    /// <summary>Состав заготовки на единицу продукта. Пусто у покупных продуктов.</summary>
+    public List<PrepItem> PrepRecipe { get; set; } = [];
+}
+
+/// <summary>Строка состава заготовки: сколько продукта идёт на единицу заготовки.</summary>
+public class PrepItem
+{
+    public Guid PrepId { get; set; }
+    public Guid ProductId { get; set; }
+    public decimal Quantity { get; set; }
 }
 
 public class Supply
@@ -125,7 +135,8 @@ public class OrderShortage
     public decimal Available { get; set; }
 }
 
-public enum MovementType { Supply, Order, WriteOff }
+/// <summary>PrepUse — сырьё ушло в заготовку, PrepMade — заготовка поступила на склад.</summary>
+public enum MovementType { Supply, Order, WriteOff, PrepUse, PrepMade }
 
 public class Movement
 {

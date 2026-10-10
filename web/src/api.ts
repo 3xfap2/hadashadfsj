@@ -123,6 +123,30 @@ export interface ProductRow {
   unit: Unit;
   shelfLifeHours: number;
   cost: number;
+  /** Состав на единицу продукта, если это заготовка; у покупных продуктов пусто. */
+  prepRecipe: { productId: string; quantity: number }[];
+}
+
+export interface PrepRow {
+  productId: string;
+  productName: string;
+  unit: Unit;
+  shelfLifeHours: number;
+  fresh: number;
+  perDay: number;
+  hoursCovered: number | null;
+  suggested: number;
+  reason: string | null;
+  maxQuantity: number;
+  ingredients: { productId: string; productName: string; unit: Unit; quantity: number; fresh: number }[];
+}
+
+export interface PrepResult {
+  batchId: string;
+  supplyNumber: string;
+  quantity: number;
+  expiresAt: string;
+  shortages: { productId: string; productName: string; unit: Unit; required: number; available: number }[];
 }
 
 export interface SupplyRow {
@@ -149,7 +173,7 @@ export interface ImportRow {
 export interface MovementRow {
   id: number;
   at: string;
-  type: 'Supply' | 'Order' | 'WriteOff';
+  type: 'Supply' | 'Order' | 'WriteOff' | 'PrepUse' | 'PrepMade';
   productName: string;
   unit: Unit;
   quantity: number;

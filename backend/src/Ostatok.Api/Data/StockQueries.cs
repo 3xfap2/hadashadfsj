@@ -49,7 +49,7 @@ public static class StockQueries
             .SqlQuery<DailyUse>($"""
                 SELECT "ProductId", (("At" AT TIME ZONE 'UTC') + {zone})::date AS "Day", SUM("Quantity") AS "Quantity"
                 FROM "Movements"
-                WHERE "Type" = {nameof(MovementType.Order)} AND "At" >= {from}
+                WHERE "Type" IN ({nameof(MovementType.Order)}, {nameof(MovementType.PrepUse)}) AND "At" >= {from}
                 GROUP BY 1, 2
                 """)
             .ToListAsync(ct);
@@ -67,7 +67,8 @@ public static class StockQueries
         AppDbContext db, DateTimeOffset now, int days, CancellationToken ct)
     {
         var since = now.AddDays(-days);
-        var orders = db.Movements.Where(m => m.Type == MovementType.Order && m.At >= since);
+        // Сырьё, ушедшее в заготовки, — такой же расход, как продажа блюда.
+        var orders = db.Movements.Where(m => (m.Type == MovementType.Order || m.Type == MovementType.PrepUse) && m.At >= since);
         var totals = await orders
             .GroupBy(m => m.ProductId)
             .Select(g => new { ProductId = g.Key, Quantity = g.Sum(m => m.Quantity), First = g.Min(m => m.At) })

@@ -29,6 +29,9 @@ public static class DemoSeed
         var tomYum = P("Основа том ям", Unit.L, 48, 350);
         var dough = P("Тесто для пиццы", Unit.Kg, 24, 90);
         var caesar = P("Соус цезарь", Unit.L, 72, 400);
+        // Заготовки кухня делает сама: состав на литр.
+        caesar.PrepRecipe = [new() { ProductId = parmesan.Id, Quantity = 0.15m }, new() { ProductId = egg.Id, Quantity = 4 }, new() { ProductId = cream.Id, Quantity = 0.2m }];
+        tomYum.PrepRecipe = [new() { ProductId = shrimp.Id, Quantity = 0.1m }, new() { ProductId = tomato.Id, Quantity = 0.3m }, new() { ProductId = cream.Id, Quantity = 0.2m }];
         db.Products.AddRange(salmon, shrimp, beef, chicken, cream, mozzarella, tomato, romaine, avocado, parmesan, egg, pasta, potato, tomYum, dough, caesar);
 
         Dish D(string name, decimal price, string photo, string category, params (Product Product, decimal Quantity)[] recipe) => new()

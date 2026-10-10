@@ -85,6 +85,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(s => s.Product).WithMany().HasForeignKey(s => s.ProductId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        model.Entity<PrepItem>(e =>
+        {
+            e.HasKey(i => new { i.PrepId, i.ProductId });
+            e.HasOne<Product>().WithMany(p => p.PrepRecipe).HasForeignKey(i => i.PrepId);
+            e.HasOne<Product>().WithMany().HasForeignKey(i => i.ProductId).OnDelete(DeleteBehavior.Restrict);
+        });
+
         model.Entity<Movement>(e =>
         {
             e.Property(m => m.Note).HasMaxLength(200);

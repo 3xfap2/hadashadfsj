@@ -16,6 +16,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) => options
     .AddInterceptors(sp.GetRequiredService<PublishChanges>()));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<OrderService>();
+builder.Services.AddScoped<PrepService>();
 builder.Services.AddScoped<WriteOffService>();
 builder.Services.AddScoped<StopTracker>();
 builder.Services.AddScoped<AlertService>();
@@ -110,6 +111,7 @@ var api = app.MapGroup("/api").RequireAuthorization();
 api.MapCatalog();
 api.MapSupplies();
 api.MapOrders();
+api.MapPreps();
 api.MapStock();
 api.MapInsights();
 api.MapAlerts();

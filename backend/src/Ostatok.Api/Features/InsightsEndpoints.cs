@@ -45,10 +45,20 @@ public static class InsightsEndpoints
         api.MapGet("/purchase-suggestions", async (AppDbContext db, TimeProvider time, StockOptions options, CancellationToken ct) =>
         {
             var now = time.GetUtcNow();
-            var products = await db.Products.AsNoTracking().ToListAsync(ct);
+            var products = await db.Products.AsNoTracking().Include(p => p.PrepRecipe).ToListAsync(ct);
+            var made = products.Where(p => p.PrepRecipe.Count > 0).ToList();
+            // Заготовки не закупают, а готовят (см. /api/preps). Зато их состав — такой же потребитель сырья,
+            // как техкарта блюда, поэтому в расчёт закупок заготовка входит как «блюдо».
+            var users = (await db.LoadDishesAsync(ct))
+                .Concat(made.Select(p => new Dish
+                {
+                    Id = p.Id, Name = $"заготовка «{p.Name}»",
+                    Recipe = p.PrepRecipe.Select(i => new RecipeItem { ProductId = i.ProductId, Quantity = i.Quantity }).ToList(),
+                }))
+                .ToList();
             var suggestions = Forecast.Purchases(
-                products,
-                await db.LoadDishesAsync(ct),
+                products.Except(made).ToList(),
+                users,
                 (await db.LoadFreshBatchesAsync(now, ct)).ToLookup(b => b.ProductId),
                 await db.LoadConsumptionPerHourAsync(now, options, ct),
                 now, options.PurchaseCoverHours);

@@ -2293,6 +2293,103 @@ body {
   }
 }
 
+// ---------- Заготовки ----------
+
+.preps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.prep {
+  &__facts {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin: 0;
+    padding: 16px 20px 8px;
+
+    dt {
+      font-size: 14px;
+      color: var(--ink-2);
+    }
+
+    dd {
+      margin: 0;
+      font-weight: 700;
+      color: var(--h);
+    }
+  }
+
+  &__why {
+    margin: 0;
+    padding: 0 20px 12px;
+  }
+
+  &__cols {
+    grid-template-columns: minmax(0, 1fr) 90px 110px;
+  }
+
+  &__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+
+    li {
+      display: grid;
+      gap: 0 20px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+  }
+
+  &__note {
+    margin: 12px 20px;
+  }
+
+  &__foot {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+
+    > .muted {
+      margin-right: auto;
+    }
+  }
+
+  &__amount {
+    width: 150px;
+  }
+}
+
+// В форме продукта состав заготовки без колонки себестоимости.
+.tc.tc--prep {
+  grid-template-columns: minmax(0, 1fr) 130px 36px;
+}
+
+@media (max-width: 640px) {
+  .prep__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .prep__cols.prep__cols {
+    grid-template-columns: minmax(0, 1fr) 68px 68px;
+    gap: 0 8px;
+  }
+
+  // Четыре вкладки склада на телефоне не помещаются в ряд — ряд прокручивается.
+  .stock-head {
+    min-width: 0;
+    max-width: 100%;
+
+    .g-seg {
+      max-width: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+  }
+}
+
 // ---------- Журнал и генератор ----------
 
 .journal {
