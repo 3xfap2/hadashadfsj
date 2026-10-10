@@ -337,6 +337,39 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task Вопрос_с_лендинга_доходит_до_управляющего_и_ответ_возвращается_посетителю()
+    {
+        using var visitor = fx.CreateClient();
+        var name = $"Гость {Guid.NewGuid():N}";
+
+        var noContact = await visitor.PostAsJsonAsync("/api/chats", new ChatStartRequest(name, "", "Сколько стоит?"));
+        var started = await visitor.PostAsJsonAsync("/api/chats", new ChatStartRequest(name, "+7 900 000-00-00", "Сколько стоит?"));
+        var chat = (await started.Content.ReadFromJsonAsync<ChatResponse>(ApiFixture.Json))!;
+        await visitor.PostAsJsonAsync($"/api/chats/{chat.Id}/messages", new ChatTextRequest("И есть ли приложение?"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, noContact.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, started.StatusCode);
+        // Список обращений закрыт и для посетителя, и для шеф-повара (demo).
+        Assert.Equal(HttpStatusCode.Unauthorized, (await visitor.GetAsync("/api/support/chats")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Api.GetAsync("/api/support/chats")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await visitor.GetAsync($"/api/chats/{Guid.NewGuid()}")).StatusCode);
+
+        using var manager = await fx.SignInAsync("manager");
+        var row = Assert.Single((await manager.GetFromJsonAsync<List<ChatRow>>("/api/support/chats", ApiFixture.Json))!, c => c.Name == name);
+        Assert.Equal(2, row.Unread);
+        Assert.Equal("И есть ли приложение?", row.LastText);
+
+        var answer = await manager.PostAsJsonAsync($"/api/support/chats/{chat.Id}/messages", new ChatTextRequest("Да, для Android."));
+        Assert.Equal(HttpStatusCode.Created, answer.StatusCode);
+
+        var forVisitor = (await visitor.GetFromJsonAsync<ChatResponse>($"/api/chats/{chat.Id}", ApiFixture.Json))!;
+        Assert.Equal(["Сколько стоит?", "И есть ли приложение?", "Да, для Android."], forVisitor.Messages.Select(m => m.Text));
+        Assert.True(forVisitor.Messages[^1].FromStaff);
+        row = Assert.Single((await manager.GetFromJsonAsync<List<ChatRow>>("/api/support/chats", ApiFixture.Json))!, c => c.Name == name);
+        Assert.Equal(0, row.Unread);
+    }
+
+    [Fact]
     public async Task Заявка_с_лендинга_принимается_без_входа_и_видна_в_кабинете()
     {
         using var visitor = fx.CreateClient();

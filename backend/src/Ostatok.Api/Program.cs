@@ -74,6 +74,10 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy(LeadEndpoints.RateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+    // Открытый чат лендинга раз в несколько секунд спрашивает, нет ли ответа, поэтому предел выше.
+    options.AddPolicy(ChatEndpoints.RateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) }));
 });
 
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
@@ -99,6 +103,7 @@ app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
 app.MapAuth();
 app.MapLeads();
+app.MapChats();
 app.MapRealtime();
 
 var api = app.MapGroup("/api").RequireAuthorization();

@@ -153,6 +153,31 @@ public class Lead
     public string? Comment { get; set; }
 }
 
+/// <summary>Диалог посетителя лендинга с командой продукта.</summary>
+public class Chat
+{
+    /// <summary>Случайный идентификатор; он же ключ посетителя к своему диалогу.</summary>
+    public Guid Id { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset LastMessageAt { get; set; }
+    public required string Name { get; set; }
+    public required string Contact { get; set; }
+    /// <summary>Сколько сообщений посетителя ещё не прочитано сотрудником.</summary>
+    public int Unread { get; set; }
+    public List<ChatMessage> Messages { get; set; } = [];
+}
+
+public class ChatMessage
+{
+    public long Id { get; set; }
+    public Guid ChatId { get; set; }
+    public DateTimeOffset At { get; set; }
+    public bool FromStaff { get; set; }
+    /// <summary>Логин сотрудника, который ответил; пусто у сообщений посетителя.</summary>
+    public string Author { get; set; } = "";
+    public required string Text { get; set; }
+}
+
 public enum Role { Manager, Chef, Cook, Storekeeper }
 
 public class User

@@ -13,6 +13,7 @@ import { Orders } from './pages/Orders';
 import { Purchasing } from './pages/Purchasing';
 import { Stock } from './pages/Stock';
 import { Supplies } from './pages/Supplies';
+import { Support, SupportLink } from './pages/Support';
 import { SupplyImport } from './pages/SupplyImport';
 import { Today } from './pages/Today';
 
@@ -74,6 +75,7 @@ export function Shell() {
           ))}
         </nav>
         <div className="g-end">
+          {allowed.includes('support') && <SupportLink />}
           <Alerts />
           <span className="muted">
             {me && <span className="shell__shift">Смена {me.shift.start}–{me.shift.end} · </span>}
@@ -91,6 +93,7 @@ export function Shell() {
         <span className="g-brand">Остаток</span>
         {me && <span className="muted">смена до {me.shift.end}</span>}
         <b className="num hd">{time}</b>
+        {allowed.includes('support') && <SupportLink />}
         <Alerts />
       </header>
 
@@ -101,6 +104,7 @@ export function Shell() {
           <Route path="stock" element={<Guard section="stock"><Stock /></Guard>} />
           <Route path="stock/supplies" element={<Guard section="stock"><Supplies /></Guard>} />
           <Route path="stock/journal" element={<Guard section="stock"><Journal /></Guard>} />
+          <Route path="support" element={<Guard section="support"><Support /></Guard>} />
           <Route path="demo" element={<Guard section="catalog"><Demo /></Guard>} />
           <Route path="stock/import" element={<Guard section="stock"><SupplyImport /></Guard>} />
           <Route path="menu" element={<Guard section="menu"><Menu /></Guard>} />

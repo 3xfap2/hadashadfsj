@@ -1898,6 +1898,308 @@ body {
   }
 }
 
+// ---------- Чат на лендинге и обращения ----------
+
+.msgs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msg {
+  align-self: flex-start;
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  color: var(--h);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+
+  time {
+    align-self: flex-end;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  &--mine {
+    align-self: flex-end;
+    background: var(--hl);
+  }
+}
+
+.ask-btn {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  height: 52px;
+  padding: 0 20px;
+
+  svg {
+    stroke-linejoin: round;
+  }
+
+  &__new {
+    min-width: 22px;
+    padding: 0 6px;
+    border-radius: var(--r-tag);
+    background: var(--red);
+    color: #fff;
+    font-size: 14px;
+    line-height: 22px;
+  }
+}
+
+.ask {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  width: 380px;
+  max-width: calc(100vw - 28px);
+  max-height: min(560px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  border: 1.5px solid var(--h);
+  border-radius: var(--r-panel);
+  background: var(--bg);
+  overflow: hidden;
+
+  &__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 12px 14px 18px;
+    border-bottom: 1px solid var(--line);
+
+    h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--h);
+    }
+  }
+
+  &__close {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    border: 0;
+    border-radius: var(--r-btn);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
+
+    svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+  }
+
+  &__body {
+    flex: 1 1 320px;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  &__wait {
+    margin: 0;
+  }
+
+  &__form {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+
+    textarea.g-input.g-input {
+      height: 96px;
+      padding: 10px 12px;
+      resize: none;
+    }
+  }
+
+  &__send {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--line);
+    background: #fafbf9;
+  }
+
+  &__line {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+
+    .g-input {
+      flex: 1;
+      min-width: 0;
+    }
+
+    > .g-btn.g-btn--primary {
+      flex: none;
+      width: auto;
+      height: 44px;
+      margin-left: 0;
+    }
+  }
+}
+
+.support {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+
+  &__list ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    max-height: 560px;
+    overflow-y: auto;
+  }
+
+  &__dialog {
+    display: flex;
+    flex-direction: column;
+    height: 620px;
+    max-height: calc(100vh - 220px);
+    min-height: 360px;
+
+    &--empty {
+      justify-content: center;
+    }
+  }
+
+  &__msgs {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 20px;
+  }
+
+  &__send {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  &__back {
+    display: none;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+}
+
+.chat-row {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+
+  &[aria-current='true'] {
+    background: var(--hl);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: -2px;
+  }
+
+  &__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .g-tag {
+    justify-self: end;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chat-row:not([aria-current='true']):hover,
+  .ask__close:hover {
+    background: #f4f6f3;
+  }
+}
+
+@media (max-width: 900px) {
+  .support {
+    grid-template-columns: minmax(0, 1fr);
+
+    &--open &__list,
+    &:not(&--open) &__dialog {
+      display: none;
+    }
+
+    &__back {
+      display: inline;
+    }
+
+    &__dialog {
+      max-height: calc(100vh - 260px);
+    }
+  }
+}
+
+@media (max-width: 640px) {
+  .ask-btn {
+    right: 14px;
+    bottom: 14px;
+  }
+
+  // Со значком обращений в шапке телефона подпись смены не помещается.
+  .shell__mtop:has(a.alerts__bell) > .muted {
+    display: none;
+  }
+
+  .shell__mtop:has(a.alerts__bell) > b {
+    margin-left: auto;
+  }
+
+  // На телефоне чат занимает весь экран.
+  .ask {
+    inset: 0;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
 // ---------- Журнал и генератор ----------
 
 .journal {

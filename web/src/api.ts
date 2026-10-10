@@ -165,6 +165,31 @@ export interface AlertsResponse {
   items: AlertRow[];
 }
 
+export interface ChatMessage {
+  id: number;
+  at: string;
+  fromStaff: boolean;
+  text: string;
+}
+
+export interface ChatRow {
+  id: string;
+  name: string;
+  contact: string;
+  lastMessageAt: string;
+  unread: number;
+  lastText: string;
+  lastFromStaff: boolean;
+}
+
+export interface ChatDetails {
+  id: string;
+  name: string;
+  contact: string;
+  createdAt: string;
+  messages: ChatMessage[];
+}
+
 export interface SimulatorSettings {
   running: boolean;
   ordersPerMinute: number;

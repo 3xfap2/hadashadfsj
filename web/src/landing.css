@@ -183,3 +183,10 @@ html{scroll-behavior:smooth}
    из-за чего заголовки секций прилипали к спискам. */
 .landing .shift,.landing .steps{margin-top:48px}
 .landing .facts{margin-top:40px}
+
+/* Почему мы */
+.landing .why{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:36px 40px;margin:40px 0 0}
+.why li{display:flex;flex-direction:column;gap:8px;padding-top:16px;border-top:2px solid var(--brand)}
+.why strong{font-size:20px;font-weight:800;letter-spacing:-.02em;color:var(--h);line-height:1.25}
+@media (max-width:900px){.landing .why{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.landing .why{grid-template-columns:1fr;gap:24px}}

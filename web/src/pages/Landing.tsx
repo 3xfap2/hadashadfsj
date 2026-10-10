@@ -1,6 +1,7 @@
 import { useState, type CSSProperties, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { login } from '../api';
+import { LandingChat } from '../LandingChat';
 
 // Открытая учётная запись демо-ресторана — та же, что на экране входа.
 const DEMO = { login: 'demo', password: 'demo2026' };
@@ -30,6 +31,7 @@ export function Landing() {
           <a className="g-brand" href="#top">Остаток</a>
           <nav aria-label="Разделы страницы">
             <a href="#features">Возможности</a>
+            <a href="#why">Почему мы</a>
             <a href="#rollout">Внедрение</a>
             <a href="#integrations">Интеграции</a>
             <a href="#faq">Вопросы</a>
@@ -204,6 +206,21 @@ export function Landing() {
           </div>
         </section>
 
+        <section className="sec sec--panel" id="why" aria-labelledby="w-h">
+          <div className="w">
+            <span className="kick">Почему мы</span>
+            <h2 className="h2" id="w-h" style={{ marginTop: 10 }}>Чем Остаток отличается от таблицы и обычного складского учёта</h2>
+            <ul className="why" style={{ listStyle: 'none', padding: 0 }}>
+              <li><strong>Считаем по партиям, а не по общему остатку</strong><span>Десять килограммов лосося на складе ничего не значат, если семь из них истекают сегодня. Остаток знает срок каждой партии и списывает сначала ту, что истекает раньше.</span></li>
+              <li><strong>Объясняем каждое решение</strong><span>Почему блюдо в стопе, почему его стоит продать первым, почему пора заказать продукт — причина написана рядом, словами и цифрами.</span></li>
+              <li><strong>Предупреждаем до потери, а не после</strong><span>Сигнал приходит, когда у партии остались сутки, а не когда её уже списали. Для блюда видно, во сколько оно уйдёт в стоп, если ничего не привезут.</span></li>
+              <li><strong>Экран обновляется сам</strong><span>Заказ, поставка, списание — остатки и стоп-лист меняются у всех сотрудников сразу, страницу перезагружать не нужно.</span></li>
+              <li><strong>Поставку не нужно перепечатывать</strong><span>Файл от поставщика в Excel или CSV загружается целиком. Каждая строка проверяется до сохранения.</span></li>
+              <li><strong>У каждого сотрудника свой экран</strong><span>Повар принимает заказы, кладовщик — поставки, управляющий видит закупки и аналитику. Кто что сделал, записано в журнале.</span></li>
+            </ul>
+          </div>
+        </section>
+
         <section className="sec sec--dark" id="rollout" aria-labelledby="r-h">
           <div className="w">
             <span className="kick">Внедрение</span>
@@ -322,6 +339,8 @@ export function Landing() {
           <span>Телефон: <span className="num hd" style={{ userSelect: 'all' }}>+7 000 000-00-00</span></span>
         </div>
       </footer>
+
+      <LandingChat />
     </div>
   );
 }

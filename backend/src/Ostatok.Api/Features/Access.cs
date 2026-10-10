@@ -25,6 +25,7 @@ public static class Access
         if (Purchasing.Contains(role)) yield return "purchasing";
         if (Analytics.Contains(role)) yield return "analytics";
         if (Catalog.Contains(role)) yield return "catalog";
+        if (Leads.Contains(role)) yield return "support";
     }
 
     public static TBuilder RequireRoles<TBuilder>(this TBuilder builder, Role[] roles) where TBuilder : IEndpointConventionBuilder =>

@@ -13,6 +13,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Movement> Movements => Set<Movement>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<Chat> Chats => Set<Chat>();
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
     public DbSet<DishPhoto> DishPhotos => Set<DishPhoto>();
     public DbSet<StopLog> StopLogs => Set<StopLog>();
     public DbSet<Alert> Alerts => Set<Alert>();
@@ -119,6 +121,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(l => l.Contact).HasMaxLength(120);
             e.Property(l => l.Points).HasMaxLength(20);
             e.Property(l => l.Comment).HasMaxLength(1000);
+        });
+
+        model.Entity<Chat>(e =>
+        {
+            e.Property(c => c.Name).HasMaxLength(120);
+            e.Property(c => c.Contact).HasMaxLength(120);
+            e.HasMany(c => c.Messages).WithOne().HasForeignKey(m => m.ChatId);
+            e.HasIndex(c => c.LastMessageAt);
+        });
+
+        model.Entity<ChatMessage>(e =>
+        {
+            e.Property(m => m.Author).HasMaxLength(100);
+            e.Property(m => m.Text).HasMaxLength(1000);
         });
 
         model.Entity<User>(e =>

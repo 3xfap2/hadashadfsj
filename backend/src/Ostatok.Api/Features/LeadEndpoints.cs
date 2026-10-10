@@ -19,6 +19,8 @@ public static partial class LeadEndpoints
     [GeneratedRegex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
     private static partial Regex Email();
 
+    public static bool IsContact(string value) => Phone().IsMatch(value) || Email().IsMatch(value);
+
     public static void MapLeads(this IEndpointRouteBuilder app)
     {
         // Форму отправляет посетитель без входа, поэтому адрес открыт и ограничен по числу запросов.
@@ -28,7 +30,7 @@ public static partial class LeadEndpoints
             var errors = new Errors()
                 .Check(name is { Length: > 0 and <= 120 }, "name", "Как к вам обращаться?")
                 .Check(organization is { Length: > 0 and <= 120 }, "organization", "Укажите название ресторана или сети.")
-                .Check(contact.Length <= 120 && (Phone().IsMatch(contact) || Email().IsMatch(contact)), "contact", "Укажите телефон или почту.")
+                .Check(contact.Length <= 120 && IsContact(contact), "contact", "Укажите телефон или почту.")
                 .Check((req.Points?.Length ?? 0) <= 20, "points", "Число точек указано неверно.")
                 .Check((req.Comment?.Length ?? 0) <= 1000, "comment", "Комментарий — до 1000 символов.");
             if (errors.Any) return errors.ToResult();
