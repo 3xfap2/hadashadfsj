@@ -90,6 +90,10 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy(AuthEndpoints.RegisterRateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+    // Не больше десяти сообщений в минуту с одного адреса: чат нельзя завалить сотней диалогов.
+    options.AddPolicy(ChatEndpoints.WriteRateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = ChatEndpoints.MessagesPerMinute, Window = TimeSpan.FromMinutes(1) }));
     options.AddPolicy(ChatEndpoints.RateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) }));

@@ -52,7 +52,7 @@ export function LandingChat() {
   const [seen, setSeen] = useState(0);
   const [form, setForm] = useState({ name: '', contact: '', text: '' });
   const [tried, setTried] = useState(false);
-  const [state, setState] = useState<'idle' | 'sending' | 'failed'>('idle');
+  const [state, setState] = useState<'idle' | 'sending' | 'failed' | 'limited'>('idle');
 
   // Пока диалог начат, проверяем ответы: часто при открытом окне и изредка при закрытом.
   useEffect(() => {
@@ -99,7 +99,8 @@ export function LandingChat() {
     }
     setState('sending');
     const response = await fetch(chatId ? `/api/chats/${chatId}/messages` : '/api/chats', json(chatId ? { text } : form)).catch(() => null);
-    if (!response?.ok) return setState('failed');
+    // Сервер принимает не больше десяти сообщений в минуту с одного адреса.
+    if (!response?.ok) return setState(response?.status === 429 ? 'limited' : 'failed');
     const body = await response.json();
     if (chatId) setMessages((m) => [...m, body]);
     else {
@@ -121,8 +122,12 @@ export function LandingChat() {
     );
   }
 
-  const failed = state === 'failed' && (
-    <span className="g-error-text" role="alert">Сообщение не отправлено. Проверьте соединение и попробуйте ещё раз.</span>
+  const failed = (state === 'failed' || state === 'limited') && (
+    <span className="g-error-text" role="alert">
+      {state === 'limited'
+        ? 'Слишком много сообщений подряд. Подождите минуту и отправьте ещё раз.'
+        : 'Сообщение не отправлено. Проверьте соединение и попробуйте ещё раз.'}
+    </span>
   );
 
   return (

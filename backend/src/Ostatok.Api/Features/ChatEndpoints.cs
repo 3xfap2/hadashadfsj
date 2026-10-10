@@ -19,6 +19,9 @@ public sealed record ChatDetails(Guid Id, string Name, string Contact, DateTimeO
 public static class ChatEndpoints
 {
     public const string RateLimit = "chat";
+    /// <summary>Предел на отправку: новый диалог и каждое сообщение посетителя. Чтение ответов считается отдельно.</summary>
+    public const string WriteRateLimit = "chat-write";
+    public const int MessagesPerMinute = 10;
     private const int MaxText = 1000;
 
     public static void MapChats(this IEndpointRouteBuilder app)
@@ -44,7 +47,7 @@ public static class ChatEndpoints
             db.Chats.Add(chat);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/chats/{chat.Id}", new ChatResponse(chat.Id, chat.Messages.Select(ToResponse).ToList()));
-        });
+        }).RequireRateLimiting(WriteRateLimit);
 
         visitor.MapGet("{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
             await db.Chats.AnyAsync(c => c.Id == id, ct)
@@ -52,7 +55,7 @@ public static class ChatEndpoints
                 : Results.NotFound());
 
         visitor.MapPost("{id:guid}/messages", (Guid id, ChatTextRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
-            AddMessageAsync(id, req, staff: null, db, time, ct));
+            AddMessageAsync(id, req, staff: null, db, time, ct)).RequireRateLimiting(WriteRateLimit);
 
         var support = app.MapGroup("/api/support/chats").WithTags("Обращения").RequireRoles(Access.Leads).VendorOnly();
 
