@@ -55,7 +55,8 @@ public static partial class LeadEndpoints
         app.MapGet("/api/leads", async (AppDbContext db, CancellationToken ct) =>
             (await db.Leads.OrderByDescending(l => l.Id).Take(200).ToListAsync(ct)).Select(ToResponse))
         .WithTags("Заявки")
-        .RequireRoles(Access.Leads);
+        .RequireRoles(Access.Leads)
+        .VendorOnly();
     }
 
     private static LeadResponse ToResponse(Lead l) => new(l.Id, l.CreatedAt, l.Name, l.Organization, l.Contact, l.Points, l.Comment);

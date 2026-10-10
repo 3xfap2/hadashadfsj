@@ -10,6 +10,7 @@ using Ostatok.Api.Features;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<EventBus>();
+builder.Services.AddScoped<Tenant>();
 builder.Services.AddSingleton<PublishChanges>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) => options
     .UseNpgsql(sp.GetRequiredService<IConfiguration>().GetConnectionString("Db"))
@@ -100,6 +101,14 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Ресторан берётся из токена: дальше все запросы к базе видят только его данные.
+app.Use(async (context, next) =>
+{
+    if (Guid.TryParse(context.User.FindFirst(AuthEndpoints.RestaurantClaim)?.Value, out var restaurant))
+        context.RequestServices.GetRequiredService<Tenant>().Id = restaurant;
+    await next();
+});
+
 app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
 app.MapAuth();
@@ -117,12 +126,15 @@ api.MapInsights();
 api.MapHotSettings();
 api.MapAlerts();
 api.MapSimulator();
+api.MapStaff();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
+    // Начальные данные принадлежат демо-ресторану.
+    scope.ServiceProvider.GetRequiredService<Tenant>().Id = Ostatok.Api.Domain.Restaurant.DemoId;
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
-    await AuthEndpoints.EnsureUsersAsync(db, scope.ServiceProvider.GetRequiredService<AuthOptions>());
+    await AuthEndpoints.EnsureUsersAsync(db, scope.ServiceProvider.GetRequiredService<AuthOptions>(), scope.ServiceProvider.GetRequiredService<TimeProvider>());
     if (app.Configuration.GetValue<bool>("Seed:Demo"))
         await DemoSeed.RunAsync(db, scope.ServiceProvider.GetRequiredService<TimeProvider>().GetUtcNow());
 }

@@ -1,33 +1,48 @@
+using Ostatok.Api.Data;
 using Ostatok.Api.Domain;
 
 namespace Ostatok.Api.Features;
 
 /// <summary>
-/// Кто что может. Смотреть остатки, стоп-лист и заказы могут все сотрудники — без этого не работает экран смены;
-/// менять данные и открывать разделы может только роль, для которой это рабочая задача.
+/// Кто что может. У каждой роли своя точка входа: официант работает только с заказами, кладовщик — со складом,
+/// управляющий — со складом, аналитикой и сотрудниками. Заказ оформляет только официант: так видно, кто его принял.
+/// Смотреть остатки и стоп-лист могут все — без этого не работает ни один экран.
 /// </summary>
 public static class Access
 {
-    public static readonly Role[] Orders = [Role.Manager, Role.Chef, Role.Cook];
+    public static readonly Role[] Orders = [Role.Waiter];
+    /// <summary>Кухня: заготовки и ручной стоп блюда.</summary>
+    public static readonly Role[] Kitchen = [Role.Manager, Role.Chef, Role.Cook];
     public static readonly Role[] Stock = [Role.Manager, Role.Chef, Role.Storekeeper];
     public static readonly Role[] Purchasing = [Role.Manager, Role.Chef, Role.Storekeeper];
     public static readonly Role[] Analytics = [Role.Manager, Role.Chef];
     public static readonly Role[] Catalog = [Role.Manager, Role.Chef];
+    public static readonly Role[] Staff = [Role.Manager];
     public static readonly Role[] Leads = [Role.Manager];
 
     /// <summary>Разделы кабинета, которые видит роль; по этому списку сайт строит меню.</summary>
-    public static IEnumerable<string> Sections(Role role)
+    /// <param name="vendor">Сотрудник команды продукта: ему приходят заявки и вопросы с лендинга.</param>
+    public static IEnumerable<string> Sections(Role role, bool vendor)
     {
-        yield return "today";
+        if (role != Role.Waiter) yield return "today";
         if (Orders.Contains(role)) yield return "orders";
         if (Stock.Contains(role)) yield return "stock";
-        if (Orders.Contains(role)) yield return "menu";
+        if (role != Role.Storekeeper) yield return "menu";
+        if (Kitchen.Contains(role)) yield return "kitchen";
         if (Purchasing.Contains(role)) yield return "purchasing";
         if (Analytics.Contains(role)) yield return "analytics";
         if (Catalog.Contains(role)) yield return "catalog";
-        if (Leads.Contains(role)) yield return "support";
+        if (Staff.Contains(role)) yield return "staff";
+        if (vendor && Leads.Contains(role)) yield return "support";
     }
 
     public static TBuilder RequireRoles<TBuilder>(this TBuilder builder, Role[] roles) where TBuilder : IEndpointConventionBuilder =>
         builder.RequireAuthorization(policy => policy.RequireRole(roles.Select(r => r.ToString())));
+
+    /// <summary>Заявки и вопросы с лендинга адресованы команде продукта, а не каждому ресторану.</summary>
+    public static TBuilder VendorOnly<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder =>
+        builder.AddEndpointFilter(async (context, next) =>
+            context.HttpContext.RequestServices.GetRequiredService<Tenant>().Id == Restaurant.DemoId
+                ? await next(context)
+                : Results.Forbid());
 }

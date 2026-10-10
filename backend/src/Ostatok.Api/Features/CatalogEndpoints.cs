@@ -98,8 +98,8 @@ public static class CatalogEndpoints
         }).RequireRoles(Access.Catalog);
 
         // Снять блюдо с продажи вручную и вернуть: стоп-лист при этом не ждёт, пока закончатся продукты.
-        dishes.MapPost("{id:guid}/stop", (Guid id, AppDbContext db, EventBus bus, CancellationToken ct) => SetStopped(id, true, db, bus, ct)).RequireRoles(Access.Orders);
-        dishes.MapPost("{id:guid}/resume", (Guid id, AppDbContext db, EventBus bus, CancellationToken ct) => SetStopped(id, false, db, bus, ct)).RequireRoles(Access.Orders);
+        dishes.MapPost("{id:guid}/stop", (Guid id, AppDbContext db, EventBus bus, CancellationToken ct) => SetStopped(id, true, db, bus, ct)).RequireRoles(Access.Kitchen);
+        dishes.MapPost("{id:guid}/resume", (Guid id, AppDbContext db, EventBus bus, CancellationToken ct) => SetStopped(id, false, db, bus, ct)).RequireRoles(Access.Kitchen);
 
         // Фото отдаётся без входа: браузер запрашивает картинки без токена, а секрета в них нет.
         dishes.MapGet("{id:guid}/photo", async (Guid id, AppDbContext db, CancellationToken ct) =>

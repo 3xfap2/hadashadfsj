@@ -27,7 +27,7 @@ const batchKind = (b: BatchRow): Kind =>
 
 export function StockTabs() {
   // Заготовки делает кухня: вкладка видна тем, кто работает с меню.
-  const kitchen = useCan('menu');
+  const kitchen = useCan('kitchen');
   return (
     <nav className="g-seg" aria-label="Раздел склада">
       <NavLink to="/app/stock" end>Остатки</NavLink>

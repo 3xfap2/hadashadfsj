@@ -10,14 +10,16 @@ public sealed record SimulatorSettings(bool Running, int OrdersPerMinute);
 /// <summary>Состояние генератора. Хранится в памяти: после перезапуска сервера генератор выключен.</summary>
 public sealed class SimulatorState
 {
-    private readonly Lock _gate = new();
-    private SimulatorSettings _settings = new(false, 6);
+    private static readonly SimulatorSettings Off = new(false, 6);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SimulatorSettings> _settings = new();
 
-    public SimulatorSettings Settings
-    {
-        get { lock (_gate) return _settings; }
-        set { lock (_gate) _settings = value; }
-    }
+    /// <summary>Настройки генератора ресторана; у каждого ресторана он свой.</summary>
+    public SimulatorSettings Get(Guid restaurant) => _settings.GetValueOrDefault(restaurant, Off);
+
+    public void Set(Guid restaurant, SimulatorSettings settings) => _settings[restaurant] = settings;
+
+    public IReadOnlyList<(Guid Restaurant, SimulatorSettings Settings)> Running() =>
+        _settings.Where(s => s.Value.Running).Select(s => (s.Key, s.Value)).ToList();
 }
 
 /// <summary>
@@ -29,7 +31,7 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
     public const string Actor = "генератор";
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(5);
     private readonly Random _random = new();
-    private double _debt;        // дробная часть заказов, накопленная между тактами
+    private readonly Dictionary<Guid, double> _debt = [];   // дробная часть заказов, накопленная между тактами
     private int _ticks;
 
     protected override async Task ExecuteAsync(CancellationToken stop)
@@ -37,19 +39,23 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
         using var timer = new PeriodicTimer(Tick);
         while (await timer.WaitForNextTickAsync(stop))
         {
-            var settings = state.Settings;
-            if (!settings.Running) continue;
-            try
+            _ticks++;
+            foreach (var (restaurant, settings) in state.Running())
             {
-                await using var scope = scopes.CreateAsyncScope();
-                _debt += settings.OrdersPerMinute * Tick.TotalMinutes;
-                for (; _debt >= 1; _debt--) await PlaceOrderAsync(scope.ServiceProvider, stop);
-                // Раз в минуту «приезжает поставщик» и довозит то, что заканчивается.
-                if (++_ticks % 12 == 0) await RestockAsync(scope.ServiceProvider, stop);
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                log.LogError(e, "Генератор событий: такт не выполнен");
+                try
+                {
+                    await using var scope = scopes.CreateAsyncScope();
+                    scope.ServiceProvider.GetRequiredService<Tenant>().Id = restaurant;
+                    var debt = _debt.GetValueOrDefault(restaurant) + settings.OrdersPerMinute * Tick.TotalMinutes;
+                    for (; debt >= 1; debt--) await PlaceOrderAsync(scope.ServiceProvider, stop);
+                    _debt[restaurant] = debt;
+                    // Раз в минуту «приезжает поставщик» и довозит то, что заканчивается.
+                    if (_ticks % 12 == 0) await RestockAsync(scope.ServiceProvider, stop);
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    log.LogError(e, "Генератор событий: такт не выполнен");
+                }
             }
         }
     }
@@ -124,15 +130,15 @@ public static class SimulatorEndpoints
     {
         var simulator = api.MapGroup("/simulator").WithTags("Генератор событий").RequireRoles(Access.Catalog);
 
-        simulator.MapGet("", (SimulatorState state) => state.Settings);
+        simulator.MapGet("", (SimulatorState state, Tenant tenant) => state.Get(tenant.Id));
 
-        simulator.MapPut("", (SimulatorSettings req, SimulatorState state, EventBus bus) =>
+        simulator.MapPut("", (SimulatorSettings req, SimulatorState state, Tenant tenant, EventBus bus) =>
         {
             if (req.OrdersPerMinute is < 1 or > 120)
                 return new Errors().Add("ordersPerMinute", "Заказов в минуту — от 1 до 120.").ToResult();
-            state.Settings = req;
+            state.Set(tenant.Id, req);
             bus.Publish();
-            return Results.Ok(state.Settings);
+            return Results.Ok(req);
         });
 
         // Проверка сроков: партия, которая истекает через несколько минут. На ней виден весь путь —

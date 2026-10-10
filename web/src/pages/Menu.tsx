@@ -29,6 +29,7 @@ export function Menu() {
   const offers = useApi<HotOffer[]>('/hot-offers');
   const me = useApi<Me>('/me', 300_000);
   const canCatalog = useCan('catalog');
+  const canStop = useCan('kitchen');
   const [filter, setFilter] = useState<Filter>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -144,9 +145,9 @@ export function Menu() {
                 </ul>
                 <div className="menu-actions">
                   {canCatalog && <Link className="g-btn" to={`/app/catalog/dishes?dish=${selected.dishId}`}>Изменить техкарту</Link>}
-                  <button className="g-btn menu-actions__stop" type="button" disabled={busy} onClick={() => toggleStop(selected)}>
+                  {canStop && <button className="g-btn menu-actions__stop" type="button" disabled={busy} onClick={() => toggleStop(selected)}>
                     {selected.reason === 'Manual' ? 'Вернуть в продажу' : 'Снять с продажи вручную'}
-                  </button>
+                  </button>}
                 </div>
               </div>
             </section>

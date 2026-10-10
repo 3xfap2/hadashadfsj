@@ -28,7 +28,7 @@ public static class HotSettingsEndpoints
             if (errors.Any) return errors.ToResult();
 
             var row = await db.HotSettings.FirstOrDefaultAsync(ct);
-            if (row is null) db.HotSettings.Add(row = new HotSettings { Id = 1 });
+            if (row is null) db.HotSettings.Add(row = new HotSettings { RestaurantId = db.TenantId });
             (row.HorizonHours, row.UrgencyWeight, row.ShareAcrossDishes, row.MaxDiscountPercent) =
                 (req.HorizonHours, req.UrgencyWeight, req.ShareAcrossDishes, req.MaxDiscountPercent);
             await db.SaveChangesAsync(ct);

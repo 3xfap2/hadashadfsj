@@ -55,6 +55,9 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<DateTimeOffset?>("ReadAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -88,6 +91,9 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<decimal>("Remaining")
                         .HasPrecision(14, 3)
                         .HasColumnType("numeric(14,3)");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("SupplyId")
                         .HasColumnType("uuid");
@@ -202,9 +208,12 @@ namespace Ostatok.Api.Data.Migrations
                         .HasPrecision(14, 3)
                         .HasColumnType("numeric(14,3)");
 
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("RestaurantId", "Name")
                         .IsUnique();
 
                     b.ToTable("Dishes");
@@ -231,8 +240,9 @@ namespace Ostatok.Api.Data.Migrations
 
             modelBuilder.Entity("Ostatok.Api.Domain.HotSettings", b =>
                 {
-                    b.Property<int>("Id")
-                        .HasColumnType("integer");
+                    b.Property<Guid>("RestaurantId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
 
                     b.Property<double>("HorizonHours")
                         .HasColumnType("double precision");
@@ -246,7 +256,7 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<int>("UrgencyWeight")
                         .HasColumnType("integer");
 
-                    b.HasKey("Id");
+                    b.HasKey("RestaurantId");
 
                     b.ToTable("HotSettings");
                 });
@@ -324,6 +334,9 @@ namespace Ostatok.Api.Data.Migrations
                         .HasPrecision(14, 3)
                         .HasColumnType("numeric(14,3)");
 
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -360,6 +373,9 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -451,6 +467,9 @@ namespace Ostatok.Api.Data.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("ShelfLifeHours")
                         .HasColumnType("integer");
 
@@ -461,7 +480,7 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("RestaurantId", "Name")
                         .IsUnique();
 
                     b.ToTable("Products");
@@ -486,6 +505,25 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("RecipeItem");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.Restaurant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Restaurants");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.StopLog", b =>
                 {
                     b.Property<long>("Id")
@@ -507,6 +545,9 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset>("StartedAt")
                         .HasColumnType("timestamp with time zone");
@@ -534,13 +575,16 @@ namespace Ostatok.Api.Data.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Supplier")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Number")
+                    b.HasIndex("RestaurantId", "Number")
                         .IsUnique();
 
                     b.ToTable("Supplies");
@@ -560,6 +604,9 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Role")
                         .IsRequired()

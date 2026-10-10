@@ -25,6 +25,8 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
 
     public HttpClient Api { get; private set; } = null!;
+    /// <summary>Клиент официанта: заказы оформляет только он.</summary>
+    public HttpClient Waiter { get; private set; } = null!;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -47,9 +49,10 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     {
         await _postgres.StartAsync();
         Api = await SignInAsync("demo");
+        Waiter = await SignInAsync("waiter");
     }
 
-    /// <summary>Клиент, вошедший под одной из демо-записей: demo (шеф-повар), manager, cook, storekeeper.</summary>
+    /// <summary>Клиент, вошедший под одной из демо-записей: demo (шеф-повар), manager, cook, storekeeper, waiter.</summary>
     public async Task<HttpClient> SignInAsync(string login)
     {
         var client = CreateClient();
@@ -58,6 +61,14 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         var token = (await response.Content.ReadFromJsonAsync<LoginResponse>(Json))!.Token;
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
+    }
+
+    /// <summary>Область служб, работающая от имени демо-ресторана, — как фоновая задача сервера.</summary>
+    public AsyncServiceScope DemoScope()
+    {
+        var scope = Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.Tenant>().Id = Ostatok.Api.Domain.Restaurant.DemoId;
+        return scope;
     }
 
     async Task IAsyncLifetime.DisposeAsync()

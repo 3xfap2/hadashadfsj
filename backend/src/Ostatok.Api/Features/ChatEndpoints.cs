@@ -54,7 +54,7 @@ public static class ChatEndpoints
         visitor.MapPost("{id:guid}/messages", (Guid id, ChatTextRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
             AddMessageAsync(id, req, staff: null, db, time, ct));
 
-        var support = app.MapGroup("/api/support/chats").WithTags("Обращения").RequireRoles(Access.Leads);
+        var support = app.MapGroup("/api/support/chats").WithTags("Обращения").RequireRoles(Access.Leads).VendorOnly();
 
         support.MapGet("", async (AppDbContext db, CancellationToken ct) =>
             await db.Chats

@@ -51,6 +51,7 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
                 ORDER BY "ExpiresAt", "Id"
                 FOR UPDATE
                 """)
+            .IgnoreQueryFilters()   // блюда уже отобраны по ресторану, а запрос с блокировкой нельзя оборачивать
             .ToListAsync(ct);
 
         var result = Fefo.Allocate(batches, required, now);

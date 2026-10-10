@@ -55,7 +55,7 @@ public static class StockQueries
             .SqlQuery<DailyUse>($"""
                 SELECT "ProductId", (("At" AT TIME ZONE 'UTC') + {zone})::date AS "Day", SUM("Quantity") AS "Quantity"
                 FROM "Movements"
-                WHERE "Type" IN ({nameof(MovementType.Order)}, {nameof(MovementType.PrepUse)}) AND "At" >= {from}
+                WHERE "Type" IN ({nameof(MovementType.Order)}, {nameof(MovementType.PrepUse)}) AND "At" >= {from} AND "RestaurantId" = {db.TenantId}
                 GROUP BY 1, 2
                 """)
             .ToListAsync(ct);

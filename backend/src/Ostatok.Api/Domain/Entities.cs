@@ -2,8 +2,26 @@ namespace Ostatok.Api.Domain;
 
 public enum Unit { Kg, L, Pcs }
 
-public class Product
+/// <summary>Запись, принадлежащая одному ресторану. Чужие записи запрос не видит: фильтр стоит в AppDbContext.</summary>
+public interface IOwned
 {
+    Guid RestaurantId { get; set; }
+}
+
+/// <summary>Ресторан — отдельное рабочее пространство со своим складом, меню и сотрудниками.</summary>
+public class Restaurant
+{
+    /// <summary>Демо-ресторан с готовыми данными; он же — «мы», кому приходят заявки и вопросы с лендинга.</summary>
+    public static readonly Guid DemoId = new("0d3a0c1e-0000-4000-8000-000000000001");
+
+    public Guid Id { get; set; }
+    public required string Name { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+public class Product : IOwned
+{
+    public Guid RestaurantId { get; set; }
     public Guid Id { get; set; }
     public required string Name { get; set; }
     public Unit Unit { get; set; }
@@ -23,8 +41,9 @@ public class PrepItem
     public decimal Quantity { get; set; }
 }
 
-public class Supply
+public class Supply : IOwned
 {
+    public Guid RestaurantId { get; set; }
     public Guid Id { get; set; }
     public required string Number { get; set; }
     public string? Supplier { get; set; }
@@ -33,8 +52,9 @@ public class Supply
 }
 
 /// <summary>Партия: один продукт из одной поставки со своим сроком годности.</summary>
-public class Batch
+public class Batch : IOwned
 {
+    public Guid RestaurantId { get; set; }
     public Guid Id { get; set; }
     public Guid SupplyId { get; set; }
     public Supply? Supply { get; set; }
@@ -45,8 +65,9 @@ public class Batch
     public DateTimeOffset ExpiresAt { get; set; }
 }
 
-public class Dish
+public class Dish : IOwned
 {
+    public Guid RestaurantId { get; set; }
     public Guid Id { get; set; }
     public required string Name { get; set; }
     public decimal Price { get; set; }
@@ -71,8 +92,9 @@ public class DishPhoto
 }
 
 /// <summary>Интервал, когда блюдо было в стоп-листе; EndedAt пуст, пока стоп продолжается.</summary>
-public class StopLog
+public class StopLog : IOwned
 {
+    public Guid RestaurantId { get; set; }
     public long Id { get; set; }
     public Guid DishId { get; set; }
     public Dish? Dish { get; set; }
@@ -83,9 +105,9 @@ public class StopLog
 }
 
 /// <summary>Правила горячих предложений, которые настроил менеджер; строка одна.</summary>
-public class HotSettings
+public class HotSettings : IOwned
 {
-    public int Id { get; set; }
+    public Guid RestaurantId { get; set; }
     public double HorizonHours { get; set; }
     public int UrgencyWeight { get; set; }
     public bool ShareAcrossDishes { get; set; }
@@ -95,8 +117,9 @@ public class HotSettings
 public enum AlertKind { BatchExpiring, BatchExpired, DishStopped, DishBack }
 
 /// <summary>Сигнал для сотрудников; ReadAt пуст, пока сигнал не прочитан.</summary>
-public class Alert
+public class Alert : IOwned
 {
+    public Guid RestaurantId { get; set; }
     public long Id { get; set; }
     public DateTimeOffset At { get; set; }
     public AlertKind Kind { get; set; }
@@ -119,8 +142,9 @@ public class RecipeItem
 
 public enum OrderStatus { Accepted, Rejected }
 
-public class Order
+public class Order : IOwned
 {
+    public Guid RestaurantId { get; set; }
     public Guid Id { get; set; }
     public int Number { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
@@ -156,8 +180,9 @@ public class OrderShortage
 /// <summary>PrepUse — сырьё ушло в заготовку, PrepMade — заготовка поступила на склад.</summary>
 public enum MovementType { Supply, Order, WriteOff, PrepUse, PrepMade }
 
-public class Movement
+public class Movement : IOwned
 {
+    public Guid RestaurantId { get; set; }
     public long Id { get; set; }
     public DateTimeOffset At { get; set; }
     public MovementType Type { get; set; }
@@ -207,10 +232,11 @@ public class ChatMessage
     public required string Text { get; set; }
 }
 
-public enum Role { Manager, Chef, Cook, Storekeeper }
+public enum Role { Manager, Chef, Cook, Storekeeper, Waiter }
 
-public class User
+public class User : IOwned
 {
+    public Guid RestaurantId { get; set; }
     public Guid Id { get; set; }
     public required string Login { get; set; }
     public required string PasswordHash { get; set; }

@@ -2697,6 +2697,38 @@ body {
   }
 }
 
+// ---------- Вход: роли демо, сотрудники ----------
+
+.login__roles button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--h);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.staff-roles {
+  border-top: 1px solid var(--line);
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--h);
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
 // ---------- Журнал и генератор ----------
 
 .journal {

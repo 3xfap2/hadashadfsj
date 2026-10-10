@@ -19,7 +19,8 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         // Та же блокировка, что и при заказе: списание не разойдётся с параллельной продажей.
         var batch = (await db.Batches
-            .FromSql($"""SELECT * FROM "Batches" WHERE "Id" = {batchId} FOR UPDATE""")
+            .FromSql($"""SELECT * FROM "Batches" WHERE "Id" = {batchId} AND "RestaurantId" = {db.TenantId} FOR UPDATE""")
+            .IgnoreQueryFilters()
             .ToListAsync(ct)).FirstOrDefault();
         if (batch is null) return WriteOffResult.NotFound;
         if (batch.Remaining == 0) return WriteOffResult.Empty;
@@ -36,6 +37,7 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
     /// <summary>
     /// Списывает партии, просроченные дольше отсрочки. Отсрочка не длиннее срока хранения самой партии:
     /// продукт, который хранится час, не лежит просроченным полсуток. Возвращает число списанных партий.
+    /// Работает по всем ресторанам сразу: это фоновая задача, у неё нет «своего» ресторана.
     /// </summary>
     public async Task<int> WriteOffExpiredAsync(TimeSpan grace, CancellationToken ct)
     {
@@ -48,6 +50,7 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
                 WHERE b."Remaining" > 0 AND b."ExpiresAt" <= {now} - LEAST({grace}, b."ExpiresAt" - s."CreatedAt")
                 FOR UPDATE OF b SKIP LOCKED
                 """)
+            .IgnoreQueryFilters()
             .ToListAsync(ct);
 
         foreach (var batch in batches) Apply(batch, now, "Истёк срок годности (автосписание)", System);
@@ -60,6 +63,7 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
     {
         db.Movements.Add(new Movement
         {
+            RestaurantId = batch.RestaurantId,
             At = now,
             Type = MovementType.WriteOff,
             ProductId = batch.ProductId,
@@ -92,8 +96,15 @@ public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions optio
                 }
                 if (options.TrackStops)
                 {
-                    await scope.ServiceProvider.GetRequiredService<AlertService>().RaiseBatchAlertsAsync(stop);
-                    await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(stop);
+                    // Сигналы и история стоп-листа считаются отдельно для каждого ресторана.
+                    var restaurants = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Restaurants.Select(r => r.Id).ToListAsync(stop);
+                    foreach (var id in restaurants)
+                    {
+                        await using var own = scopes.CreateAsyncScope();
+                        own.ServiceProvider.GetRequiredService<Tenant>().Id = id;
+                        await own.ServiceProvider.GetRequiredService<AlertService>().RaiseBatchAlertsAsync(stop);
+                        await own.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(stop);
+                    }
                 }
             }
             catch (Exception e) when (e is not OperationCanceledException)

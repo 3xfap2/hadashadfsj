@@ -37,7 +37,11 @@ public sealed class DemoUser
 public sealed record LoginRequest(string? Login, string? Password);
 public sealed record LoginResponse(string Token, DateTimeOffset ExpiresAt);
 public sealed record ShiftInfo(string Start, string End);
-public sealed record MeResponse(string Login, string Title, Role Role, IEnumerable<string> Sections, ShiftInfo Shift, IEnumerable<string> Places);
+public sealed record MeResponse(
+    string Login, string Title, Role Role, IEnumerable<string> Sections, ShiftInfo Shift, IEnumerable<string> Places, string Restaurant);
+
+/// <param name="Restaurant">Название нового ресторана; его первый пользователь становится управляющим.</param>
+public sealed record RegisterRequest(string? Restaurant, string? Login, string? Password);
 
 public sealed class RestaurantOptions
 {
@@ -93,7 +97,8 @@ public static class AuthEndpoints
             if (attempts.LockedMinutes(req.Login) is > 0 and var minutes)
                 return Locked(minutes);
 
-            var user = await db.Users.FirstOrDefaultAsync(u => u.Login == req.Login, ct);
+            // До входа ресторан неизвестен: учётная запись ищется по логину среди всех.
+            var user = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Login == req.Login, ct);
             var hasher = new PasswordHasher<User>();
             if (user is null || hasher.VerifyHashedPassword(user, user.PasswordHash, req.Password ?? "") == PasswordVerificationResult.Failed)
             {
@@ -105,43 +110,89 @@ public static class AuthEndpoints
             }
 
             attempts.Reset(req.Login);
-            var now = time.GetUtcNow();
-            var expiresAt = now.AddHours(options.TokenHours);
-            var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
-            {
-                Issuer = AuthOptions.Issuer,
-                Audience = AuthOptions.Issuer,
-                Subject = new ClaimsIdentity([new Claim(ClaimTypes.Name, user.Login), new Claim(ClaimTypes.Role, user.Role.ToString())]),
-                IssuedAt = now.UtcDateTime,
-                NotBefore = now.UtcDateTime,
-                Expires = expiresAt.UtcDateTime,
-                SigningCredentials = new SigningCredentials(options.SigningKey, SecurityAlgorithms.HmacSha256),
-            });
-            return Results.Ok(new LoginResponse(token, expiresAt));
+            return Results.Ok(Issue(user, options, time));
         })
         .WithTags("Вход")
         .AllowAnonymous()
         .RequireRateLimiting(LoginRateLimit);
 
+        // Новый ресторан — отдельное рабочее пространство: свой склад, меню и сотрудники.
+        app.MapPost("/api/auth/register", async (RegisterRequest req, AppDbContext db, AuthOptions options, TimeProvider time, CancellationToken ct) =>
+        {
+            var (name, login) = ((req.Restaurant ?? "").Trim(), (req.Login ?? "").Trim().ToLowerInvariant());
+            var errors = new Errors()
+                .Check(name is { Length: > 0 and <= 120 }, "restaurant", "Укажите название ресторана — до 120 символов.")
+                .Check(StaffEndpoints.LoginPattern().IsMatch(login), "login", StaffEndpoints.LoginRule)
+                .Check((req.Password ?? "").Length is >= 8 and <= 100, "password", StaffEndpoints.PasswordRule);
+            if (errors.Any) return errors.ToResult();
+            if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Login == login, ct))
+                return Results.Problem("Такой логин уже занят.", statusCode: StatusCodes.Status409Conflict);
+
+            var restaurant = new Restaurant { Id = Guid.NewGuid(), Name = name, CreatedAt = time.GetUtcNow() };
+            var user = new User
+            {
+                Id = Guid.NewGuid(), RestaurantId = restaurant.Id, Login = login, PasswordHash = "", Title = "Управляющий", Role = Role.Manager,
+            };
+            user.PasswordHash = new PasswordHasher<User>().HashPassword(user, req.Password!);
+            db.Restaurants.Add(restaurant);
+            db.Users.Add(user);
+            await db.SaveChangesAsync(ct);
+            return Results.Created("/api/me", Issue(user, options, time));
+        })
+        .WithTags("Вход")
+        .AllowAnonymous()
+        .RequireRateLimiting(LeadEndpoints.RateLimit);
+
         app.MapGet("/api/me", async (ClaimsPrincipal principal, AppDbContext db, RestaurantOptions restaurant, CancellationToken ct) =>
         {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Login == principal.Identity!.Name, ct);
-            return user is null
-                ? Results.Unauthorized()
-                : Results.Ok(new MeResponse(user.Login, user.Title, user.Role, Access.Sections(user.Role),
-                    new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places));
+            if (user is null) return Results.Unauthorized();
+            var name = await db.Restaurants.Where(r => r.Id == user.RestaurantId).Select(r => r.Name).FirstAsync(ct);
+            return Results.Ok(new MeResponse(
+                user.Login, user.Title, user.Role, Access.Sections(user.Role, user.RestaurantId == Restaurant.DemoId),
+                new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places, name));
         })
         .WithTags("Вход")
         .RequireAuthorization();
+    }
+
+    public const string RestaurantClaim = "restaurant";
+
+    /// <summary>Токен несёт логин, роль и ресторан: по ресторану сервер отбирает данные для каждого запроса.</summary>
+    private static LoginResponse Issue(User user, AuthOptions options, TimeProvider time)
+    {
+        var now = time.GetUtcNow();
+        var expiresAt = now.AddHours(options.TokenHours);
+        var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = AuthOptions.Issuer,
+            Audience = AuthOptions.Issuer,
+            Subject = new ClaimsIdentity([
+                new Claim(ClaimTypes.Name, user.Login),
+                new Claim(ClaimTypes.Role, user.Role.ToString()),
+                new Claim(RestaurantClaim, user.RestaurantId.ToString()),
+            ]),
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expiresAt.UtcDateTime,
+            SigningCredentials = new SigningCredentials(options.SigningKey, SecurityAlgorithms.HmacSha256),
+        });
+        return new LoginResponse(token, expiresAt);
     }
 
     private static IResult Locked(int minutes) =>
         Results.Problem("Слишком много неверных попыток. Вход временно закрыт.", statusCode: StatusCodes.Status429TooManyRequests,
             extensions: new Dictionary<string, object?> { ["retryAfterMinutes"] = minutes });
 
-    /// <summary>Создаёт учётные записи из настроек, которых ещё нет, и поддерживает их должность и роль.</summary>
-    public static async Task EnsureUsersAsync(AppDbContext db, AuthOptions options, CancellationToken ct = default)
+    /// <summary>
+    /// Создаёт демо-ресторан и его учётные записи из настроек, которых ещё нет, и поддерживает их должность и роль.
+    /// Вызывается при запуске, когда текущим рестораном выбран демо-ресторан.
+    /// </summary>
+    public static async Task EnsureUsersAsync(AppDbContext db, AuthOptions options, TimeProvider time, CancellationToken ct = default)
     {
+        if (!await db.Restaurants.AnyAsync(r => r.Id == Restaurant.DemoId, ct))
+            db.Restaurants.Add(new Restaurant { Id = Restaurant.DemoId, Name = "Демо-ресторан", CreatedAt = time.GetUtcNow() });
+
         var existing = await db.Users.ToDictionaryAsync(u => u.Login, ct);
         var hasher = new PasswordHasher<User>();
         foreach (var demo in options.Users.Where(u => u.Login != ""))

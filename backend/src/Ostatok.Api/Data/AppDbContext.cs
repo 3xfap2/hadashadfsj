@@ -3,8 +3,18 @@ using Ostatok.Api.Domain;
 
 namespace Ostatok.Api.Data;
 
-public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+/// <summary>Ресторан, от имени которого идёт работа: берётся из токена, в фоновых задачах задаётся явно.</summary>
+public sealed class Tenant
 {
+    public Guid Id { get; set; }
+}
+
+public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant) : DbContext(options)
+{
+    /// <summary>Текущий ресторан. Все запросы к его данным отфильтрованы по этому значению.</summary>
+    public Guid TenantId => tenant.Id;
+
+    public DbSet<Restaurant> Restaurants => Set<Restaurant>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Supply> Supplies => Set<Supply>();
     public DbSet<Batch> Batches => Set<Batch>();
@@ -31,14 +41,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         model.Entity<Product>(e =>
         {
             e.Property(p => p.Name).HasMaxLength(120);
-            e.HasIndex(p => p.Name).IsUnique();
+            e.HasIndex(p => new { p.RestaurantId, p.Name }).IsUnique();
         });
 
         model.Entity<Supply>(e =>
         {
             e.Property(s => s.Number).HasMaxLength(40);
             e.Property(s => s.Supplier).HasMaxLength(120);
-            e.HasIndex(s => s.Number).IsUnique();
+            e.HasIndex(s => new { s.RestaurantId, s.Number }).IsUnique();
         });
 
         model.Entity<Batch>(e =>
@@ -55,7 +65,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(d => d.Name).HasMaxLength(120);
             e.Property(d => d.PhotoUrl).HasMaxLength(300);
             e.Property(d => d.Category).HasMaxLength(60);
-            e.HasIndex(d => d.Name).IsUnique();
+            e.HasIndex(d => new { d.RestaurantId, d.Name }).IsUnique();
             e.HasMany(d => d.Recipe).WithOne().HasForeignKey(r => r.DishId);
         });
 
@@ -86,7 +96,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(s => s.Product).WithMany().HasForeignKey(s => s.ProductId).OnDelete(DeleteBehavior.Restrict);
         });
 
-        model.Entity<HotSettings>(e => e.Property(s => s.Id).ValueGeneratedNever());
+        model.Entity<HotSettings>(e => e.HasKey(s => s.RestaurantId));
+        model.Entity<Restaurant>(e => e.Property(r => r.Name).HasMaxLength(120));
 
         model.Entity<PrepItem>(e =>
         {
@@ -153,5 +164,33 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(u => u.Title).HasMaxLength(60);
             e.HasIndex(u => u.Login).IsUnique();
         });
+
+        // Каждая запись ресторана видна только ему: фильтр добавляется ко всем запросам автоматически.
+        foreach (var type in model.Model.GetEntityTypes().Where(t => typeof(IOwned).IsAssignableFrom(t.ClrType)).ToList())
+            GetType().GetMethod(nameof(FilterByRestaurant), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                .MakeGenericMethod(type.ClrType).Invoke(this, [model]);
+    }
+
+    private void FilterByRestaurant<T>(ModelBuilder model) where T : class, IOwned =>
+        model.Entity<T>().HasQueryFilter(e => e.RestaurantId == TenantId);
+
+    /// <summary>Новая запись получает ресторан того, кто её создаёт, если он не задан явно.</summary>
+    private void Own()
+    {
+        foreach (var entry in ChangeTracker.Entries<IOwned>())
+            if (entry.State == EntityState.Added && entry.Entity.RestaurantId == Guid.Empty)
+                entry.Entity.RestaurantId = TenantId;
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        Own();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken ct = default)
+    {
+        Own();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
     }
 }

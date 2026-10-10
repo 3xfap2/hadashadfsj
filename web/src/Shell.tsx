@@ -14,6 +14,7 @@ import { Menu } from './pages/Menu';
 import { Orders } from './pages/Orders';
 import { Preps } from './pages/Preps';
 import { Purchasing } from './pages/Purchasing';
+import { Staff } from './pages/Staff';
 import { Stock } from './pages/Stock';
 import { Supplies } from './pages/Supplies';
 import { Support, SupportLink } from './pages/Support';
@@ -28,7 +29,10 @@ const SECTIONS = [
   { id: 'purchasing', path: '/app/purchasing', title: 'Закупки' },
   { id: 'analytics', path: '/app/analytics', title: 'Аналитика' },
   { id: 'catalog', path: '/app/catalog', title: 'Справочники' },
+  { id: 'staff', path: '/app/staff', title: 'Сотрудники' },
 ];
+// Повару заготовки доступны отдельным пунктом: у него нет раздела «Склад», где они лежат вкладкой.
+const PREPS = { id: 'kitchen', path: '/app/stock/preps', title: 'Заготовки' };
 
 // На телефоне внизу пять разделов; остальные собраны под «Ещё».
 const TABS: { id: string; path: string; title: string; icon: ReactNode }[] = [
@@ -57,7 +61,12 @@ export function Shell() {
   const title = me?.title || me?.login || '';
   // Инициалы: первые буквы слов должности («Шеф-повар» → «ШП»).
   const allowed = me?.sections ?? [];
-  const sections = SECTIONS.filter((s) => allowed.includes(s.id));
+  const sections = [
+    ...SECTIONS.filter((s) => allowed.includes(s.id)),
+    ...(allowed.includes('kitchen') && !allowed.includes('stock') ? [PREPS] : []),
+  ];
+  // Официант начинает с заказов: экрана смены у него нет.
+  const home = allowed.length > 0 && !allowed.includes('today') ? <Navigate to="/app/orders" replace /> : <Today />;
   const tabs = TABS.filter((t) => t.id === 'more' || allowed.includes(t.id));
   // В «Ещё» попадают разделы, которым не хватило места в нижней панели.
   const extra = sections.filter((s) => !tabs.some((t) => t.id === s.id));
@@ -68,7 +77,7 @@ export function Shell() {
     <AccessContext.Provider value={allowed}>
     <div className="g shell">
       <header className="g-top shell__top">
-        <NavLink className="g-brand" to="/app">Остаток</NavLink>
+        <NavLink className="g-brand" to="/app" title={me?.restaurant}>Остаток</NavLink>
         <nav className="g-nav" aria-label="Разделы">
           {sections.map((s) => (
             <NavLink key={s.path} to={s.path} end={s.path === '/app'}>
@@ -102,11 +111,12 @@ export function Shell() {
 
       <main className="g-page">
         <Routes>
-          <Route index element={<Today />} />
+          <Route index element={home} />
+          <Route path="staff" element={<Guard section="staff"><Staff /></Guard>} />
           <Route path="orders" element={<Guard section="orders"><Orders /></Guard>} />
           <Route path="stock" element={<Guard section="stock"><Stock /></Guard>} />
           <Route path="stock/supplies" element={<Guard section="stock"><Supplies /></Guard>} />
-          <Route path="stock/preps" element={<Guard section="menu"><Preps /></Guard>} />
+          <Route path="stock/preps" element={<Guard section="kitchen"><Preps /></Guard>} />
           <Route path="stock/journal" element={<Guard section="stock"><Journal /></Guard>} />
           <Route path="labels" element={<Guard section="stock"><Labels /></Guard>} />
           <Route path="support" element={<Guard section="support"><Support /></Guard>} />

@@ -41,7 +41,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     private Task<HttpResponseMessage> Order(DishResponse dish, int quantity = 1) =>
-        Api.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, quantity)]));
+        fx.Waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, quantity)]));
 
     private async Task<StopListRow> StopListRow(DishResponse dish) =>
         (await Get<List<StopListRow>>("/api/stop-list")).Single(r => r.DishId == dish.Id);
@@ -199,7 +199,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     {
         var product = await Product();
 
-        var emptyOrder = await Api.PostAsJsonAsync("/api/orders", new OrderRequest([]));
+        var emptyOrder = await fx.Waiter.PostAsJsonAsync("/api/orders", new OrderRequest([]));
         var negativeSupply = await Api.PostAsJsonAsync("/api/supplies",
             new SupplyRequest(null, "П-ошибка", null, [new SupplyItemRequest(product.Id, -1, null)]));
         var dishWithoutRecipe = await Api.PostAsJsonAsync("/api/dishes", new DishRequest("Пустое блюдо", 100, []));
@@ -241,7 +241,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         await Supply(new SupplyItemRequest(product.Id, 2, 20));
         async Task AutoWriteOff()
         {
-            await using var scope = fx.Services.CreateAsyncScope();
+            await using var scope = fx.DemoScope();
             await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
         }
 
@@ -329,8 +329,8 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var dish = await Dish((product, 0.1m));
         await Supply(new SupplyItemRequest(product.Id, 1, null));
 
-        var atTable = await Api.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)], "Стол 7"));
-        var unknown = await Api.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)], "Крыша"));
+        var atTable = await fx.Waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)], "Стол 7"));
+        var unknown = await fx.Waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)], "Крыша"));
 
         Assert.Equal("Стол 7", (await Read<OrderResponse>(atTable)).Place);
         Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
@@ -421,15 +421,15 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         // 2 кг истекают через 4 часа, продаж не было: горячее предложение со скидкой 35% (цена 500 → 325).
         await Supply(new SupplyItemRequest(product.Id, 2, 4), new SupplyItemRequest(longLife.Id, 5, null));
 
-        var discounted = await Read<OrderResponse>(await Api.PostAsJsonAsync("/api/orders",
+        var discounted = await Read<OrderResponse>(await fx.Waiter.PostAsJsonAsync("/api/orders",
             new OrderRequest([new OrderLine(dish.Id, 2, Discount: true), new OrderLine(calm.Id, 1, Discount: true)], "Стол 7")));
 
         // У второго блюда ничего не истекает: скидку просили, но сервер её не дал.
         Assert.Equal([35, 0], discounted.Items.Select(i => i.DiscountPercent).OrderDescending());
         Assert.Equal(325 * 2 + 500, discounted.Total);
 
-        var closed = await Api.PostAsJsonAsync("/api/orders/close", new CloseTableRequest("Стол 7"));
-        var again = await Api.PostAsJsonAsync("/api/orders/close", new CloseTableRequest("Стол 7"));
+        var closed = await fx.Waiter.PostAsJsonAsync("/api/orders/close", new CloseTableRequest("Стол 7"));
+        var again = await fx.Waiter.PostAsJsonAsync("/api/orders/close", new CloseTableRequest("Стол 7"));
 
         Assert.True((await Read<CloseTableResponse>(closed)).Total >= 1150);
         Assert.Equal(HttpStatusCode.NotFound, again.StatusCode);
@@ -455,12 +455,12 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         // Срок вышел: блюдо в стопе, заказ отклоняется, но отсрочка (2 минуты — срок хранения партии) ещё идёт.
         Assert.Equal((DishStatus.Stop, StopReason.Expired), ((await StopListRow(dish)).Status, (await StopListRow(dish)).Reason));
         Assert.Equal(HttpStatusCode.Conflict, (await Order(dish)).StatusCode);
-        using (var scope = fx.Services.CreateScope())
+        using (var scope = fx.DemoScope())
             await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
         Assert.Null((await Get<ExpiryCheckResponse>("/api/simulator/expiry-check")).WrittenOffAt);
 
         fx.Time.Advance(TimeSpan.FromMinutes(2));
-        using (var scope = fx.Services.CreateScope())
+        using (var scope = fx.DemoScope())
             await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
         var after = await Get<ExpiryCheckResponse>("/api/simulator/expiry-check");
         Assert.Equal((0m, fx.Time.GetUtcNow()), (after.Remaining, after.WrittenOffAt!.Value));
@@ -529,8 +529,8 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
 
         var movements = (await Get<List<MovementRow>>("/api/movements?take=500")).Where(m => m.ProductId == product.Id).ToList();
 
-        Assert.Equal(3, movements.Count);
-        Assert.All(movements, m => Assert.Equal("demo", m.Actor));
+        // Поставку и списание провёл шеф-повар, заказ — официант.
+        Assert.Equal(["demo", "waiter", "demo"], movements.OrderBy(m => m.Id).Select(m => m.Actor));
     }
 
     [Fact]
@@ -552,22 +552,89 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task Повар_принимает_заказы_но_не_поставки_и_не_видит_аналитику()
+    public async Task Заказ_оформляет_только_официант_и_видит_только_заказы_и_меню()
     {
         var product = await Product();
         var dish = await Dish((product, 0.1m));
         await Supply(new SupplyItemRequest(product.Id, 1, null));
+        var request = new OrderRequest([new OrderLine(dish.Id, 1)]);
+        using var manager = await fx.SignInAsync("manager");
         using var cook = await fx.SignInAsync("cook");
 
-        var order = await cook.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)]));
-        var supply = await cook.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, "П-повар", null, [new SupplyItemRequest(product.Id, 1, null)]));
-        var analytics = await cook.GetAsync("/api/analytics/write-offs");
-        var newProduct = await cook.PostAsJsonAsync("/api/products", new ProductRequest("Продукт повара", Unit.Kg, 24, 1), ApiFixture.Json);
-        var me = (await cook.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!;
+        // Управляющий, шеф-повар и повар заказ не оформляют: у заказов своя точка входа.
+        Assert.All([await manager.PostAsJsonAsync("/api/orders", request), await Api.PostAsJsonAsync("/api/orders", request), await cook.PostAsJsonAsync("/api/orders", request)],
+            r => Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode));
+        Assert.Equal(HttpStatusCode.Created, (await fx.Waiter.PostAsJsonAsync("/api/orders", request)).StatusCode);
 
-        Assert.Equal(HttpStatusCode.Created, order.StatusCode);
+        // Официанту закрыты поставки, аналитика и справочники; меню со стоп-листом и горячие предложения он видит.
+        var supply = await fx.Waiter.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, "П-официант", null, [new SupplyItemRequest(product.Id, 1, null)]));
+        var analytics = await fx.Waiter.GetAsync("/api/analytics/write-offs");
+        var newProduct = await fx.Waiter.PostAsJsonAsync("/api/products", new ProductRequest("Продукт официанта", Unit.Kg, 24, 1), ApiFixture.Json);
         Assert.All([supply, analytics, newProduct], r => Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode));
-        Assert.Equal(["today", "orders", "menu"], me.Sections);
+        Assert.All([await fx.Waiter.GetAsync("/api/stop-list"), await fx.Waiter.GetAsync("/api/hot-offers")], r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+
+        Assert.Equal(["orders", "menu"], (await fx.Waiter.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
+        Assert.Equal(["today", "menu", "kitchen"], (await cook.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
+    }
+
+    [Fact]
+    public async Task Новый_ресторан_работает_в_своём_пространстве_и_не_видит_чужих_данных()
+    {
+        // В демо-ресторане есть продукт, блюдо и партия.
+        var theirs = await Product();
+        var theirDish = await Dish((theirs, 0.1m));
+        var theirSupply = await Supply(new SupplyItemRequest(theirs.Id, 3, null));
+
+        using var anonymous = fx.CreateClient();
+        var login = $"owner{Guid.NewGuid():N}"[..20];
+        var registered = await anonymous.PostAsJsonAsync("/api/auth/register", new RegisterRequest("Траттория", login, "trattoria-2026"));
+        var taken = await anonymous.PostAsJsonAsync("/api/auth/register", new RegisterRequest("Двойник", login, "trattoria-2026"));
+        var weak = await anonymous.PostAsJsonAsync("/api/auth/register", new RegisterRequest("Слабый пароль", $"x{login}"[..20], "123"));
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.Conflict, HttpStatusCode.BadRequest), (registered.StatusCode, taken.StatusCode, weak.StatusCode));
+
+        using var owner = fx.CreateClient();
+        owner.DefaultRequestHeaders.Authorization = new("Bearer", (await Read<LoginResponse>(registered)).Token);
+        var me = (await owner.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!;
+        Assert.Equal(("Траттория", Role.Manager), (me.Restaurant, me.Role));
+        // Обращения с лендинга — раздел команды продукта, у ресторана его нет.
+        Assert.DoesNotContain("support", me.Sections);
+        Assert.Equal(HttpStatusCode.Forbidden, (await owner.GetAsync("/api/support/chats")).StatusCode);
+
+        // Новый ресторан пуст и чужого не видит — ни списком, ни по прямой ссылке.
+        Assert.Empty((await owner.GetFromJsonAsync<List<ProductResponse>>("/api/products", ApiFixture.Json))!);
+        Assert.Empty((await owner.GetFromJsonAsync<List<StopListRow>>("/api/stop-list", ApiFixture.Json))!);
+        Assert.Empty((await owner.GetFromJsonAsync<List<BatchRow>>("/api/stock/batches", ApiFixture.Json))!);
+        Assert.Empty((await owner.GetFromJsonAsync<List<MovementRow>>("/api/movements?take=500", ApiFixture.Json))!);
+        var foreignWriteOff = await owner.PostAsJsonAsync($"/api/stock/batches/{theirSupply.Items.Single().BatchId}/write-off", new WriteOffRequest(WriteOffCause.Spoiled), ApiFixture.Json);
+        var foreignSupply = await owner.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, "П-чужая", null, [new SupplyItemRequest(theirs.Id, 1, null)]));
+        Assert.Equal(HttpStatusCode.NotFound, foreignWriteOff.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, foreignSupply.StatusCode);
+        Assert.Equal(3, (await Batches(theirs)).Single().Remaining);
+
+        // Свой склад: тот же номер поставки и то же название продукта, что в другом ресторане, не мешают.
+        var mine = await Read<ProductResponse>(await owner.PostAsJsonAsync("/api/products", new ProductRequest(theirs.Name, Unit.Kg, 48, 500), ApiFixture.Json));
+        var dish = await Read<DishResponse>(await owner.PostAsJsonAsync("/api/dishes", new DishRequest("Паста", 400, [new RecipeItemDto(mine.Id, 0.2m)])));
+        var supply = await owner.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, theirSupply.Number, null, [new SupplyItemRequest(mine.Id, 1, null)]));
+        Assert.Equal(HttpStatusCode.Created, supply.StatusCode);
+
+        // Управляющий заводит официанта; тот оформляет заказ в своём ресторане, а чужое блюдо заказать не может.
+        var waiterLogin = $"w{login}"[..20];
+        var staff = await owner.PostAsJsonAsync("/api/users", new StaffRequest(waiterLogin, "waiter-2026", "Официант", Role.Waiter), ApiFixture.Json);
+        Assert.Equal(HttpStatusCode.Created, staff.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await owner.PostAsJsonAsync("/api/users", new StaffRequest("demo", "waiter-2026", "Двойник", Role.Cook), ApiFixture.Json)).StatusCode);
+        using var waiter = fx.CreateClient();
+        var signedIn = await waiter.PostAsJsonAsync("/api/auth/login", new LoginRequest(waiterLogin, "waiter-2026"));
+        waiter.DefaultRequestHeaders.Authorization = new("Bearer", (await Read<LoginResponse>(signedIn)).Token);
+
+        var own = await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 2)]));
+        var foreign = await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(theirDish.Id, 1)]));
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.BadRequest), (own.StatusCode, foreign.StatusCode));
+        Assert.Equal(0.6m, (await owner.GetFromJsonAsync<List<BatchRow>>("/api/stock/batches", ApiFixture.Json))!.Single().Remaining);
+        Assert.Equal(2, (await owner.GetFromJsonAsync<List<StaffResponse>>("/api/users", ApiFixture.Json))!.Count);
+
+        // Демо-ресторан не видит ни продукта, ни заказа нового ресторана.
+        Assert.DoesNotContain(await Get<List<ProductResponse>>("/api/products"), p => p.Id == mine.Id);
+        Assert.DoesNotContain(await Get<List<OrderResponse>>("/api/orders?take=200"), o => o.Items.Any(i => i.DishId == dish.Id));
     }
 
     [Fact]
@@ -587,6 +654,10 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal((HttpStatusCode.Created, HttpStatusCode.NoContent), (supply.StatusCode, writeOff.StatusCode));
         Assert.Equal(HttpStatusCode.Forbidden, order.StatusCode);
         Assert.Equal(["today", "stock", "purchasing"], me.Sections);
+        // Управляющему, кроме склада и аналитики, доступны сотрудники и обращения с лендинга.
+        using var manager = await fx.SignInAsync("manager");
+        Assert.Equal(["today", "stock", "menu", "kitchen", "purchasing", "analytics", "catalog", "staff", "support"],
+            (await manager.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
     }
 
     [Fact]
@@ -690,7 +761,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var dish = await Dish((product, 0.5m));
         async Task Track()
         {
-            await using var scope = fx.Services.CreateAsyncScope();
+            await using var scope = fx.DemoScope();
             await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(default);
         }
 
@@ -728,7 +799,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         await Supply(new SupplyItemRequest(product.Id, 2, 30));
         async Task<int> Raise()
         {
-            await using var scope = fx.Services.CreateAsyncScope();
+            await using var scope = fx.DemoScope();
             return await scope.ServiceProvider.GetRequiredService<AlertService>().RaiseBatchAlertsAsync(default);
         }
         async Task<List<AlertResponse>> Mine() =>
@@ -758,7 +829,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var dish = await Dish((product, 0.5m));
         async Task Track()
         {
-            await using var scope = fx.Services.CreateAsyncScope();
+            await using var scope = fx.DemoScope();
             await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(default);
         }
 

@@ -4,6 +4,13 @@ import { login, type LoginError } from '../api';
 
 // Открытая учётная запись демо-ресторана: по ней жюри и гости смотрят систему без регистрации.
 const DEMO = { login: 'demo', password: 'demo2026' };
+// У каждой роли своя точка входа: заказы оформляет только официант.
+const DEMO_ROLES = [
+  { login: 'waiter', title: 'официант' },
+  { login: 'storekeeper', title: 'кладовщик' },
+  { login: 'cook', title: 'повар' },
+  { login: 'manager', title: 'управляющий' },
+];
 
 export function Login() {
   const [name, setName] = useState('');
@@ -105,9 +112,18 @@ export function Login() {
           <button type="button" className="g-btn g-btn--block" disabled={busy} onClick={() => enter(DEMO.login, DEMO.password)}>
             Открыть демо-ресторан
           </button>
-          <p className="muted">Демо — ресторан на 60 мест с партиями, сроками годности и стоп-листом.</p>
+          <p className="muted">Демо — ресторан на 60 мест с партиями, сроками годности и стоп-листом. Кнопка открывает его под шеф-поваром.</p>
+          <p className="muted login__roles">
+            Другие роли демо:{' '}
+            {DEMO_ROLES.map((r, i) => (
+              <span key={r.login}>
+                {i > 0 && ' · '}
+                <button type="button" disabled={busy} onClick={() => enter(r.login, DEMO.password)}>{r.title}</button>
+              </span>
+            ))}
+          </p>
         </form>
-        <p className="muted">Нет кабинета? <Link className="hd" to="/">Узнать, как подключиться</Link></p>
+        <p className="muted">Нет кабинета? <Link className="hd" to="/register">Создать ресторан</Link></p>
       </main>
     </div>
   );

@@ -276,10 +276,19 @@ export interface OrderRow {
 export interface Me {
   login: string;
   title: string;
-  role: 'Manager' | 'Chef' | 'Cook' | 'Storekeeper';
+  role: 'Manager' | 'Chef' | 'Cook' | 'Storekeeper' | 'Waiter';
   sections: string[];
   shift: { start: string; end: string };
   places: string[];
+  /** Название ресторана, в котором работает сотрудник. */
+  restaurant: string;
+}
+
+export interface StaffRow {
+  id: string;
+  login: string;
+  title: string;
+  role: Me['role'];
 }
 
 const pluralRules = new Intl.PluralRules('ru-RU');
@@ -349,6 +358,22 @@ export async function login(name: string, password: string): Promise<LoginError 
       : { title: 'Слишком много попыток', text: 'Подождите минуту и попробуйте снова.' };
   }
   if (!response.ok) return NO_SERVER;
+  setSession((await response.json()).token, name);
+  return null;
+}
+
+/** Создаёт ресторан и входит под его управляющим. Возвращает текст ошибки или null. */
+export async function register(restaurant: string, name: string, password: string): Promise<string | null> {
+  const response = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ restaurant, login: name, password }),
+  }).catch(() => null);
+  if (!response) return NO_SERVER.text;
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({}));
+    return Object.values((problem.errors ?? {}) as Record<string, string[]>).flat().join(' ') || problem.detail || `Сервер ответил ошибкой ${response.status}.`;
+  }
   setSession((await response.json()).token, name);
   return null;
 }

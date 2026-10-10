@@ -46,6 +46,7 @@ public sealed class PrepService(AppDbContext db, TimeProvider time)
                 ORDER BY "ExpiresAt", "Id"
                 FOR UPDATE
                 """)
+            .IgnoreQueryFilters()   // продукты уже отобраны по ресторану, а запрос с блокировкой нельзя оборачивать
             .ToListAsync(ct);
 
         var result = Fefo.Allocate(batches, required, now);
@@ -93,7 +94,7 @@ public static class PrepEndpoints
 {
     public static void MapPreps(this RouteGroupBuilder api)
     {
-        var preps = api.MapGroup("/preps").WithTags("Заготовки").RequireRoles(Access.Orders);
+        var preps = api.MapGroup("/preps").WithTags("Заготовки").RequireRoles(Access.Kitchen);
 
         // План заготовок: что есть, на сколько хватит и сколько приготовить.
         preps.MapGet("", async (AppDbContext db, TimeProvider time, StockOptions options, CancellationToken ct) =>
