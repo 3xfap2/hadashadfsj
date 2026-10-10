@@ -145,6 +145,11 @@ app.Use(async (context, next) =>
         headers.CacheControl = "no-store";
     await next();
 });
+// В собранном образе рядом с API лежит сайт (папка wwwroot): сервер отдаёт его сам.
+// Файлы раздаются до выбора маршрута: иначе запрос скрипта или фото перехватил бы маршрут «любая страница сайта».
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.UseRouting();
 app.UseStatusCodePages();
 app.UseCors();
 app.UseRateLimiter();
@@ -166,10 +171,6 @@ app.Use(async (context, next) =>
     }
     await next();
 });
-
-// В собранном образе рядом с API лежит сайт (папка wwwroot): сервер отдаёт его сам.
-app.UseDefaultFiles();
-app.UseStaticFiles();
 
 app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
@@ -203,7 +204,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 }
 
 // Страницы сайта — одно приложение: любой адрес, кроме API, открывает его главную страницу.
-app.MapFallbackToFile("{*path:regex(^(?!api/|openapi/|health$).*$)}", "index.html");
+app.MapFallbackToFile("{*path:regex(^(?!api/|openapi/|health$)(?!.*[.][a-z0-9]+$).*$)}", "index.html");
 
 app.Run();
 
