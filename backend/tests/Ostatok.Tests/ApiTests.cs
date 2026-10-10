@@ -528,6 +528,33 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task Бессмысленные_значения_отклоняются_как_ошибка_запроса_а_не_сбой_сервера()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.1m));
+        Task<HttpResponseMessage> Raw(HttpClient client, string url, string json) =>
+            client.PostAsync(url, new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+        HttpResponseMessage[] responses =
+        [
+            await Raw(fx.Waiter, "/api/orders", $$"""{"items":[{"dishId":"{{dish.Id}}","quantity":-5}]}"""),
+            await Raw(fx.Waiter, "/api/orders", $$"""{"items":[{"dishId":"{{dish.Id}}","quantity":0.5}]}"""),
+            await Raw(fx.Waiter, "/api/orders", """{"items":[{"dishId":"не идентификатор","quantity":1}]}"""),
+            await Raw(fx.Waiter, "/api/orders", """{"items":["""),
+            await Raw(Api, "/api/supplies", $$"""{"number":"П-минус","items":[{"productId":"{{product.Id}}","quantity":-3}]}"""),
+            await Raw(Api, "/api/supplies", $$"""{"number":"П-много","items":[{"productId":"{{product.Id}}","quantity":1000000000000}]}"""),
+            await Raw(Api, "/api/supplies", $$"""{"number":"П-срок","items":[{"productId":"{{product.Id}}","quantity":1,"shelfLifeHours":-5}]}"""),
+            await Raw(Api, "/api/products", """{"name":"Минус","unit":"Kg","shelfLifeHours":24,"cost":-100}"""),
+            await Raw(Api, "/api/products", """{"name":"Дорого","unit":"Kg","shelfLifeHours":24,"cost":99999999999999}"""),
+            await Raw(Api, "/api/dishes", $$"""{"name":"Минус","price":-100,"recipe":[{"productId":"{{product.Id}}","quantity":0.1}]}"""),
+            await Raw(Api, "/api/preps", $$"""{"productId":"{{product.Id}}","quantity":-2}"""),
+        ];
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode));
+        Assert.Empty(await Batches(product));
+    }
+
+    [Fact]
     public async Task Заявка_с_лендинга_принимается_без_входа_и_видна_в_кабинете()
     {
         using var visitor = fx.CreateClient();

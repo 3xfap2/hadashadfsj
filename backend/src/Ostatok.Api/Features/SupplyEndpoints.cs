@@ -76,8 +76,8 @@ public static class SupplyEndpoints
                 .Check((req.Supplier?.Length ?? 0) <= 120, "supplier", "Название поставщика — до 120 символов.")
                 .Check(createdAt <= now, "createdAt", "Дата поставки не может быть в будущем.")
                 .Check(items.Count > 0, "items", "В поставке должен быть хотя бы один продукт.")
-                .Check(items.All(i => i.Quantity > 0), "items", "Количество каждого продукта должно быть больше нуля.")
-                .Check(items.All(i => i.ShelfLifeHours is null or > 0), "items", "Срок хранения должен быть больше нуля.");
+                .Check(items.All(i => i.Quantity is > 0 and <= 1_000_000), "items", "Количество каждого продукта — больше нуля и не больше 1 000 000.")
+                .Check(items.All(i => i.ShelfLifeHours is null or (> 0 and <= 100_000)), "items", "Срок хранения — от 1 до 100 000 часов.");
 
             var ids = items.Select(i => i.ProductId).Distinct().ToArray();
             var products = await db.Products.Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, ct);

@@ -148,8 +148,8 @@ public static class CatalogEndpoints
     private static Errors Validate(ProductRequest req) => new Errors()
         .Check(!string.IsNullOrWhiteSpace(req.Name) && req.Name.Length <= 120, "name", "Укажите название до 120 символов.")
         .Check(Enum.IsDefined(req.Unit), "unit", "Единица измерения: Kg, L или Pcs.")
-        .Check(req.ShelfLifeHours > 0, "shelfLifeHours", "Срок хранения должен быть больше нуля.")
-        .Check(req.Cost >= 0, "cost", "Цена не может быть отрицательной.");
+        .Check(req.ShelfLifeHours is > 0 and <= 100_000, "shelfLifeHours", "Срок хранения — от 1 до 100 000 часов.")
+        .Check(req.Cost is >= 0 and <= 10_000_000, "cost", "Цена — от 0 до 10 000 000 ₽.");
 
     private static async Task<Errors> ValidateAsync(ProductRequest req, Guid? id, AppDbContext db, CancellationToken ct)
     {
@@ -159,7 +159,7 @@ public static class CatalogEndpoints
 
         var ids = recipe.Select(r => r.ProductId).ToArray();
         errors
-            .Check(recipe.All(r => r.Quantity > 0), "prepRecipe", "Количество каждого продукта должно быть больше нуля.")
+            .Check(recipe.All(r => r.Quantity is > 0 and <= 1000), "prepRecipe", "Количество каждого продукта — больше нуля и не больше 1000.")
             .Check(ids.Distinct().Count() == ids.Length, "prepRecipe", "Продукт указан в составе дважды.")
             .Check(id is null || !ids.Contains(id.Value), "prepRecipe", "Заготовка не может входить в собственный состав.");
         var known = await db.Products.Where(p => ids.Contains(p.Id)).Select(p => new { IsPrep = p.PrepRecipe.Any() }).ToListAsync(ct);
@@ -187,7 +187,7 @@ public static class CatalogEndpoints
     {
         var errors = new Errors()
             .Check(!string.IsNullOrWhiteSpace(req.Name) && req.Name.Length <= 120, "name", "Укажите название до 120 символов.")
-            .Check(req.Price >= 0, "price", "Цена не может быть отрицательной.")
+            .Check(req.Price is >= 0 and <= 10_000_000, "price", "Цена — от 0 до 10 000 000 ₽.")
             .Check(req.PhotoUrl is null or { Length: <= 300 }, "photoUrl", "Ссылка на фото — до 300 символов.")
             .Check((req.Category?.Length ?? 0) <= 60, "category", "Раздел меню — до 60 символов.");
 
@@ -195,7 +195,7 @@ public static class CatalogEndpoints
         if (recipe.Count == 0) return errors.Add("recipe", "В составе блюда должен быть хотя бы один продукт.");
 
         errors
-            .Check(recipe.All(r => r.Quantity > 0), "recipe", "Количество каждого продукта должно быть больше нуля.")
+            .Check(recipe.All(r => r.Quantity is > 0 and <= 1000), "recipe", "Количество каждого продукта — больше нуля и не больше 1000.")
             .Check(recipe.Select(r => r.ProductId).Distinct().Count() == recipe.Count, "recipe", "Продукт указан в составе дважды.");
 
         var ids = recipe.Select(r => r.ProductId).ToArray();

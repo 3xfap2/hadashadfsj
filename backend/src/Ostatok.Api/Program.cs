@@ -100,6 +100,9 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddProblemDetails();
+// Запрос, который не удалось разобрать (дробь вместо целого, оборванный JSON), — ошибка клиента (400),
+// одинаково в разработке и на сервере.
+builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
 builder.Services.AddOpenApi();
 
 // Тело запроса: самое большое, что принимает API, — фото блюда до 10 МБ.
