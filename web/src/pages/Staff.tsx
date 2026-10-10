@@ -15,6 +15,8 @@ export function Staff() {
   const staff = useApi<StaffRow[]>('/users', 60_000);
   const me = useApi<Me>('/me', 300_000).data;
   const [form, setForm] = useState({ login: '', password: '', title: '', role: 'Waiter' as StaffRow['role'] });
+  // Сотрудник, которого сейчас правят; null — форма создаёт нового.
+  const [editing, setEditing] = useState<StaffRow | null>(null);
   const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -26,14 +28,28 @@ export function Staff() {
     return Object.values((body.errors ?? {}) as Record<string, string[]>).flat().join(' ') || body.detail || `Сервер ответил ошибкой ${response.status}.`;
   };
 
+  const startEdit = (user: StaffRow | null) => {
+    setEditing(user);
+    setNote(null);
+    setForm(user ? { login: user.login, password: '', title: user.title, role: user.role } : { login: '', password: '', title: '', role: 'Waiter' });
+  };
+
   const add = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     const title = form.title.trim() || roleTitle(form.role);
-    const response = await send('POST', '/users', { ...form, title });
+    const response = editing
+      ? await send('PUT', `/users/${editing.id}`, { title, role: form.role, password: form.password || null })
+      : await send('POST', '/users', { ...form, title });
     if (response.ok) {
-      setNote({ kind: 'ok', text: `Учётная запись «${form.login.trim().toLowerCase()}» создана. Передайте сотруднику логин и пароль.` });
-      setForm({ login: '', password: '', title: '', role: form.role });
+      setNote({
+        kind: 'ok',
+        text: editing
+          ? `Изменения для «${editing.login}» сохранены.${form.password ? ' Передайте сотруднику новый пароль.' : ''} Новая роль действует со следующего входа.`
+          : `Учётная запись «${form.login.trim().toLowerCase()}» создана. Передайте сотруднику логин и пароль.`,
+      });
+      setEditing(null);
+      setForm({ login: '', password: '', title: '', role: 'Waiter' });
       await staff.reload();
     } else {
       setNote({ kind: 'err', text: await problem(response) });
@@ -69,9 +85,11 @@ export function Staff() {
                     <td>{u.title}</td>
                     <td>{roleTitle(u.role)}</td>
                     <td className="r">
-                      {u.login === me?.login
-                        ? <span className="muted small">это вы</span>
-                        : <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => remove(u)}>Удалить</button>}
+                      <span className="staff-acts">
+                        {u.login === me?.login && <span className="muted small">это вы</span>}
+                        <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => startEdit(u)}>Изменить</button>
+                        {u.login !== me?.login && <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => remove(u)}>Удалить</button>}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -88,33 +106,36 @@ export function Staff() {
 
         <aside className="sup-side cat-side">
           <form className="g-panel" onSubmit={add} noValidate>
-            <div className="g-panel__head"><h2>Новый сотрудник</h2></div>
+            <div className="g-panel__head"><h2>{editing ? editing.login : 'Новый сотрудник'}</h2>{editing && <span className="end">роль, должность, пароль</span>}</div>
             <div className="form-body">
               <div className="g-field">
                 <label htmlFor="s-role">Роль</label>
-                <select className="g-input" id="s-role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as StaffRow['role'] })}>
+                <select className="g-input" id="s-role" value={form.role} disabled={editing?.login === me?.login} onChange={(e) => setForm({ ...form, role: e.target.value as StaffRow['role'] })}>
                   {ROLES.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
                 </select>
+                {editing?.login === me?.login && <span className="g-hint">Свою роль изменить нельзя: в ресторане должен остаться управляющий.</span>}
               </div>
               <div className="g-field">
                 <label htmlFor="s-title">Должность <span className="muted" style={{ fontWeight: 400 }}>— необязательно</span></label>
                 <input className="g-input" id="s-title" placeholder={roleTitle(form.role)} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
               </div>
+              {!editing && (
+                <div className="g-field">
+                  <label htmlFor="s-login">Логин</label>
+                  <input className="g-input" id="s-login" autoCapitalize="none" autoComplete="off" value={form.login} onChange={(e) => setForm({ ...form, login: e.target.value })} />
+                  <span className="g-hint">Латинские буквы, цифры, точка, дефис; от 3 символов.</span>
+                </div>
+              )}
               <div className="g-field">
-                <label htmlFor="s-login">Логин</label>
-                <input className="g-input" id="s-login" autoCapitalize="none" autoComplete="off" value={form.login} onChange={(e) => setForm({ ...form, login: e.target.value })} />
-                <span className="g-hint">Латинские буквы, цифры, точка, дефис; от 3 символов.</span>
-              </div>
-              <div className="g-field">
-                <label htmlFor="s-password">Пароль</label>
+                <label htmlFor="s-password">{editing ? 'Новый пароль' : 'Пароль'}</label>
                 <input className="g-input" id="s-password" autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                <span className="g-hint">Не короче 8 символов.</span>
+                <span className="g-hint">{editing ? 'Оставьте пустым, чтобы пароль не менялся. Не короче 8 символов.' : 'Не короче 8 символов.'}</span>
               </div>
               {note && <div className={`g-note g-note--${note.kind}`} role={note.kind === 'err' ? 'alert' : 'status'}><span>{note.text}</span></div>}
             </div>
             <div className="g-panel__foot cat-foot">
-              <span />
-              <button className="g-btn g-btn--primary" type="submit" disabled={busy}>Создать</button>
+              {editing ? <button className="g-btn" type="button" disabled={busy} onClick={() => startEdit(null)}>Отмена</button> : <span />}
+              <button className="g-btn g-btn--primary" type="submit" disabled={busy}>{editing ? 'Сохранить' : 'Создать'}</button>
             </div>
           </form>
         </aside>

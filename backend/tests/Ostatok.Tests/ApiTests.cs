@@ -630,7 +630,29 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var foreign = await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(theirDish.Id, 1)]));
         Assert.Equal((HttpStatusCode.Created, HttpStatusCode.BadRequest), (own.StatusCode, foreign.StatusCode));
         Assert.Equal(0.6m, (await owner.GetFromJsonAsync<List<BatchRow>>("/api/stock/batches", ApiFixture.Json))!.Single().Remaining);
-        Assert.Equal(2, (await owner.GetFromJsonAsync<List<StaffResponse>>("/api/users", ApiFixture.Json))!.Count);
+        var people = (await owner.GetFromJsonAsync<List<StaffResponse>>("/api/users", ApiFixture.Json))!;
+        Assert.Equal(2, people.Count);
+
+        // Управляющий повышает официанта до шеф-повара и выдаёт новый пароль: старый пароль перестаёт подходить,
+        // а права меняются со следующего входа.
+        var promoted = people.Single(u => u.Login == waiterLogin);
+        var update = await owner.PutAsJsonAsync($"/api/users/{promoted.Id}", new StaffUpdate("Шеф-повар", Role.Chef, "chef-2026-new"), ApiFixture.Json);
+        Assert.Equal(Role.Chef, (await Read<StaffResponse>(update)).Role);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync("/api/auth/login", new LoginRequest(waiterLogin, "waiter-2026"))).StatusCode);
+        using var chef = fx.CreateClient();
+        chef.DefaultRequestHeaders.Authorization = new("Bearer",
+            (await Read<LoginResponse>(await anonymous.PostAsJsonAsync("/api/auth/login", new LoginRequest(waiterLogin, "chef-2026-new")))).Token);
+        Assert.Equal(HttpStatusCode.Forbidden, (await chef.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await chef.GetAsync("/api/analytics/summary")).StatusCode);
+        // Себя управляющий понизить не может, чужого сотрудника не видит.
+        var self = people.Single(u => u.Login == login);
+        Assert.Equal(HttpStatusCode.Conflict, (await owner.PutAsJsonAsync($"/api/users/{self.Id}", new StaffUpdate("Повар", Role.Cook), ApiFixture.Json)).StatusCode);
+        using var demoManager = await fx.SignInAsync("manager");
+        // Открытые демо-записи защищены: иначе любой посетитель мог бы сменить пароль и закрыть демо остальным.
+        var demoCook = (await demoManager.GetFromJsonAsync<List<StaffResponse>>("/api/users", ApiFixture.Json))!.Single(u => u.Login == "cook");
+        Assert.Equal(HttpStatusCode.Conflict, (await demoManager.PutAsJsonAsync($"/api/users/{demoCook.Id}", new StaffUpdate("Повар", Role.Cook, "new-password-1"), ApiFixture.Json)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await demoManager.DeleteAsync($"/api/users/{demoCook.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await demoManager.PutAsJsonAsync($"/api/users/{promoted.Id}", new StaffUpdate("Чужой", Role.Cook), ApiFixture.Json)).StatusCode);
 
         // Демо-ресторан не видит ни продукта, ни заказа нового ресторана.
         Assert.DoesNotContain(await Get<List<ProductResponse>>("/api/products"), p => p.Id == mine.Id);

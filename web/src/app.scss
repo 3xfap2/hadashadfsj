@@ -2711,6 +2711,12 @@ body {
   cursor: pointer;
 }
 
+.staff-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .staff-roles {
   border-top: 1px solid var(--line);
 
