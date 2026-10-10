@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { useApi, type BatchRow, type ProductRow, type StockRow, type StopListRow } from '../api';
+import { post, useApi, type BatchRow, type ProductRow, type StockRow, type StopListRow } from '../api';
 import { dayMonthShort, dueLong, leftPrecise, money, qty, shelfLife, unitName } from '../format';
 import { URGENT_HOURS } from '../ui';
 
@@ -42,6 +42,17 @@ export function Stock() {
   const [filter, setFilter] = useState<Kind | 'all'>('all');
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  // Партия, для которой сейчас спрашивается причина списания.
+  const [asking, setAsking] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const writeOff = async (batch: BatchRow, reason?: 'Spoiled' | 'Defective') => {
+    setBusy(true);
+    await post(`/stock/batches/${batch.id}/write-off`, reason ? { reason } : undefined);
+    await Promise.all([stock.reload(), batches.reload(), stopList.reload()]);
+    setAsking(null);
+    setBusy(false);
+  };
 
   const error = stock.error ?? batches.error ?? products.error ?? stopList.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить склад</h3><span>{error}</span></div>;
@@ -151,6 +162,19 @@ export function Stock() {
                             <strong className="num hd">{dueLong(b.expiresAt)}</strong>
                           </span>
                           <span className="num r batch-row__left" style={{ color: KINDS[kind].color }}>{leftPrecise(b.hoursLeft)}</span>
+                          {asking === b.id ? (
+                            <span className="batch-row__ask" role="group" aria-label="Причина списания">
+                              <span className="muted small">Почему списываем?</span>
+                              <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => writeOff(b, 'Spoiled')}>Порча при хранении</button>
+                              <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => writeOff(b, 'Defective')}>Брак поставки</button>
+                              <button className="g-btn g-btn--sm batch-row__cancel" type="button" onClick={() => setAsking(null)}>Отмена</button>
+                            </span>
+                          ) : (
+                            // Просроченная партия списывается сразу: причина известна. Для годной спрашиваем.
+                            <button className="g-btn g-btn--sm batch-row__off" type="button" disabled={busy} onClick={() => (b.status === 'Expired' ? writeOff(b) : setAsking(b.id))}>
+                              Списать
+                            </button>
+                          )}
                         </li>
                       );
                     })}

@@ -8,6 +8,7 @@ const STOP_REASON = {
   Expired: 'просрочено',
   OutOfStock: 'нет на складе',
   NotEnough: 'не хватает на порцию',
+  Manual: 'снято с продажи вручную',
 };
 
 export function Today() {

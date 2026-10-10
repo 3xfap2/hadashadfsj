@@ -4,13 +4,16 @@ using Ostatok.Api.Domain;
 
 namespace Ostatok.Api.Features;
 
-public enum WriteOffResult { Done, NotFound, Empty }
+public enum WriteOffResult { Done, NotFound, Empty, ReasonRequired }
+
+/// <summary>Почему списывают годную партию. Просроченная списывается как «Истёк срок годности» без выбора.</summary>
+public enum WriteOffCause { Spoiled, Defective }
 
 public sealed class WriteOffService(AppDbContext db, TimeProvider time)
 {
     public const string System = "система";
 
-    public async Task<WriteOffResult> WriteOffAsync(Guid batchId, string actor, CancellationToken ct)
+    public async Task<WriteOffResult> WriteOffAsync(Guid batchId, string actor, WriteOffCause? reason, CancellationToken ct)
     {
         var now = time.GetUtcNow();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -21,7 +24,10 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
         if (batch is null) return WriteOffResult.NotFound;
         if (batch.Remaining == 0) return WriteOffResult.Empty;
 
-        Apply(batch, now, batch.ExpiresAt <= now ? "Истёк срок годности" : "Списано вручную", actor);
+        var expired = batch.ExpiresAt <= now;
+        if (!expired && reason is null) return WriteOffResult.ReasonRequired;
+        var note = expired ? "Истёк срок годности" : reason == WriteOffCause.Defective ? "Брак поставки" : "Порча при хранении";
+        Apply(batch, now, note, actor);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return WriteOffResult.Done;
@@ -59,25 +65,29 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
     }
 }
 
-/// <summary>Раз в минуту списывает просрочку, которую не списали вручную за время отсрочки.</summary>
+/// <summary>Раз в минуту записывает историю стоп-листа и списывает просрочку, которую не списали вручную за время отсрочки.</summary>
 public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions options, ILogger<ExpiryWorker> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
-        if (!options.AutoWriteOff) return;
+        if (!options.AutoWriteOff && !options.TrackStops) return;
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
         do
         {
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
-                var count = await scope.ServiceProvider.GetRequiredService<WriteOffService>()
-                    .WriteOffExpiredAsync(TimeSpan.FromHours(options.AutoWriteOffAfterHours), stop);
-                if (count > 0) log.LogInformation("Автосписание: {Count} партий", count);
+                if (options.AutoWriteOff)
+                {
+                    var count = await scope.ServiceProvider.GetRequiredService<WriteOffService>()
+                        .WriteOffExpiredAsync(TimeSpan.FromHours(options.AutoWriteOffAfterHours), stop);
+                    if (count > 0) log.LogInformation("Автосписание: {Count} партий", count);
+                }
+                if (options.TrackStops) await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(stop);
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                log.LogError(e, "Автосписание не выполнено");
+                log.LogError(e, "Фоновая задача не выполнена");
             }
         }
         while (await timer.WaitForNextTickAsync(stop));

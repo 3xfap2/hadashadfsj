@@ -8,8 +8,9 @@ public sealed record ProductRequest(string? Name, Unit Unit, int ShelfLifeHours,
 public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal Cost);
 
 public sealed record RecipeItemDto(Guid ProductId, decimal Quantity);
-public sealed record DishRequest(string? Name, decimal Price, List<RecipeItemDto>? Recipe, string? PhotoUrl = null);
-public sealed record DishResponse(Guid Id, string Name, decimal Price, string? PhotoUrl, IEnumerable<RecipeItemDto> Recipe);
+public sealed record DishRequest(string? Name, decimal Price, List<RecipeItemDto>? Recipe, string? PhotoUrl = null, string? Category = null);
+public sealed record DishResponse(
+    Guid Id, string Name, decimal Price, string? PhotoUrl, IEnumerable<RecipeItemDto> Recipe, string? Category, bool ManuallyStopped);
 
 public static class CatalogEndpoints
 {
@@ -63,7 +64,7 @@ public static class CatalogEndpoints
             if (await ValidateAsync(req, db, ct) is { Any: true } errors) return errors.ToResult();
             if (await db.Dishes.AnyAsync(d => d.Name == req.Name, ct)) return NameTaken("Блюдо");
 
-            var dish = new Dish { Name = req.Name!.Trim(), Price = req.Price, PhotoUrl = req.PhotoUrl, Recipe = ToRecipe(req) };
+            var dish = new Dish { Name = req.Name!.Trim(), Price = req.Price, PhotoUrl = req.PhotoUrl, Category = Category(req), Recipe = ToRecipe(req) };
             db.Dishes.Add(dish);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/dishes/{dish.Id}", ToResponse(dish));
@@ -76,7 +77,9 @@ public static class CatalogEndpoints
             if (dish is null) return Results.NotFound();
             if (await db.Dishes.AnyAsync(d => d.Name == req.Name && d.Id != id, ct)) return NameTaken("Блюдо");
 
-            (dish.Name, dish.Price, dish.PhotoUrl, dish.Recipe) = (req.Name!.Trim(), req.Price, req.PhotoUrl, ToRecipe(req));
+            // Фото меняется отдельной загрузкой; запрос без ссылки его не стирает.
+            (dish.Name, dish.Price, dish.PhotoUrl, dish.Category, dish.Recipe) =
+                (req.Name!.Trim(), req.Price, req.PhotoUrl ?? dish.PhotoUrl, Category(req), ToRecipe(req));
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToResponse(dish));
         }).RequireRoles(Access.Catalog);
@@ -88,7 +91,53 @@ public static class CatalogEndpoints
             var deleted = await db.Dishes.Where(d => d.Id == id).ExecuteDeleteAsync(ct);
             return deleted == 0 ? Results.NotFound() : Results.NoContent();
         }).RequireRoles(Access.Catalog);
+
+        // Снять блюдо с продажи вручную и вернуть: стоп-лист при этом не ждёт, пока закончатся продукты.
+        dishes.MapPost("{id:guid}/stop", (Guid id, AppDbContext db, CancellationToken ct) => SetStopped(id, true, db, ct)).RequireRoles(Access.Orders);
+        dishes.MapPost("{id:guid}/resume", (Guid id, AppDbContext db, CancellationToken ct) => SetStopped(id, false, db, ct)).RequireRoles(Access.Orders);
+
+        // Фото отдаётся без входа: браузер запрашивает картинки без токена, а секрета в них нет.
+        dishes.MapGet("{id:guid}/photo", async (Guid id, AppDbContext db, CancellationToken ct) =>
+            await db.DishPhotos.AsNoTracking().FirstOrDefaultAsync(p => p.DishId == id, ct) is { } photo
+                ? Results.File(photo.Data, photo.ContentType)
+                : Results.NotFound())
+        .AllowAnonymous();
+
+        dishes.MapPut("{id:guid}/photo", async (Guid id, HttpRequest request, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        {
+            var contentType = request.ContentType ?? "";
+            if (contentType is not ("image/jpeg" or "image/png" or "image/webp"))
+                return Results.Problem("Подходит фото в формате JPG, PNG или WebP.", statusCode: StatusCodes.Status415UnsupportedMediaType);
+            if (request.ContentLength > MaxPhotoBytes)
+                return Results.Problem("Фото больше 10 МБ.", statusCode: StatusCodes.Status413PayloadTooLarge);
+
+            var dish = await db.Dishes.FindAsync([id], ct);
+            if (dish is null) return Results.NotFound();
+
+            using var buffer = new MemoryStream();
+            await request.Body.CopyToAsync(buffer, ct);
+            if (buffer.Length is 0 or > MaxPhotoBytes)
+                return Results.Problem("Фото пустое или больше 10 МБ.", statusCode: StatusCodes.Status413PayloadTooLarge);
+
+            var photo = await db.DishPhotos.FindAsync([id], ct);
+            if (photo is null) db.DishPhotos.Add(new DishPhoto { DishId = id, ContentType = contentType, Data = buffer.ToArray() });
+            else (photo.ContentType, photo.Data) = (contentType, buffer.ToArray());
+            // Метка времени в адресе заставляет браузер показать новое фото, а не сохранённое старое.
+            dish.PhotoUrl = $"/api/dishes/{id}/photo?v={time.GetUtcNow().ToUnixTimeSeconds()}";
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { dish.PhotoUrl });
+        }).RequireRoles(Access.Catalog);
     }
+
+    private const int MaxPhotoBytes = 10_000_000;
+
+    private static async Task<IResult> SetStopped(Guid id, bool stopped, AppDbContext db, CancellationToken ct)
+    {
+        var updated = await db.Dishes.Where(d => d.Id == id).ExecuteUpdateAsync(s => s.SetProperty(d => d.ManuallyStopped, stopped), ct);
+        return updated == 0 ? Results.NotFound() : Results.NoContent();
+    }
+
+    private static string? Category(DishRequest req) => string.IsNullOrWhiteSpace(req.Category) ? null : req.Category.Trim();
 
     private static Errors Validate(ProductRequest req) => new Errors()
         .Check(!string.IsNullOrWhiteSpace(req.Name) && req.Name.Length <= 120, "name", "Укажите название до 120 символов.")
@@ -101,7 +150,8 @@ public static class CatalogEndpoints
         var errors = new Errors()
             .Check(!string.IsNullOrWhiteSpace(req.Name) && req.Name.Length <= 120, "name", "Укажите название до 120 символов.")
             .Check(req.Price >= 0, "price", "Цена не может быть отрицательной.")
-            .Check(req.PhotoUrl is null or { Length: <= 300 }, "photoUrl", "Ссылка на фото — до 300 символов.");
+            .Check(req.PhotoUrl is null or { Length: <= 300 }, "photoUrl", "Ссылка на фото — до 300 символов.")
+            .Check((req.Category?.Length ?? 0) <= 60, "category", "Раздел меню — до 60 символов.");
 
         var recipe = req.Recipe ?? [];
         if (recipe.Count == 0) return errors.Add("recipe", "В составе блюда должен быть хотя бы один продукт.");
@@ -121,7 +171,7 @@ public static class CatalogEndpoints
     private static ProductResponse ToResponse(Product p) => new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, p.Cost);
 
     private static DishResponse ToResponse(Dish d) =>
-        new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)));
+        new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)), d.Category, d.ManuallyStopped);
 
     private static IResult NameTaken(string what) =>
         Results.Problem($"{what} с таким названием уже есть.", statusCode: StatusCodes.Status409Conflict);

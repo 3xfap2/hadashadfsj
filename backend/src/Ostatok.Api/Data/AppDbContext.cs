@@ -13,6 +13,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Movement> Movements => Set<Movement>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<DishPhoto> DishPhotos => Set<DishPhoto>();
+    public DbSet<StopLog> StopLogs => Set<StopLog>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
     {
@@ -48,6 +50,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.Property(d => d.Name).HasMaxLength(120);
             e.Property(d => d.PhotoUrl).HasMaxLength(300);
+            e.Property(d => d.Category).HasMaxLength(60);
             e.HasIndex(d => d.Name).IsUnique();
             e.HasMany(d => d.Recipe).WithOne().HasForeignKey(r => r.DishId);
         });
@@ -85,6 +88,19 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(m => m.Actor).HasMaxLength(60);
             e.HasOne(m => m.Product).WithMany().HasForeignKey(m => m.ProductId).OnDelete(DeleteBehavior.Restrict);
             e.HasIndex(m => m.At);
+        });
+
+        model.Entity<DishPhoto>(e =>
+        {
+            e.HasKey(p => p.DishId);
+            e.HasOne<Dish>().WithOne().HasForeignKey<DishPhoto>(p => p.DishId);
+            e.Property(p => p.ContentType).HasMaxLength(40);
+        });
+
+        model.Entity<StopLog>(e =>
+        {
+            e.HasOne(l => l.Dish).WithMany().HasForeignKey(l => l.DishId);
+            e.HasIndex(l => l.StartedAt);
         });
 
         model.Entity<Lead>(e =>

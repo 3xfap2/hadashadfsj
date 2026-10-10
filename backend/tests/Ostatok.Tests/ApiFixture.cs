@@ -35,6 +35,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Auth:TokenHours", "720");
         // Автосписание в тестах вызывается явно, фоновый запуск мешал бы сценариям с переводом часов.
         builder.UseSetting("Stock:AutoWriteOff", "false");
+        builder.UseSetting("Stock:TrackStops", "false");
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<TimeProvider>();

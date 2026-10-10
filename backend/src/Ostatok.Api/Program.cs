@@ -14,6 +14,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<WriteOffService>();
+builder.Services.AddScoped<StopTracker>();
 builder.Services.AddSingleton(sp =>
     sp.GetRequiredService<IConfiguration>().GetSection("Stock").Get<StockOptions>() ?? new StockOptions());
 builder.Services.AddHostedService<ExpiryWorker>();

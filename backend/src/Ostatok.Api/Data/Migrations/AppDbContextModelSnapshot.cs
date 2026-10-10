@@ -63,6 +63,13 @@ namespace Ostatok.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Category")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<bool>("ManuallyStopped")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(120)
@@ -82,6 +89,25 @@ namespace Ostatok.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Dishes");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.DishPhoto", b =>
+                {
+                    b.Property<Guid>("DishId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("DishId");
+
+                    b.ToTable("DishPhotos");
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Lead", b =>
@@ -294,6 +320,40 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("RecipeItem");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.StopLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("DishId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DishId");
+
+                    b.HasIndex("StartedAt");
+
+                    b.ToTable("StopLogs");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Supply", b =>
                 {
                     b.Property<Guid>("Id")
@@ -372,6 +432,15 @@ namespace Ostatok.Api.Data.Migrations
                     b.Navigation("Supply");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.DishPhoto", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Dish", null)
+                        .WithOne()
+                        .HasForeignKey("Ostatok.Api.Domain.DishPhoto", "DishId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Movement", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Product", "Product")
@@ -432,6 +501,17 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.StopLog", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Dish", "Dish")
+                        .WithMany()
+                        .HasForeignKey("DishId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Dish");
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Dish", b =>

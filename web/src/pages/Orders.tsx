@@ -7,6 +7,7 @@ const STOP_REASON = {
   Expired: 'просрочено',
   OutOfStock: 'нет на складе',
   NotEnough: 'не хватает на порцию',
+  Manual: 'снято с продажи вручную',
 };
 
 type Result = { kind: 'ok' | 'rejected'; order: OrderRow } | { kind: 'error'; message: string } | null;

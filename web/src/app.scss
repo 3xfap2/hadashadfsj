@@ -495,7 +495,7 @@ body {
 
 .batch-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   gap: 6px 18px;
   align-items: center;
   padding: 12px 20px 12px 104px;
@@ -521,6 +521,20 @@ body {
     min-width: 120px;
     font-size: 22px;
     font-weight: 800;
+  }
+
+  // Вопрос о причине занимает строку целиком под партией.
+  &__ask {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  &__cancel {
+    border-color: transparent;
   }
 }
 
@@ -894,6 +908,846 @@ body {
   }
 }
 
+// ---------- Меню и стоп-лист ----------
+
+.menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+
+  .sub {
+    max-width: 60ch;
+    padding-bottom: 0;
+  }
+}
+
+.menu-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.menu-main {
+  flex: 999 1 600px;
+  min-width: 0;
+}
+
+.menu-side {
+  flex: 1 1 380px;
+  min-width: 0;
+  position: sticky;
+  top: 80px;
+
+  &__head {
+    align-items: center;
+    flex-wrap: wrap;
+
+    h2 {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      overflow-wrap: anywhere;
+    }
+
+    > span {
+      margin-left: auto;
+    }
+  }
+
+  &__body {
+    padding: 16px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+
+    h3 {
+      font-size: 16px;
+      font-weight: 700;
+    }
+  }
+}
+
+.dish-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.g .dish-card {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+
+  &[aria-pressed='true'] {
+    border-color: var(--brand);
+    outline: 2px solid var(--brand);
+    outline-offset: -1px;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+
+  &__photo {
+    position: relative;
+    display: block;
+    height: 160px;
+    border-bottom: 1px solid var(--line);
+
+    .g-photo {
+      width: 100%;
+      height: 100%;
+      border-radius: 0;
+
+      > span {
+        font-size: 40px;
+      }
+    }
+
+    &.is-off .g-photo {
+      opacity: 0.5;
+    }
+  }
+
+  .ph-chip {
+    position: absolute;
+    inset: 12px auto auto 12px;
+    display: inline-flex;
+    align-items: center;
+    height: 26px;
+    padding: 0 9px;
+    border-radius: 6px;
+    background: var(--bg);
+    font-size: 14px;
+    font-weight: 700;
+
+    &.g-tag--red {
+      color: var(--red);
+    }
+
+    &.g-tag--amber {
+      color: var(--amber);
+      box-shadow: none;
+    }
+  }
+
+  &__body {
+    padding: 14px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  &__top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+
+    .g-name {
+      font-size: 18px;
+    }
+  }
+
+  &__portions {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+
+    .num {
+      font-size: 32px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+  }
+
+  &__why {
+    font-weight: 600;
+  }
+}
+
+.menu-photo {
+  height: 200px;
+  border-bottom: 1px solid var(--line);
+
+  .g-photo {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+
+    > span {
+      font-size: 40px;
+    }
+  }
+
+  &.is-off .g-photo {
+    opacity: 0.5;
+  }
+}
+
+.facts-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fact {
+  background: var(--panel);
+  border-radius: var(--r-panel);
+  padding: 10px 12px;
+  min-width: 0;
+
+  .v {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--h);
+    line-height: 1.2;
+  }
+}
+
+.menu-forecast {
+  font-weight: 600;
+}
+
+.tk {
+  > li {
+    display: grid;
+    grid-template-columns: 4px minmax(0, 1fr) auto;
+    gap: 2px 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+
+    &:last-child {
+      border-bottom: 0;
+    }
+  }
+
+  &__bar {
+    grid-row: 1 / span 2;
+    align-self: stretch;
+    border-radius: 2px;
+    background: transparent;
+  }
+
+  &__qty {
+    font-weight: 700;
+  }
+
+  &__wide {
+    grid-column: 2 / -1;
+  }
+
+  &--hot &__bar,
+  &--stop &__bar,
+  &--expired &__bar {
+    background: var(--red);
+  }
+
+  &--soon &__bar {
+    background: var(--amber);
+  }
+}
+
+.menu-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  &__stop {
+    border-color: transparent;
+    color: var(--ink);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .g .dish-card:not([aria-pressed='true']):hover {
+    border-color: #c9cec6;
+  }
+}
+
+// ---------- Закупки ----------
+
+.buy-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  h1 {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--h);
+  }
+}
+
+.lead-text {
+  font-size: 18px;
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+
+.buy {
+  display: grid;
+  grid-template-columns: auto 64px minmax(0, 1fr) auto;
+  gap: 10px 18px;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  input[type='checkbox'] {
+    width: 22px;
+    height: 22px;
+    margin: 10px;
+    accent-color: var(--brand);
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  &__name {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+
+    label {
+      font-size: 18px;
+      cursor: pointer;
+    }
+  }
+
+  &__end {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+
+    .hd {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+  }
+}
+
+.req-panel {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  h2 {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--h);
+    line-height: 1.1;
+  }
+}
+
+.grp {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  &__lines {
+    white-space: pre-line;
+  }
+
+  &__sum {
+    align-self: flex-end;
+    font-weight: 700;
+  }
+}
+
+.req-total {
+  border-top: 2px solid var(--h);
+  padding-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--h);
+}
+
+// ---------- Аналитика ----------
+
+.an-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.an-wrap {
+  flex-wrap: wrap;
+}
+
+.g-kpis.kpis-a {
+  grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr));
+}
+
+.pbody {
+  padding: 20px;
+
+  &--tight {
+    padding-top: 6px;
+  }
+}
+
+.bars {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 0 8px;
+}
+
+.axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 220px;
+  text-align: right;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  line-height: 1;
+  transform: translateY(7px);
+}
+
+.plot {
+  position: relative;
+  height: 220px;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  border-bottom: 1px solid var(--h);
+  background: repeating-linear-gradient(to top, transparent 0 54px, var(--line) 54px 55px);
+}
+
+.bar {
+  flex: 1;
+  min-width: 4px;
+  background: var(--brand);
+  border-radius: 4px 4px 0 0;
+
+  &.today {
+    background: var(--red);
+  }
+}
+
+.days {
+  grid-column: 2;
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+
+  span {
+    flex: 1;
+    text-align: center;
+    color: var(--ink-2);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: visible;
+  }
+}
+
+.hbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+
+  &__name {
+    font-weight: 700;
+
+    .muted {
+      font-weight: 400;
+    }
+  }
+
+  &__track {
+    grid-column: 1 / -1;
+    height: 10px;
+    background: var(--panel);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  &__fill {
+    height: 100%;
+    background: var(--brand);
+    border-radius: 3px;
+  }
+}
+
+.an-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding-top: 14px;
+}
+
+.g .board {
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  h2 {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  &__item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    align-items: flex-start;
+    padding: 14px 0;
+    border-top: 1px solid rgba(226, 246, 213, 0.22);
+  }
+
+  &__rank {
+    width: 30px;
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--accent);
+  }
+
+  &__text {
+    flex: 1 1 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+
+    .g-name {
+      font-size: 18px;
+    }
+  }
+
+  &__end {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  &__loss {
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+    color: #ffffff;
+  }
+
+  &__empty {
+    padding-top: 12px;
+  }
+}
+
+// ---------- Справочники ----------
+
+.g-title.cat-title {
+  align-items: flex-end;
+}
+
+.g .pcols {
+  grid-template-columns: 48px minmax(0, 1.6fr) 64px minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.g .prod-row {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  display: grid;
+  gap: 8px 20px;
+  align-items: center;
+  padding: 10px 20px;
+  min-height: 68px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  // «all: unset» выше сбрасывает и колонки, поэтому они заданы здесь ещё раз.
+  &.pcols {
+    grid-template-columns: 48px minmax(0, 1.6fr) 64px minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  &[aria-pressed='true'] {
+    background: var(--hl);
+    box-shadow: inset 3px 0 0 var(--brand);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: -2px;
+  }
+
+  &__photo {
+    width: 48px;
+    height: 48px;
+
+    > span {
+      font-size: 14px;
+    }
+  }
+
+  &__price {
+    font-weight: 600;
+  }
+}
+
+.cat-side {
+  gap: 20px;
+}
+
+.g .cat-form-title {
+  font-size: 22px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.form-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cat-units {
+  align-self: flex-start;
+}
+
+.g .cat-foot {
+  justify-content: space-between;
+
+  .g-btn {
+    margin-left: 0;
+  }
+}
+
+.g .cat-delete {
+  color: var(--red);
+}
+
+.dl-list {
+  flex: 1 1 380px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.g .dl {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  align-items: center;
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--r-panel);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+
+  &[aria-pressed='true'] {
+    background: var(--hl);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 0;
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  &__price {
+    font-weight: 700;
+  }
+}
+
+.dish-form {
+  padding: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+
+  &__photo {
+    flex: 1 1 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  &__fields {
+    flex: 2 1 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  &__pair {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+  }
+
+  &__tk-title {
+    margin-top: 8px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--h);
+  }
+
+  &__tk-error {
+    padding-top: 8px;
+  }
+
+  &__add {
+    align-self: flex-start;
+  }
+}
+
+.dish-drop {
+  height: 220px;
+  border-radius: var(--r-photo);
+  background: var(--panel);
+  color: var(--ink-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  text-align: center;
+
+  svg {
+    width: 30px;
+    height: 30px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+  }
+
+  &--filled {
+    width: 100%;
+    padding: 0;
+    object-fit: cover;
+  }
+}
+
+.tc {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 44px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+
+  &.tc-head {
+    padding-top: 0;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+  }
+}
+
+.g .del {
+  width: 44px;
+  height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--r-btn);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+}
+
+.tile {
+  background: var(--panel);
+  border-radius: var(--r-panel);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  .v {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--h);
+    line-height: 1.2;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .g .prod-row:not([aria-pressed='true']):hover,
+  .g .dl:not([aria-pressed='true']):hover,
+  .g .del:hover {
+    background: #f4f6f3;
+  }
+
+  .g .del:hover {
+    color: var(--h);
+  }
+}
+
 // ---------- Вход ----------
 
 .login {
@@ -1254,6 +2108,63 @@ body {
 
   .g-title .stock-tools .g-input {
     width: 100%;
+  }
+
+  .batch-row {
+    &__off {
+      grid-column: 1 / -1;
+      justify-self: start;
+    }
+
+    &__ask {
+      justify-content: flex-start;
+    }
+  }
+
+  .menu-side {
+    position: static;
+  }
+
+  .g .pcols,
+  .g .prod-row.pcols {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+
+    .s-hide {
+      display: none;
+    }
+  }
+
+  .tc {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px;
+
+    .cost {
+      display: none;
+    }
+  }
+
+  .dish-form {
+    padding: 14px;
+  }
+
+  .buy {
+    grid-template-columns: auto minmax(0, 1fr);
+
+    .g-photo {
+      display: none;
+    }
+
+    &__end {
+      grid-column: 1 / -1;
+      align-items: flex-start;
+    }
+  }
+
+  .g-kpis.kpis-a {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .buy-head h1 {
+    font-size: 32px;
   }
 
   .stock-filters {

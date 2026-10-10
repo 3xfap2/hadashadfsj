@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 export type Unit = 'Kg' | 'L' | 'Pcs';
 export type DishStatus = 'Available' | 'Low' | 'Stop';
-export type StopReason = 'Expired' | 'OutOfStock' | 'NotEnough';
+export type StopReason = 'Expired' | 'OutOfStock' | 'NotEnough' | 'Manual';
 export type BatchStatus = 'Fresh' | 'ExpiringSoon' | 'Expired';
 
 export interface HotIngredient {
@@ -38,6 +38,52 @@ export interface StopListRow {
   limitingProductName: string;
   reason: StopReason | null;
   stopForecastAt: string | null;
+  cost: number;
+  category: string | null;
+}
+
+export interface DishRow {
+  id: string;
+  name: string;
+  price: number;
+  photoUrl: string | null;
+  recipe: { productId: string; quantity: number }[];
+  category: string | null;
+  manuallyStopped: boolean;
+}
+
+export interface PurchaseRow {
+  productId: string;
+  productName: string;
+  unit: Unit;
+  quantity: number;
+  hoursCovered: number | null;
+  reason: string;
+  supplier: string | null;
+  sum: number;
+}
+
+export interface WriteOffReport {
+  total: number;
+  byDay: { date: string; value: number }[];
+  byProduct: { productId: string; productName: string; unit: Unit; quantity: number; value: number }[];
+  byReason: { reason: string; value: number }[];
+}
+
+export interface DeficitRow {
+  productId: string;
+  productName: string;
+  unit: Unit;
+  rejectedOrders: number;
+  missingQuantity: number;
+  stopHours: number;
+  dishes: string[];
+}
+
+export interface AnalyticsSummary {
+  orders: number;
+  rejectedOrders: number;
+  stopHours: number;
 }
 
 export interface BatchRow {
@@ -217,6 +263,20 @@ export function post(path: string, body?: unknown): Promise<Response> {
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+/** Запрос с телом JSON и произвольным методом: PUT и DELETE для справочников. */
+export function send(method: string, path: string, body?: unknown): Promise<Response> {
+  return request(path, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+/** Отправляет двоичные данные (фото блюда) с указанным типом. */
+export function sendFile(method: string, path: string, body: Blob, contentType: string): Promise<Response> {
+  return request(path, { method, headers: { 'Content-Type': contentType }, body });
 }
 
 /** Отправляет файл как есть: сервер сам определяет, Excel это или CSV. */

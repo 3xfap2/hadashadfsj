@@ -41,6 +41,10 @@ public static class OrderEndpoints
             var known = await db.Dishes.CountAsync(d => ids.Contains(d.Id), ct);
             if (errors.Check(known == ids.Length, "items", "В заказе есть неизвестное блюдо.").Any) return errors.ToResult();
 
+            var paused = await db.Dishes.Where(d => ids.Contains(d.Id) && d.ManuallyStopped).Select(d => d.Name).ToListAsync(ct);
+            if (paused.Count > 0)
+                return errors.Add("items", $"Снято с продажи: {string.Join(", ", paused)}. Уберите блюдо из заказа.").ToResult();
+
             var placed = await service.PlaceAsync(items, place, user.Identity?.Name ?? "", ct);
             var writeOffs = await (
                 from m in db.Movements

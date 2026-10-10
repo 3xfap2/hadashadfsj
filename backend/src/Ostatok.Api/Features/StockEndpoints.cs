@@ -19,7 +19,10 @@ public sealed record BatchRow(
 public sealed record StopListRow(
     Guid DishId, string DishName, string? PhotoUrl, decimal Price, DishStatus Status, int Portions,
     Guid LimitingProductId, string LimitingProductName, StopReason? Reason,
-    DateTimeOffset? StopForecastAt);
+    DateTimeOffset? StopForecastAt, decimal Cost, string? Category);
+
+/// <param name="Reason">Нужна только для годной партии; просроченная списывается без причины.</param>
+public sealed record WriteOffRequest(WriteOffCause? Reason);
 
 public sealed record MovementRow(
     long Id, DateTimeOffset At, MovementType Type, Guid ProductId, string ProductName, Unit Unit,
@@ -32,6 +35,8 @@ public sealed class StockOptions
     /// <summary>Горизонт горячих предложений: учитываются партии, истекающие в эти часы.</summary>
     public double HotOfferHours { get; set; } = 48;
     public bool AutoWriteOff { get; set; } = true;
+    /// <summary>Записывать историю стоп-листа для аналитики.</summary>
+    public bool TrackStops { get; set; } = true;
     /// <summary>Сколько часов просрочка ждёт ручного списания, прежде чем спишется сама.</summary>
     public double AutoWriteOffAfterHours { get; set; } = 12;
     /// <summary>За сколько дней считается средний расход продуктов.</summary>
@@ -88,10 +93,11 @@ public static class StockEndpoints
                 b.ExpiresAt <= now ? BatchStatus.Expired : b.ExpiresAt <= soon ? BatchStatus.ExpiringSoon : BatchStatus.Fresh));
         });
 
-        stock.MapPost("/batches/{id:guid}/write-off", async (Guid id, WriteOffService service, ClaimsPrincipal user, CancellationToken ct) =>
-            await service.WriteOffAsync(id, user.Identity?.Name ?? "", ct) switch
+        stock.MapPost("/batches/{id:guid}/write-off", async (Guid id, WriteOffRequest? req, WriteOffService service, ClaimsPrincipal user, CancellationToken ct) =>
+            await service.WriteOffAsync(id, user.Identity?.Name ?? "", req?.Reason, ct) switch
             {
                 WriteOffResult.NotFound => Results.NotFound(),
+                WriteOffResult.ReasonRequired => new Errors().Add("reason", "Партия ещё годна. Укажите причину списания: Spoiled (порча при хранении) или Defective (брак поставки).").ToResult(),
                 WriteOffResult.Empty => Results.Problem("В партии ничего не осталось.", statusCode: StatusCodes.Status409Conflict),
                 _ => Results.NoContent(),
             }).RequireRoles(Access.Stock);
@@ -108,7 +114,8 @@ public static class StockEndpoints
                     var a = Availability.Of(d, totals);
                     var limiting = d.Recipe.First(r => r.ProductId == a.LimitingProductId).Product!;
                     var forecast = a.Status == DishStatus.Stop ? null : Forecast.DishStopAt(d, batches, perHour, now, options.PurchaseCoverHours);
-                    return new StopListRow(d.Id, d.Name, d.PhotoUrl, d.Price, a.Status, a.Portions, limiting.Id, limiting.Name, a.Reason, forecast);
+                    return new StopListRow(d.Id, d.Name, d.PhotoUrl, d.Price, a.Status, a.Portions, limiting.Id, limiting.Name, a.Reason, forecast,
+                        d.Recipe.Sum(r => r.Quantity * r.Product!.Cost), d.Category);
                 })
                 .OrderByDescending(r => r.Status).ThenBy(r => r.Portions).ThenBy(r => r.DishName);
         })

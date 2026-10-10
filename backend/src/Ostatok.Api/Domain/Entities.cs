@@ -41,7 +41,31 @@ public class Dish
     public required string Name { get; set; }
     public decimal Price { get; set; }
     public string? PhotoUrl { get; set; }
+    /// <summary>Раздел меню: «Супы», «Салаты» и так далее.</summary>
+    public string? Category { get; set; }
+    /// <summary>Блюдо снято с продажи вручную и не продаётся, даже если продуктов хватает.</summary>
+    public bool ManuallyStopped { get; set; }
     public List<RecipeItem> Recipe { get; set; } = [];
+}
+
+/// <summary>Загруженное фото блюда; хранится отдельно, чтобы не тянуть его вместе со списком блюд.</summary>
+public class DishPhoto
+{
+    public Guid DishId { get; set; }
+    public required string ContentType { get; set; }
+    public required byte[] Data { get; set; }
+}
+
+/// <summary>Интервал, когда блюдо было в стоп-листе; EndedAt пуст, пока стоп продолжается.</summary>
+public class StopLog
+{
+    public long Id { get; set; }
+    public Guid DishId { get; set; }
+    public Dish? Dish { get; set; }
+    public Guid ProductId { get; set; }
+    public StopReason Reason { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset? EndedAt { get; set; }
 }
 
 public class RecipeItem

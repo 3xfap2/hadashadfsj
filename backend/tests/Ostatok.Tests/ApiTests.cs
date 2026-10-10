@@ -267,7 +267,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var dish = await Dish((product, 0.5m));
         Assert.Equal(HttpStatusCode.Conflict, (await Order(dish)).StatusCode);
 
-        var suggestion = (await Get<List<PurchaseSuggestion>>("/api/purchase-suggestions")).Single(s => s.ProductId == product.Id);
+        var suggestion = (await Get<List<PurchaseRow>>("/api/purchase-suggestions")).Single(s => s.ProductId == product.Id);
         var deficit = (await Get<List<DeficitRow>>("/api/analytics/deficit")).Single(r => r.ProductId == product.Id);
 
         Assert.Equal(5m, suggestion.Quantity);
@@ -418,7 +418,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var supply = await storekeeper.PostAsJsonAsync("/api/supplies",
             new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 1, null)]));
         var batchId = (await Read<SupplyResponse>(supply)).Items.Single().BatchId;
-        var writeOff = await storekeeper.PostAsync($"/api/stock/batches/{batchId}/write-off", null);
+        var writeOff = await storekeeper.PostAsJsonAsync($"/api/stock/batches/{batchId}/write-off", new WriteOffRequest(WriteOffCause.Spoiled), ApiFixture.Json);
         var order = await storekeeper.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)]));
         var me = (await storekeeper.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!;
 
@@ -462,5 +462,100 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
 
         var row = Assert.Single(await Read<List<ImportRow>>(response));
         Assert.Equal((ImportRowStatus.Ok, 2.5m, 72), (row.Status, row.Quantity!.Value, row.ShelfLifeHours!.Value));
+    }
+
+    [Fact]
+    public async Task Блюдо_снятое_вручную_стоит_в_стопе_и_не_заказывается_пока_его_не_вернут()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.1m));
+        await Supply(new SupplyItemRequest(product.Id, 5, null));
+
+        (await Api.PostAsync($"/api/dishes/{dish.Id}/stop", null)).EnsureSuccessStatusCode();
+
+        var row = await StopListRow(dish);
+        Assert.Equal((DishStatus.Stop, StopReason.Manual), (row.Status, row.Reason));
+        Assert.Equal(HttpStatusCode.BadRequest, (await Order(dish)).StatusCode);
+        Assert.DoesNotContain(await Get<List<HotOffer>>("/api/hot-offers"), o => o.DishId == dish.Id);
+
+        (await Api.PostAsync($"/api/dishes/{dish.Id}/resume", null)).EnsureSuccessStatusCode();
+
+        Assert.Equal(HttpStatusCode.Created, (await Order(dish)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Годная_партия_списывается_только_с_причиной_и_причина_попадает_в_аналитику()
+    {
+        var product = await Product();
+        var supply = await Supply(new SupplyItemRequest(product.Id, 1, null), new SupplyItemRequest(product.Id, 2, null));
+        var (first, second) = (supply.Items.First().BatchId, supply.Items.Last().BatchId);
+
+        var noReason = await Api.PostAsync($"/api/stock/batches/{first}/write-off", null);
+        var spoiled = await Api.PostAsJsonAsync($"/api/stock/batches/{first}/write-off", new WriteOffRequest(WriteOffCause.Spoiled), ApiFixture.Json);
+        var defective = await Api.PostAsJsonAsync($"/api/stock/batches/{second}/write-off", new WriteOffRequest(WriteOffCause.Defective), ApiFixture.Json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, noReason.StatusCode);
+        Assert.Equal((HttpStatusCode.NoContent, HttpStatusCode.NoContent), (spoiled.StatusCode, defective.StatusCode));
+        var notes = (await Get<List<MovementRow>>("/api/movements?take=500")).Where(m => m.ProductId == product.Id && m.Type == MovementType.WriteOff).Select(m => m.Note);
+        Assert.Equal(["Брак поставки", "Порча при хранении"], notes.Order());
+    }
+
+    [Fact]
+    public async Task Фото_блюда_загружается_и_отдаётся_без_входа()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.1m));
+        byte[] image = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+        var content = new ByteArrayContent(image);
+        content.Headers.ContentType = new("image/jpeg");
+
+        var upload = await Api.PutAsync($"/api/dishes/{dish.Id}/photo", content);
+        var text = new ByteArrayContent(image);
+        text.Headers.ContentType = new("text/plain");
+        var wrongType = await Api.PutAsync($"/api/dishes/{dish.Id}/photo", text);
+
+        upload.EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, wrongType.StatusCode);
+        var saved = (await Get<List<DishResponse>>("/api/dishes")).Single(d => d.Id == dish.Id);
+        using var visitor = fx.CreateClient();
+        Assert.Equal(image, await visitor.GetByteArrayAsync(saved.PhotoUrl));
+    }
+
+    [Fact]
+    public async Task Часы_в_стопе_записываются_и_видны_в_аналитике_по_продукту()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.5m));
+        async Task Track()
+        {
+            await using var scope = fx.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(default);
+        }
+
+        await Track();                                   // блюдо в стопе: продукта нет
+        fx.Time.Advance(TimeSpan.FromHours(3));
+        await Supply(new SupplyItemRequest(product.Id, 5, null));
+        await Track();                                   // привезли — стоп закончился через 3 часа
+        fx.Time.Advance(TimeSpan.FromHours(2));
+        await Track();
+
+        var row = (await Get<List<DeficitRow>>("/api/analytics/deficit")).Single(r => r.ProductId == product.Id);
+        Assert.Equal(3, row.StopHours);
+        Assert.Equal([dish.Name], row.Dishes);
+        Assert.True((await Get<AnalyticsSummary>("/api/analytics/summary")).StopHours >= 3);
+    }
+
+    [Fact]
+    public async Task Закупка_называет_поставщика_и_сумму()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.5m));
+        (await Api.PostAsJsonAsync("/api/supplies",
+            new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 0.5m, null)], "Мясной двор"))).EnsureSuccessStatusCode();
+        (await Order(dish)).EnsureSuccessStatusCode();   // продукт закончился
+
+        var row = (await Get<List<PurchaseRow>>("/api/purchase-suggestions")).Single(r => r.ProductId == product.Id);
+
+        Assert.Equal(("Мясной двор", 5m, 5000m), (row.Supplier, row.Quantity, row.Sum));
     }
 }

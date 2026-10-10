@@ -31,8 +31,9 @@ public static class DemoSeed
         var caesar = P("Соус цезарь", Unit.L, 72, 400);
         db.Products.AddRange(salmon, shrimp, beef, chicken, cream, mozzarella, tomato, romaine, avocado, parmesan, egg, pasta, potato, tomYum, dough, caesar);
 
-        Dish D(string name, decimal price, string photo, params (Product Product, decimal Quantity)[] recipe) => new()
+        Dish D(string name, decimal price, string photo, string category, params (Product Product, decimal Quantity)[] recipe) => new()
         {
+            Category = category,
             Id = Guid.NewGuid(),
             Name = name,
             Price = price,
@@ -41,15 +42,15 @@ public static class DemoSeed
         };
 
         db.Dishes.AddRange(
-            D("Том ям с креветками", 690, "tom-yum", (tomYum, 0.3m), (shrimp, 0.09m), (cream, 0.05m), (tomato, 0.04m)),
-            D("Стейк из лосося", 1190, "salmon-steak", (salmon, 0.22m), (potato, 0.2m), (cream, 0.03m)),
-            D("Феттучине с лососем", 840, "fettuccine", (pasta, 0.12m), (salmon, 0.11m), (cream, 0.1m), (parmesan, 0.015m)),
-            D("Боул с лососем и авокадо", 790, "bowl", (salmon, 0.1m), (avocado, 1), (romaine, 0.06m)),
-            D("Цезарь с курицей", 590, "caesar-chicken", (romaine, 0.12m), (chicken, 0.11m), (caesar, 0.04m), (parmesan, 0.015m), (egg, 1)),
-            D("Цезарь с креветками", 720, "caesar-shrimp", (romaine, 0.12m), (shrimp, 0.1m), (caesar, 0.04m), (parmesan, 0.015m), (egg, 1)),
-            D("Пицца «Маргарита»", 620, "margherita", (dough, 0.28m), (mozzarella, 0.15m), (tomato, 0.12m)),
-            D("Филе миньон", 1890, "filet-mignon", (beef, 0.22m), (potato, 0.2m)),
-            D("Тартар из говядины", 890, "tartare", (beef, 0.13m), (egg, 1), (parmesan, 0.01m)));
+            D("Том ям с креветками", 690, "tom-yum", "Супы", (tomYum, 0.3m), (shrimp, 0.09m), (cream, 0.05m), (tomato, 0.04m)),
+            D("Стейк из лосося", 1190, "salmon-steak", "Горячее", (salmon, 0.22m), (potato, 0.2m), (cream, 0.03m)),
+            D("Феттучине с лососем", 840, "fettuccine", "Паста", (pasta, 0.12m), (salmon, 0.11m), (cream, 0.1m), (parmesan, 0.015m)),
+            D("Боул с лососем и авокадо", 790, "bowl", "Горячее и боулы", (salmon, 0.1m), (avocado, 1), (romaine, 0.06m)),
+            D("Цезарь с курицей", 590, "caesar-chicken", "Салаты", (romaine, 0.12m), (chicken, 0.11m), (caesar, 0.04m), (parmesan, 0.015m), (egg, 1)),
+            D("Цезарь с креветками", 720, "caesar-shrimp", "Салаты", (romaine, 0.12m), (shrimp, 0.1m), (caesar, 0.04m), (parmesan, 0.015m), (egg, 1)),
+            D("Пицца «Маргарита»", 620, "margherita", "Пицца", (dough, 0.28m), (mozzarella, 0.15m), (tomato, 0.12m)),
+            D("Филе миньон", 1890, "filet-mignon", "Горячее", (beef, 0.22m), (potato, 0.2m)),
+            D("Тартар из говядины", 890, "tartare", "Закуски", (beef, 0.13m), (egg, 1), (parmesan, 0.01m)));
 
         // Поставки заданы через «сколько часов осталось до конца срока»: отрицательное значение — уже просрочено.
         Supply S(string number, string supplier, params (Product Product, decimal Quantity, double HoursLeft)[] items)

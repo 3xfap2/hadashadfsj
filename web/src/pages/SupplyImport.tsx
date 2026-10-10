@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { post, postFile, type ImportRow, type SupplyRow } from '../api';
 import { money, plural, qty, shelfLife } from '../format';
 import { saveDraft } from '../supplyDraft';
+import { useCan } from '../ui';
+import { CatalogTabs } from './Catalog';
 
 const TEMPLATE = 'продукт;количество;единица;срок хранения;цена\r\nЛосось охлаждённый;3;кг;72 ч;5550\r\nСливки 33%;3;л;5 дней;1560\r\n';
 const CHIPS = { Ok: ['muted', 'Готово', ''], Warning: ['g-tag g-tag--amber', 'Предупреждение', 'warn'], Error: ['g-tag g-tag--red', 'Ошибка', 'bad'] } as const;
@@ -11,9 +13,11 @@ type Result = { kind: 'ok' | 'err'; title: string; text: string } | null;
 
 export function SupplyImport() {
   const navigate = useNavigate();
+  const canCatalog = useCan('catalog');
   const [fileName, setFileName] = useState('');
   const [rows, setRows] = useState<ImportRow[] | null>(null);
   const [number, setNumber] = useState('');
+  const [supplier, setSupplier] = useState('');
   const [onlyBad, setOnlyBad] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result>(null);
@@ -58,6 +62,7 @@ export function SupplyImport() {
     try {
       const response = await post('/supplies', {
         number: number.trim(),
+        supplier: supplier.trim() || null,
         items: good.map((r) => ({ productId: r.productId, quantity: r.quantity, shelfLifeHours: r.shelfLifeHours })),
       });
       if (response.status === 201) {
@@ -78,7 +83,7 @@ export function SupplyImport() {
 
   // Строки без ошибок переносятся в форму поставки как черновик — там их можно поправить руками.
   const editByHand = () => {
-    saveDraft({ number, date: '', supplier: '', lines: good.map((r) => ({ productId: r.productId!, quantity: String(r.quantity).replace('.', ','), life: String(r.shelfLifeHours) })) });
+    saveDraft({ number, date: '', supplier, lines: good.map((r) => ({ productId: r.productId!, quantity: String(r.quantity).replace('.', ','), life: String(r.shelfLifeHours) })) });
     navigate('/app/stock/supplies');
   };
 
@@ -87,7 +92,7 @@ export function SupplyImport() {
       <div className="g-title imp-title">
         <div className="stock-head">
           <h1>Загрузка поставки</h1>
-          <Link className="muted" to="/app/stock/supplies">← К поставкам</Link>
+          {canCatalog ? <CatalogTabs /> : <Link className="muted" to="/app/stock/supplies">← К поставкам</Link>}
         </div>
         <div className="end">
           <ol className="imp-steps" aria-label="Шаги загрузки">
@@ -107,7 +112,7 @@ export function SupplyImport() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 13h6M9 17h6" /></svg>
         <div className="drop__text">
           <strong className="hd">{fileName || 'Файл не выбран'}</strong>
-          <span className="muted">{busy && !rows ? 'Читаем файл…' : rows ? plural(rows.length, 'строка', 'строки', 'строк') : 'Выберите файл поставки от поставщика'}</span>
+          <span className="muted">{busy && !rows ? 'Читаем файл…' : rows ? `${plural(rows.length, 'строка', 'строки', 'строк')}${supplier.trim() ? ` · поставщик ${supplier.trim()}` : ''}` : 'Выберите файл поставки от поставщика'}</span>
         </div>
         <label className="g-btn" htmlFor="file">{fileName ? 'Выбрать другой файл' : 'Выбрать файл'}</label>
         <input id="file" type="file" accept=".xlsx,.csv" className="sr" onChange={choose} />
@@ -170,6 +175,10 @@ export function SupplyImport() {
                 <div className="g-field">
                   <label htmlFor="imp-no">Номер поставки</label>
                   <input className="g-input num" id="imp-no" value={number} onChange={(e) => setNumber(e.target.value)} />
+                </div>
+                <div className="g-field">
+                  <label htmlFor="imp-sup">Поставщик</label>
+                  <input className="g-input" id="imp-sup" value={supplier} onChange={(e) => setSupplier(e.target.value)} />
                 </div>
                 {bad.length > 0 && (
                   <div className="g-note g-note--err">

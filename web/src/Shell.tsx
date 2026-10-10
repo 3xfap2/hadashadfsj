@@ -3,7 +3,11 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { logout, useApi, type Me, type StopListRow } from './api';
 import { clock } from './format';
 import { AccessContext, useCan } from './ui';
+import { Analytics } from './pages/Analytics';
+import { Dishes, Products } from './pages/Catalog';
+import { Menu } from './pages/Menu';
 import { Orders } from './pages/Orders';
+import { Purchasing } from './pages/Purchasing';
 import { Stock } from './pages/Stock';
 import { Supplies } from './pages/Supplies';
 import { SupplyImport } from './pages/SupplyImport';
@@ -91,6 +95,11 @@ export function Shell() {
           <Route path="stock" element={<Guard section="stock"><Stock /></Guard>} />
           <Route path="stock/supplies" element={<Guard section="stock"><Supplies /></Guard>} />
           <Route path="stock/import" element={<Guard section="stock"><SupplyImport /></Guard>} />
+          <Route path="menu" element={<Guard section="menu"><Menu /></Guard>} />
+          <Route path="purchasing" element={<Guard section="purchasing"><Purchasing /></Guard>} />
+          <Route path="analytics" element={<Guard section="analytics"><Analytics /></Guard>} />
+          <Route path="catalog" element={<Guard section="catalog"><Products /></Guard>} />
+          <Route path="catalog/dishes" element={<Guard section="catalog"><Dishes /></Guard>} />
           <Route path="more" element={<More sections={extra} />} />
           <Route path="*" element={<p className="g-empty"><strong>Раздел в работе</strong>Скоро появится.</p>} />
         </Routes>

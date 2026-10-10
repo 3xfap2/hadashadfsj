@@ -10,6 +10,8 @@ public enum StopReason
     OutOfStock,
     /// <summary>Годный остаток есть, но меньше одной порции.</summary>
     NotEnough,
+    /// <summary>Блюдо снято с продажи вручную.</summary>
+    Manual,
 }
 
 public sealed record DishAvailability(
@@ -44,6 +46,8 @@ public static class Availability
                 limiting = item.ProductId;
             }
         }
+
+        if (dish.ManuallyStopped) return new DishAvailability(DishStatus.Stop, 0, limiting, StopReason.Manual);
 
         if (portions > 0)
         {

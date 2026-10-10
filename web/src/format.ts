@@ -18,6 +18,13 @@ export const unitName = (unit: Unit) => UNITS[unit];
 export const dayMonthShort = (iso: string) => dayMonthDigits.format(new Date(iso));
 export const weekdayLong = (iso: string) => weekdayFull.format(new Date(iso));
 
+/** Количество в техкарте: меньше килограмма или литра — в граммах и миллилитрах, как пишут повара. */
+export function recipeQty(v: number, unit: Unit): string {
+  if (unit === 'Kg' && v < 1) return `${number.format(v * 1000)} г`;
+  if (unit === 'L' && v < 1) return `${number.format(v * 1000)} мл`;
+  return qty(v, unit);
+}
+
 /** Срок хранения: до пяти суток — в часах, как на этикетках; дольше — в днях. */
 export const shelfLife = (hours: number) => (hours <= 120 ? `${hours} ч` : plural(Math.round(hours / 24), 'день', 'дня', 'дней'));
 export const qty = (v: number, unit: Unit) => `${number.format(v)} ${UNITS[unit]}`;
