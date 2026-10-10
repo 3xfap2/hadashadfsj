@@ -33,14 +33,21 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
         return WriteOffResult.Done;
     }
 
-    /// <summary>Списывает партии, просроченные дольше отсрочки. Возвращает число списанных партий.</summary>
+    /// <summary>
+    /// Списывает партии, просроченные дольше отсрочки. Отсрочка не длиннее срока хранения самой партии:
+    /// продукт, который хранится час, не лежит просроченным полсуток. Возвращает число списанных партий.
+    /// </summary>
     public async Task<int> WriteOffExpiredAsync(TimeSpan grace, CancellationToken ct)
     {
         var now = time.GetUtcNow();
-        var cutoff = now - grace;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var batches = await db.Batches
-            .FromSql($"""SELECT * FROM "Batches" WHERE "Remaining" > 0 AND "ExpiresAt" <= {cutoff} FOR UPDATE SKIP LOCKED""")
+            .FromSql($"""
+                SELECT b.* FROM "Batches" b
+                JOIN "Supplies" s ON s."Id" = b."SupplyId"
+                WHERE b."Remaining" > 0 AND b."ExpiresAt" <= {now} - LEAST({grace}, b."ExpiresAt" - s."CreatedAt")
+                FOR UPDATE OF b SKIP LOCKED
+                """)
             .ToListAsync(ct);
 
         foreach (var batch in batches) Apply(batch, now, "Истёк срок годности (автосписание)", System);
@@ -65,13 +72,13 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
     }
 }
 
-/// <summary>Раз в минуту поднимает сигналы о сроках, записывает историю стоп-листа и списывает просрочку, которую не списали вручную за время отсрочки.</summary>
+/// <summary>Раз в 20 секунд поднимает сигналы о сроках, записывает историю стоп-листа и списывает просрочку, которую не списали вручную за время отсрочки.</summary>
 public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions options, ILogger<ExpiryWorker> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
         if (!options.AutoWriteOff && !options.TrackStops) return;
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20));
         do
         {
             try

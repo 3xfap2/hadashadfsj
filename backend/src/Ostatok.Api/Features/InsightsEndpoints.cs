@@ -37,7 +37,7 @@ public static class InsightsEndpoints
                 await db.LoadDishesAsync(ct),
                 await db.LoadFreshBatchesAsync(now, ct),
                 await db.LoadTotalsAsync(now, ct),
-                now, options.HotOfferHours,
+                now, await db.LoadHotRulesAsync(options, ct),
                 await db.LoadConsumptionPerHourAsync(now, options, ct));
         })
         .WithTags("Горячие предложения");

@@ -55,6 +55,10 @@ public class Dish
     public string? Category { get; set; }
     /// <summary>Блюдо снято с продажи вручную и не продаётся, даже если продуктов хватает.</summary>
     public bool ManuallyStopped { get; set; }
+    /// <summary>Менеджер закрепил блюдо первым в горячих предложениях.</summary>
+    public bool HotPinned { get; set; }
+    /// <summary>Менеджер убрал блюдо из горячих предложений.</summary>
+    public bool HotHidden { get; set; }
     public List<RecipeItem> Recipe { get; set; } = [];
 }
 
@@ -76,6 +80,16 @@ public class StopLog
     public StopReason Reason { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
+}
+
+/// <summary>Правила горячих предложений, которые настроил менеджер; строка одна.</summary>
+public class HotSettings
+{
+    public int Id { get; set; }
+    public double HorizonHours { get; set; }
+    public int UrgencyWeight { get; set; }
+    public bool ShareAcrossDishes { get; set; }
+    public int MaxDiscountPercent { get; set; }
 }
 
 public enum AlertKind { BatchExpiring, BatchExpired, DishStopped, DishBack }

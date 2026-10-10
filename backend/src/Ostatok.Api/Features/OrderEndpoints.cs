@@ -71,7 +71,7 @@ public static class OrderEndpoints
                 var now = time.GetUtcNow();
                 var offers = HotOffers.Rank(
                     await db.LoadDishesAsync(ct), await db.LoadFreshBatchesAsync(now, ct), await db.LoadTotalsAsync(now, ct),
-                    now, options.HotOfferHours, await db.LoadConsumptionPerHourAsync(now, options, ct));
+                    now, await db.LoadHotRulesAsync(options, ct), await db.LoadConsumptionPerHourAsync(now, options, ct));
                 discounts = offers.Where(o => o.Discount is not null && asked.Contains(o.DishId)).ToDictionary(o => o.DishId, o => o.Discount!.Percent);
             }
 

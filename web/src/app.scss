@@ -2484,6 +2484,219 @@ body {
   }
 }
 
+// ---------- Проверка сроков ----------
+
+.check {
+  &__lead {
+    margin: 0;
+    max-width: 760px;
+  }
+
+  &__form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px auto;
+    gap: 12px;
+    align-items: end;
+    max-width: 760px;
+  }
+
+  &__steps {
+    margin: 4px 0 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+    max-width: 760px;
+
+    li {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 0 0 18px 40px;
+      color: var(--ink-2);
+      counter-increment: step;
+
+      &::before {
+        content: counter(step);
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 1.5px solid #c9cec6;
+        background: var(--bg);
+        color: var(--ink-2);
+        font-size: 14px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      // Линия между шагами.
+      &:not(:last-child)::after {
+        content: '';
+        position: absolute;
+        left: 13px;
+        top: 30px;
+        bottom: 2px;
+        width: 1.5px;
+        background: #c9cec6;
+      }
+
+      strong {
+        color: var(--ink-2);
+        font-weight: 600;
+      }
+
+      &.done,
+      &.now {
+        color: var(--ink);
+
+        strong {
+          color: var(--h);
+          font-weight: 700;
+        }
+      }
+
+      &.done::before {
+        border-color: var(--brand);
+        background: var(--brand);
+        color: #fff;
+      }
+
+      &.now::before {
+        border-color: var(--brand);
+        color: var(--brand);
+      }
+    }
+  }
+
+  &__stop {
+    color: var(--red);
+  }
+}
+
+// ---------- Настройка горячих предложений ----------
+
+.hot-balance {
+  color: var(--brand);
+}
+
+.hot-range {
+  width: 100%;
+  accent-color: var(--brand);
+
+  &__ends {
+    display: flex;
+    justify-content: space-between;
+  }
+}
+
+.hot-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--h);
+  cursor: pointer;
+
+  input {
+    width: 18px;
+    height: 18px;
+    margin: 2px 0 0;
+    flex: none;
+    accent-color: var(--brand);
+  }
+}
+
+.g-rows > .hot-row {
+  grid-template-columns: 24px 64px minmax(0, 1fr) auto;
+  align-items: start;
+  padding-block: 14px;
+
+  &.hot-row--plain {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: 0;
+  }
+}
+
+.hot-row {
+  &__rank {
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--h);
+  }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+
+    .g-why {
+      -webkit-line-clamp: 4;
+    }
+  }
+
+  &__pin {
+    margin-left: 8px;
+    vertical-align: 2px;
+  }
+
+  &__acts {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+.hot-how {
+  p,
+  ul {
+    margin: 0;
+  }
+
+  ul {
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  pre {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: var(--r-btn);
+    background: var(--panel);
+    color: var(--h);
+    font-size: 14px;
+    white-space: pre-wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .check__form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .g-rows > .hot-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+
+    .g-photo {
+      display: none;
+    }
+  }
+
+  .hot-row__acts {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+}
+
 // ---------- Журнал и генератор ----------
 
 .journal {

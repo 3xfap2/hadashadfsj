@@ -6,6 +6,7 @@ import { clock } from './format';
 import { AccessContext, useCan } from './ui';
 import { Analytics } from './pages/Analytics';
 import { Demo } from './pages/Demo';
+import { HotSettings } from './pages/HotSettings';
 import { Journal } from './pages/Journal';
 import { Labels } from './pages/Labels';
 import { Dishes, Products } from './pages/Catalog';
@@ -109,6 +110,7 @@ export function Shell() {
           <Route path="stock/journal" element={<Guard section="stock"><Journal /></Guard>} />
           <Route path="labels" element={<Guard section="stock"><Labels /></Guard>} />
           <Route path="support" element={<Guard section="support"><Support /></Guard>} />
+          <Route path="hot" element={<Guard section="catalog"><HotSettings /></Guard>} />
           <Route path="demo" element={<Guard section="catalog"><Demo /></Guard>} />
           <Route path="stock/import" element={<Guard section="stock"><SupplyImport /></Guard>} />
           <Route path="menu" element={<Guard section="menu"><Menu /></Guard>} />

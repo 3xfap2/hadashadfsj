@@ -45,8 +45,8 @@ internal sealed class Kitchen
         Batches.Where(b => b.ExpiresAt > Now).GroupBy(b => b.ProductId).ToDictionary(g => g.Key, g => g.Sum(b => b.Remaining)),
         Batches.Where(b => b.ExpiresAt <= Now).Select(b => b.ProductId).ToHashSet());
 
-    public IReadOnlyList<HotOffer> HotOffers(double horizonHours = 48, Dictionary<Guid, decimal>? perHour = null) =>
-        Ostatok.Api.Domain.HotOffers.Rank(Dishes, Batches, Totals, Now, horizonHours, perHour);
+    public IReadOnlyList<HotOffer> HotOffers(double horizonHours = 48, Dictionary<Guid, decimal>? perHour = null, HotRules? rules = null) =>
+        Ostatok.Api.Domain.HotOffers.Rank(Dishes, Batches, Totals, Now, rules ?? new HotRules(horizonHours), perHour);
 }
 
 public class HotOffersTests
@@ -170,6 +170,34 @@ public class ForecastTests
         k.Stock(p, 1, 5).Stock(p, 1, 30);
 
         Assert.Equal(Now.AddHours(30), Forecast.RunOutAt(k.Batches, perHour: 0, threshold: 0.2m, Now));
+    }
+
+    [Fact]
+    public void Менеджер_настраивает_что_важнее_срок_или_сумма_и_правит_список()
+    {
+        var kitchen = new Kitchen();
+        var cheap = kitchen.Product("Зелень", cost: 300);
+        var costly = kitchen.Product("Вырезка", cost: 2400);
+        // Зелень истекает через 2 часа, вырезка — через 40: по сроку впереди зелень, по сумме — вырезка.
+        kitchen.Stock(cheap, 1, expiresInHours: 2).Stock(costly, 1, expiresInHours: 40);
+        var salad = kitchen.Dish("Салат", (cheap, 0.2m));
+        var steak = kitchen.Dish("Стейк", (costly, 0.2m));
+
+        string[] Order(HotRules rules) => kitchen.HotOffers(rules: rules).Select(o => o.DishName).ToArray();
+
+        Assert.Equal(["Стейк", "Салат"], Order(new HotRules(UrgencyWeight: 0)));
+        Assert.Equal(["Салат", "Стейк"], Order(new HotRules(UrgencyWeight: 100)));
+
+        // Закреплённое блюдо идёт первым при любых весах, скрытое не предлагается вовсе.
+        salad.HotPinned = true;
+        Assert.Equal(["Салат", "Стейк"], Order(new HotRules(UrgencyWeight: 0)));
+        (salad.HotPinned, salad.HotHidden) = (false, true);
+        Assert.Equal(["Стейк"], Order(new HotRules()));
+
+        // Потолок скидки задаёт менеджер; ноль отключает скидки.
+        salad.HotHidden = false;
+        Assert.Equal(15, kitchen.HotOffers(rules: new HotRules(MaxDiscountPercent: 20)).Single(o => o.DishName == "Салат").Discount!.Percent);
+        Assert.All(kitchen.HotOffers(rules: new HotRules(MaxDiscountPercent: 0)), o => Assert.Null(o.Discount));
     }
 
     [Fact]

@@ -180,6 +180,12 @@ namespace Ostatok.Api.Data.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<bool>("HotHidden")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("HotPinned")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("ManuallyStopped")
                         .HasColumnType("boolean");
 
@@ -221,6 +227,28 @@ namespace Ostatok.Api.Data.Migrations
                     b.HasKey("DishId");
 
                     b.ToTable("DishPhotos");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.HotSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("HorizonHours")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("MaxDiscountPercent")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("ShareAcrossDishes")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("UrgencyWeight")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("HotSettings");
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Lead", b =>

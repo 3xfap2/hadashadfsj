@@ -9,6 +9,16 @@ public sealed record HotIngredient(
     decimal AtRiskQuantity, decimal NearestQuantity, double HoursLeft, decimal UsableQuantity, decimal ValueAtRisk,
     int AlternativeDishes, decimal Score);
 
+/// <summary>Правила расчёта, которые менеджер может менять.</summary>
+/// <param name="HorizonHours">Учитываются партии, истекающие в эти часы.</param>
+/// <param name="UrgencyWeight">
+/// Что важнее — срок или сумма потерь: 0 — только сумма, 50 — поровну, 100 — срок важнее вдвойне.
+/// В формуле это степень срочности: срочность ^ (вес ÷ 50).
+/// </param>
+/// <param name="ShareAcrossDishes">Делить вклад продукта между блюдами, которые его используют (÷ √N).</param>
+/// <param name="MaxDiscountPercent">Потолок рекомендуемой скидки; 0 — скидки не предлагать.</param>
+public sealed record HotRules(double HorizonHours = 48, int UrgencyWeight = 50, bool ShareAcrossDishes = true, int MaxDiscountPercent = 40);
+
 /// <param name="Percent">Рекомендуемая скидка, кратна 5.</param>
 /// <param name="Price">Цена блюда со скидкой.</param>
 /// <param name="FloorPrice">Ниже этой цены продавать невыгодно: столько стоят продукты блюда, которые не истекают.</param>
@@ -19,7 +29,7 @@ public sealed record HotDiscount(int Percent, decimal Price, decimal FloorPrice,
 public sealed record HotOffer(
     Guid DishId, string DishName, string? PhotoUrl, decimal Price, decimal Score,
     int Portions, int AvailablePortions, decimal ValueAtRisk,
-    IReadOnlyList<HotIngredient> Ingredients, string Reason, HotDiscount? Discount);
+    IReadOnlyList<HotIngredient> Ingredients, string Reason, HotDiscount? Discount, bool Pinned);
 
 /// <summary>
 /// Горячие предложения: какие блюда продавать активнее, чтобы продукты не ушли в списание.
@@ -29,6 +39,8 @@ public sealed record HotOffer(
 /// где срочность = 1 − (часов до конца срока ÷ горизонт): чем ближе срок, тем ближе к единице;
 /// N — число блюд в продаже с этим продуктом: если блюдо единственное, его вклад не делится.
 /// Количество ограничено и остатком партии, и числом порций, на которое хватает остальных ингредиентов.
+/// Горизонт, вес срочности, деление на √N и потолок скидки задаёт менеджер (<see cref="HotRules"/>);
+/// он же может закрепить блюдо первым или убрать его из списка.
 ///
 /// Скидка предлагается, только если при обычном спросе партия не успеет продаться до конца срока:
 ///   скидка = 40% × доля партии, которая не продастся × срочность, с округлением вниз до 5%
@@ -42,9 +54,10 @@ public static class HotOffers
         IReadOnlyCollection<Batch> batches,
         StockTotals stock,
         DateTimeOffset now,
-        double horizonHours,
+        HotRules rules,
         IReadOnlyDictionary<Guid, decimal>? perHour = null)
     {
+        var horizonHours = rules.HorizonHours;
         var horizon = now.AddHours(horizonHours);
         var atRisk = batches
             .Where(b => b.Remaining > 0 && b.ExpiresAt > now && b.ExpiresAt <= horizon)
@@ -55,6 +68,7 @@ public static class HotOffers
             .Select(d => (Dish: d, Availability.Of(d, stock).Portions))
             .Where(x => x.Portions > 0)
             .ToList();
+        // Скрытое блюдо остаётся в продаже и по-прежнему расходует продукт — оно только не предлагается.
 
         var dishesByProduct = onSale
             .SelectMany(x => x.Dish.Recipe.Select(r => r.ProductId))
@@ -62,7 +76,7 @@ public static class HotOffers
             .ToDictionary(g => g.Key, g => g.Count());
 
         var offers = new List<HotOffer>();
-        foreach (var (dish, portions) in onSale)
+        foreach (var (dish, portions) in onSale.Where(x => !x.Dish.HotHidden))
         {
             var ingredients = new List<HotIngredient>();
             var recommended = 0;
@@ -82,7 +96,7 @@ public static class HotOffers
                     if (left == 0) break;
                     var take = Math.Min(left, batch.Remaining);
                     var urgency = 1 - (batch.ExpiresAt - now).TotalHours / horizonHours;
-                    weighted += take * product.Cost * (decimal)urgency;
+                    weighted += take * product.Cost * (decimal)Math.Pow(urgency, rules.UrgencyWeight / 50.0);
                     left -= take;
                 }
 
@@ -90,7 +104,7 @@ public static class HotOffers
                 ingredients.Add(new HotIngredient(
                     product.Id, product.Name, product.Unit,
                     atRiskQuantity, expiring[0].Remaining, (expiring[0].ExpiresAt - now).TotalHours, usable, usable * product.Cost,
-                    alternatives, weighted / (decimal)Math.Sqrt(alternatives)));
+                    alternatives, rules.ShareAcrossDishes ? weighted / (decimal)Math.Sqrt(alternatives) : weighted));
                 recommended = Math.Max(recommended, (int)Math.Ceiling(usable / item.Quantity));
             }
 
@@ -103,16 +117,15 @@ public static class HotOffers
                 ingredients.Sum(i => i.ValueAtRisk),
                 ingredients,
                 Explain(ingredients, Math.Min(recommended, portions), horizonHours),
-                Discount(dish, ingredients, perHour, horizonHours)));
+                Discount(dish, ingredients, perHour, rules),
+                dish.HotPinned));
         }
 
-        return offers.OrderByDescending(o => o.Score).ThenBy(o => o.DishName).ToList();
+        return offers.OrderByDescending(o => o.Pinned).ThenByDescending(o => o.Score).ThenBy(o => o.DishName).ToList();
     }
 
-    private const double MaxDiscountPercent = 40;
-
     private static HotDiscount? Discount(
-        Dish dish, IReadOnlyList<HotIngredient> ingredients, IReadOnlyDictionary<Guid, decimal>? perHour, double horizonHours)
+        Dish dish, IReadOnlyList<HotIngredient> ingredients, IReadOnlyDictionary<Guid, decimal>? perHour, HotRules rules)
     {
         if (dish.Price <= 0) return null;
         var main = ingredients[0];
@@ -122,8 +135,8 @@ public static class HotOffers
 
         var expected = (perHour?.GetValueOrDefault(main.ProductId) ?? 0) * (decimal)main.HoursLeft;
         var unsold = (double)Math.Clamp(1 - expected / main.NearestQuantity, 0, 1);
-        var urgency = 1 - main.HoursLeft / horizonHours;
-        var percent = (int)Math.Floor(Math.Min(allowed, MaxDiscountPercent * unsold * urgency) / 5) * 5;
+        var urgency = 1 - main.HoursLeft / rules.HorizonHours;
+        var percent = (int)Math.Floor(Math.Min(allowed, rules.MaxDiscountPercent * unsold * urgency) / 5) * 5;
         if (percent < 5) return null;
 
         var price = Math.Round(dish.Price * (100 - percent) / 100);

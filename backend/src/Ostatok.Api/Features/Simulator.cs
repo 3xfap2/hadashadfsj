@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ostatok.Api.Data;
 using Ostatok.Api.Domain;
@@ -108,8 +109,17 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
     }
 }
 
+public sealed record ExpiryCheckRequest(Guid ProductId, int Minutes);
+
+/// <param name="WrittenOffAt">Когда партию списали; пусто, пока она на складе.</param>
+public sealed record ExpiryCheckResponse(
+    Guid BatchId, string SupplyNumber, Guid ProductId, string ProductName, Unit Unit,
+    decimal Quantity, decimal Remaining, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? WrittenOffAt);
+
 public static class SimulatorEndpoints
 {
+    public const string CheckSupplier = "Проверка сроков";
+
     public static void MapSimulator(this RouteGroupBuilder api)
     {
         var simulator = api.MapGroup("/simulator").WithTags("Генератор событий").RequireRoles(Access.Catalog);
@@ -124,5 +134,56 @@ public static class SimulatorEndpoints
             bus.Publish();
             return Results.Ok(state.Settings);
         });
+
+        // Проверка сроков: партия, которая истекает через несколько минут. На ней виден весь путь —
+        // сигнал, просрочка, стоп блюда, автосписание — без ожидания в сутки.
+        simulator.MapPost("/expiry-check", async (ExpiryCheckRequest req, AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            var product = await db.Products.FindAsync([req.ProductId], ct);
+            var errors = new Errors()
+                .Check(product is not null, "productId", "Такого продукта нет.")
+                .Check(req.Minutes is >= 1 and <= 30, "minutes", "Срок — от 1 до 30 минут.");
+            if (errors.Any) return errors.ToResult();
+
+            var now = time.GetUtcNow();
+            // Количества хватает на пять порций самого «прожорливого» блюда с этим продуктом.
+            var portion = await db.Dishes.SelectMany(d => d.Recipe).Where(r => r.ProductId == req.ProductId).MaxAsync(r => (decimal?)r.Quantity, ct) ?? 0.2m;
+            var number = $"Т-{await db.Supplies.CountAsync(s => s.Supplier == CheckSupplier, ct) + 1:0000}";
+            var supply = new Supply { Id = Guid.NewGuid(), Number = number, Supplier = CheckSupplier, CreatedAt = now };
+            var batch = new Batch
+            {
+                Id = Guid.NewGuid(), SupplyId = supply.Id, ProductId = product!.Id,
+                Quantity = portion * 5, Remaining = portion * 5, ExpiresAt = now.AddMinutes(req.Minutes),
+            };
+            supply.Batches.Add(batch);
+            db.Supplies.Add(supply);
+            db.Movements.Add(new Movement
+            {
+                At = now, Type = MovementType.Supply, ProductId = product.Id, BatchId = batch.Id,
+                Quantity = batch.Quantity, Note = $"Поставка {number}", Actor = user.Identity?.Name ?? "",
+            });
+            await db.SaveChangesAsync(ct);
+            return Results.Created("/api/simulator/expiry-check", await LastCheckAsync(db, ct));
+        });
+
+        simulator.MapGet("/expiry-check", async (AppDbContext db, CancellationToken ct) =>
+            Results.Json(await LastCheckAsync(db, ct)));
+    }
+
+    private static async Task<ExpiryCheckResponse?> LastCheckAsync(AppDbContext db, CancellationToken ct)
+    {
+        var batch = await db.Batches.AsNoTracking()
+            .Include(b => b.Product).Include(b => b.Supply)
+            .Where(b => b.Supply!.Supplier == CheckSupplier)
+            .OrderByDescending(b => b.Supply!.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        if (batch is null) return null;
+
+        var writtenOff = await db.Movements
+            .Where(m => m.BatchId == batch.Id && m.Type == MovementType.WriteOff)
+            .Select(m => (DateTimeOffset?)m.At).FirstOrDefaultAsync(ct);
+        return new ExpiryCheckResponse(
+            batch.Id, batch.Supply!.Number, batch.ProductId, batch.Product!.Name, batch.Product.Unit,
+            batch.Quantity, batch.Remaining, batch.Supply.CreatedAt, batch.ExpiresAt, writtenOff);
     }
 }

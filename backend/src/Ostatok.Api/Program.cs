@@ -114,6 +114,7 @@ api.MapOrders();
 api.MapPreps();
 api.MapStock();
 api.MapInsights();
+api.MapHotSettings();
 api.MapAlerts();
 api.MapSimulator();
 

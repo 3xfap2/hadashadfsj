@@ -13,6 +13,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Movement> Movements => Set<Movement>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<HotSettings> HotSettings => Set<HotSettings>();
     public DbSet<Chat> Chats => Set<Chat>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
     public DbSet<DishPhoto> DishPhotos => Set<DishPhoto>();
@@ -84,6 +85,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(s => new { s.OrderId, s.ProductId });
             e.HasOne(s => s.Product).WithMany().HasForeignKey(s => s.ProductId).OnDelete(DeleteBehavior.Restrict);
         });
+
+        model.Entity<HotSettings>(e => e.Property(s => s.Id).ValueGeneratedNever());
 
         model.Entity<PrepItem>(e =>
         {

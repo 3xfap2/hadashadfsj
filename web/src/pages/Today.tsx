@@ -19,6 +19,7 @@ export function Today() {
   const [writingOff, setWritingOff] = useState(false);
   const canOrder = useCan('orders');
   const canStock = useCan('stock');
+  const canTune = useCan('catalog');
 
   const error = offers.error ?? stopList.error ?? batches.error ?? orders.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить данные</h3><span>{error}</span></div>;
@@ -86,7 +87,7 @@ export function Today() {
           <section className="g-panel" aria-labelledby="sell-h">
             <div className="g-panel__head">
               <h2 id="sell-h">Продать в первую очередь</h2>
-              <span className="end">по сроку и сумме списания</span>
+              <span className="end">по сроку и сумме списания{canTune && <> · <Link to="/app/hot">настроить</Link></>}</span>
             </div>
             {offers.data.length === 0 ? (
               <p className="g-empty"><strong>Продвигать нечего</strong>В ближайшие двое суток ничего не истекает.</p>

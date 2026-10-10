@@ -26,6 +26,30 @@ export interface HotOffer {
   ingredients: HotIngredient[];
   reason: string;
   discount: { percent: number; price: number; floorPrice: number; reason: string } | null;
+  score: number;
+  /** Менеджер закрепил блюдо первым в списке. */
+  pinned: boolean;
+}
+
+export interface HotRules {
+  horizonHours: number;
+  /** 0 — важна только сумма потерь, 50 — поровну, 100 — срок важнее вдвойне. */
+  urgencyWeight: number;
+  shareAcrossDishes: boolean;
+  maxDiscountPercent: number;
+}
+
+export interface ExpiryCheck {
+  batchId: string;
+  supplyNumber: string;
+  productId: string;
+  productName: string;
+  unit: Unit;
+  quantity: number;
+  remaining: number;
+  createdAt: string;
+  expiresAt: string;
+  writtenOffAt: string | null;
 }
 
 export interface StopListRow {
@@ -51,6 +75,8 @@ export interface DishRow {
   recipe: { productId: string; quantity: number }[];
   category: string | null;
   manuallyStopped: boolean;
+  hotPinned: boolean;
+  hotHidden: boolean;
 }
 
 export interface PurchaseRow {

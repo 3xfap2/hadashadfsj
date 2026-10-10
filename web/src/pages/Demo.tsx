@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { send, useApi, type OrderRow, type SimulatorSettings } from '../api';
 import { clock, money } from '../format';
+import { ExpiryCheck } from './ExpiryCheck';
 
 /** Управление генератором событий: он имитирует кассу и поставщиков, чтобы показать систему в работе. */
 export function Demo() {
@@ -34,6 +35,8 @@ export function Demo() {
         <h1>Генератор событий</h1>
         <p className="lead-text">Имитирует кассу и поставщиков: создаёт заказы и довозит продукты, которые заканчиваются. Заказы проходят тем же путём, что и настоящие.</p>
       </div>
+
+      <ExpiryCheck />
 
       <div className="sup-row">
         <section className="sup-main g-panel" aria-labelledby="gen-h">

@@ -11,7 +11,8 @@ public sealed record ProductRequest(string? Name, Unit Unit, int ShelfLifeHours,
 public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal Cost, IEnumerable<RecipeItemDto> PrepRecipe);
 public sealed record DishRequest(string? Name, decimal Price, List<RecipeItemDto>? Recipe, string? PhotoUrl = null, string? Category = null);
 public sealed record DishResponse(
-    Guid Id, string Name, decimal Price, string? PhotoUrl, IEnumerable<RecipeItemDto> Recipe, string? Category, bool ManuallyStopped);
+    Guid Id, string Name, decimal Price, string? PhotoUrl, IEnumerable<RecipeItemDto> Recipe, string? Category, bool ManuallyStopped,
+    bool HotPinned, bool HotHidden);
 
 public static class CatalogEndpoints
 {
@@ -209,7 +210,7 @@ public static class CatalogEndpoints
         new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, p.Cost, p.PrepRecipe.Select(i => new RecipeItemDto(i.ProductId, i.Quantity)));
 
     private static DishResponse ToResponse(Dish d) =>
-        new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)), d.Category, d.ManuallyStopped);
+        new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)), d.Category, d.ManuallyStopped, d.HotPinned, d.HotHidden);
 
     private static IResult NameTaken(string what) =>
         Results.Problem($"{what} с таким названием уже есть.", statusCode: StatusCodes.Status409Conflict);

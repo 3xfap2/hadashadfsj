@@ -31,6 +31,12 @@ public static class StockQueries
             .OrderBy(b => b.ExpiresAt).ThenBy(b => b.Id)
             .ToListAsync(ct);
 
+    /// <summary>Правила горячих предложений: настроенные менеджером или исходные.</summary>
+    public static async Task<HotRules> LoadHotRulesAsync(this AppDbContext db, Features.StockOptions options, CancellationToken ct) =>
+        await db.HotSettings.AsNoTracking().FirstOrDefaultAsync(ct) is { } row
+            ? new HotRules(row.HorizonHours, row.UrgencyWeight, row.ShareAcrossDishes, row.MaxDiscountPercent)
+            : new HotRules(options.HotOfferHours);
+
     public static Task<List<Dish>> LoadDishesAsync(this AppDbContext db, CancellationToken ct) =>
         db.Dishes.AsNoTracking().Include(d => d.Recipe).ThenInclude(r => r.Product).ToListAsync(ct);
 

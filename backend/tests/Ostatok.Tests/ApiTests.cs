@@ -237,14 +237,15 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     public async Task Просрочка_списывается_автоматически_после_отсрочки_и_попадает_в_аналитику()
     {
         var product = await Product();
-        await Supply(new SupplyItemRequest(product.Id, 2, 1));
+        // Срок хранения 20 часов — дольше отсрочки, поэтому партия ждёт списания все 12 часов.
+        await Supply(new SupplyItemRequest(product.Id, 2, 20));
         async Task AutoWriteOff()
         {
             await using var scope = fx.Services.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
         }
 
-        fx.Time.Advance(TimeSpan.FromHours(2));
+        fx.Time.Advance(TimeSpan.FromHours(21));
         await AutoWriteOff();
         Assert.Equal(BatchStatus.Expired, (await Batches(product)).Single().Status);
 
@@ -433,6 +434,68 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.True((await Read<CloseTableResponse>(closed)).Total >= 1150);
         Assert.Equal(HttpStatusCode.NotFound, again.StatusCode);
         Assert.NotNull((await Get<List<OrderResponse>>("/api/orders?take=200")).Single(o => o.Id == discounted.Id).ClosedAt);
+    }
+
+    [Fact]
+    public async Task Проверка_сроков_партия_на_минуты_проходит_путь_до_автосписания()
+    {
+        var product = await Product(shelfLifeHours: 48);
+        var dish = await Dish((product, 0.2m));
+
+        var created = await Api.PostAsJsonAsync("/api/simulator/expiry-check", new ExpiryCheckRequest(product.Id, 2));
+        var check = await Read<ExpiryCheckResponse>(created);
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        Assert.Equal((1m, fx.Time.GetUtcNow().AddMinutes(2)), (check.Quantity, check.ExpiresAt));
+        Assert.NotEqual(DishStatus.Stop, (await StopListRow(dish)).Status);
+        // Блюдо с партией на две минуты — первое в горячих предложениях.
+        Assert.Contains(await Get<List<HotOffer>>("/api/hot-offers"), o => o.DishId == dish.Id);
+
+        fx.Time.Advance(TimeSpan.FromMinutes(3));
+        // Срок вышел: блюдо в стопе, заказ отклоняется, но отсрочка (2 минуты — срок хранения партии) ещё идёт.
+        Assert.Equal((DishStatus.Stop, StopReason.Expired), ((await StopListRow(dish)).Status, (await StopListRow(dish)).Reason));
+        Assert.Equal(HttpStatusCode.Conflict, (await Order(dish)).StatusCode);
+        using (var scope = fx.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
+        Assert.Null((await Get<ExpiryCheckResponse>("/api/simulator/expiry-check")).WrittenOffAt);
+
+        fx.Time.Advance(TimeSpan.FromMinutes(2));
+        using (var scope = fx.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
+        var after = await Get<ExpiryCheckResponse>("/api/simulator/expiry-check");
+        Assert.Equal((0m, fx.Time.GetUtcNow()), (after.Remaining, after.WrittenOffAt!.Value));
+        Assert.Equal(StopReason.OutOfStock, (await StopListRow(dish)).Reason);
+    }
+
+    [Fact]
+    public async Task Настройки_горячих_предложений_меняют_список_и_доступны_не_всем()
+    {
+        var product = await Product(shelfLifeHours: 48);
+        var dish = await Dish((product, 0.2m));
+        await Supply(new SupplyItemRequest(product.Id, 2, 30));
+        Task<List<HotOffer>> Offers() => Get<List<HotOffer>>("/api/hot-offers");
+
+        try
+        {
+            // Партия истекает через 30 часов: при горизонте 24 часа блюда в списке нет, при 48 — есть.
+            await Api.PutAsJsonAsync("/api/hot-offers/settings", new HotRules(HorizonHours: 24));
+            Assert.DoesNotContain(await Offers(), o => o.DishId == dish.Id);
+            await Api.PutAsJsonAsync("/api/hot-offers/settings", new HotRules());
+            Assert.Contains(await Offers(), o => o.DishId == dish.Id);
+
+            await Api.PutAsJsonAsync($"/api/hot-offers/dishes/{dish.Id}", new HotDishRequest(Pinned: true, Hidden: false));
+            Assert.Equal(dish.Id, (await Offers())[0].DishId);
+            await Api.PutAsJsonAsync($"/api/hot-offers/dishes/{dish.Id}", new HotDishRequest(Pinned: false, Hidden: true));
+            Assert.DoesNotContain(await Offers(), o => o.DishId == dish.Id);
+
+            Assert.Equal(HttpStatusCode.BadRequest, (await Api.PutAsJsonAsync("/api/hot-offers/settings", new HotRules(HorizonHours: 1))).StatusCode);
+            using var cook = await fx.SignInAsync("cook");
+            Assert.Equal(HttpStatusCode.Forbidden, (await cook.PutAsJsonAsync("/api/hot-offers/settings", new HotRules())).StatusCode);
+        }
+        finally
+        {
+            await Api.PutAsJsonAsync("/api/hot-offers/settings", new HotRules());
+        }
     }
 
     [Fact]
