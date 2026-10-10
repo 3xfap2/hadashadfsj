@@ -18,7 +18,7 @@ builder.Services.AddSingleton<EventBus>();
 builder.Services.AddScoped<Tenant>();
 builder.Services.AddSingleton<PublishChanges>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) => options
-    .UseNpgsql(sp.GetRequiredService<IConfiguration>().GetConnectionString("Db"))
+    .UseNpgsql(ConnectionString(sp.GetRequiredService<IConfiguration>().GetConnectionString("Db")))
     .AddInterceptors(sp.GetRequiredService<PublishChanges>()));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<OrderService>();
@@ -140,7 +140,9 @@ app.Use(async (context, next) =>
     headers.XFrameOptions = "DENY";
     headers["Referrer-Policy"] = "no-referrer";
     // Ответы API с данными ресторана не должны оседать в кэше браузера и прокси; фото блюд кэшировать можно.
-    if (!context.Request.Path.Value!.EndsWith("/photo", StringComparison.Ordinal)) headers.CacheControl = "no-store";
+    // Файлы самого сайта кэшируются как обычно: в их именах есть отпечаток содержимого.
+    if (context.Request.Path.StartsWithSegments("/api") && !context.Request.Path.Value!.EndsWith("/photo", StringComparison.Ordinal))
+        headers.CacheControl = "no-store";
     await next();
 });
 app.UseStatusCodePages();
@@ -164,6 +166,10 @@ app.Use(async (context, next) =>
     }
     await next();
 });
+
+// В собранном образе рядом с API лежит сайт (папка wwwroot): сервер отдаёт его сам.
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
@@ -196,6 +202,26 @@ await using (var scope = app.Services.CreateAsyncScope())
         await DemoSeed.RunAsync(db, scope.ServiceProvider.GetRequiredService<TimeProvider>().GetUtcNow());
 }
 
+// Страницы сайта — одно приложение: любой адрес, кроме API, открывает его главную страницу.
+app.MapFallbackToFile("{*path:regex(^(?!api/|openapi/|health$).*$)}", "index.html");
+
 app.Run();
+
+// Хостинги баз данных дают адрес вида postgres://пользователь:пароль@сервер/база — он переводится в формат Npgsql.
+static string? ConnectionString(string? value)
+{
+    if (value is null || !value.StartsWith("postgres", StringComparison.OrdinalIgnoreCase)) return value;
+    var uri = new Uri(value);
+    var user = uri.UserInfo.Split(':', 2);
+    return new Npgsql.NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port > 0 ? uri.Port : 5432,
+        Database = uri.AbsolutePath.TrimStart('/'),
+        Username = Uri.UnescapeDataString(user[0]),
+        Password = user.Length > 1 ? Uri.UnescapeDataString(user[1]) : "",
+        SslMode = Npgsql.SslMode.Require,
+    }.ConnectionString;
+}
 
 public partial class Program;
