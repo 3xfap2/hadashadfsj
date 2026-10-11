@@ -37,8 +37,9 @@
 | Этикетки партий | Печать этикетки со сроком и QR-кодом; по коду партия открывается в складе | `web/src/pages/Labels.tsx` |
 | Настройка горячих предложений | Менеджер меняет горизонт, вес срока против суммы потерь, деление между блюдами и потолок скидки; может закрепить блюдо первым или скрыть его. Формула описана на том же экране | `Features/HotSettingsEndpoints.cs`, `Domain/HotOffers.cs` |
 | Проверка сроков | Партия со сроком в несколько минут: на экране виден весь путь — сигнал, просрочка, стоп блюда, автосписание | `Features/Simulator.cs`, `web/src/pages/ExpiryCheck.tsx` |
-| Несколько ресторанов | У каждого ресторана своё рабочее пространство: склад, меню, заказы, сотрудники. Ресторан берётся из токена, а фильтр по нему добавляется ко всем запросам на уровне контекста базы, так что чужие данные не видны ни списком, ни по прямой ссылке. Новый ресторан создаётся на странице «Создать ресторан» | `Data/AppDbContext.cs`, `Features/AuthEndpoints.cs` |
+| Несколько ресторанов | У каждого ресторана своё рабочее пространство: склад, меню, заказы, сотрудники. Ресторан берётся из токена, а фильтр по нему добавляется ко всем запросам на уровне контекста базы, так что чужие данные не видны ни списком, ни по прямой ссылке. Новый ресторан создаёт команда продукта после заявки — в разделе «Обращения» или командой в боте; открытой регистрации нет | `Data/AppDbContext.cs`, `Features/AuthEndpoints.cs` |
 | Роли и сотрудники | Пять ролей со своими точками входа; заказ оформляет только официант. Управляющий заводит учётные записи сотрудников | `Features/Access.cs`, `Features/StaffEndpoints.cs` |
+| Поддержка в Telegram | Заявки и вопросы с лендинга приходят в бот; ответ на сообщение уходит посетителю в чат на сайте; командой `/new` создаётся кабинет ресторана. Оператором становится тот, кто прислал боту `/start <пароль поддержки>` | `Features/Telegram.cs` |
 | Аналитика | Списания по дням, продуктам и причинам; часы блюд в стопе и продукты, из-за которых отклоняются заказы | `Features/InsightsEndpoints.cs` |
 
 ### Одновременные заказы
@@ -105,6 +106,7 @@ npm run dev                                           # сайт на http://loc
 | `Auth__SupportPassword` | пароль закрытой записи `support` |
 | `Proxy__TrustForwardedHeaders` | `true`, если перед сервером стоит прокси хостинга |
 | `Seed__Demo` | `true`, чтобы наполнить демо-ресторан |
+| `Telegram__BotToken` | токен бота поддержки; без него бот выключен |
 
 Проверка работоспособности: `GET /health`.
 
@@ -121,7 +123,8 @@ npm run dev                                           # сайт на http://loc
 
 ```bash
 cd web && npm run build && npx cap sync android
-docker run --rm -v "$PWD:/src:ro" -v "$PWD/apk:/out" -v ostatok-gradle:/root/.gradle ghcr.io/cirruslabs/android-sdk:36 bash -c   "mkdir -p /w/node_modules && cp -r /src/android /w/android && cp -r /src/node_modules/@capacitor /w/node_modules/ && cd /w/android    && sed -i 's/$//' gradlew && chmod +x gradlew && ./gradlew --no-daemon assembleDebug && cp app/build/outputs/apk/debug/app-debug.apk /out/ostatok-debug.apk"
+docker run --rm -v "$PWD:/src:ro" -v "$PWD/apk:/out" -v ostatok-gradle:/root/.gradle ghcr.io/cirruslabs/android-sdk:36 bash -c   "mkdir -p /w/node_modules && cp -r /src/android /w/android && cp -r /src/node_modules/@capacitor /w/node_modules/ && cd /w/android    && sed -i 's/
+$//' gradlew && chmod +x gradlew && ./gradlew --no-daemon assembleDebug && cp app/build/outputs/apk/debug/app-debug.apk /out/ostatok-debug.apk"
 ```
 
 На GitHub приложение собирает `.github/workflows/android.yml`: метка `android-v*` кладёт APK в релиз.
@@ -133,7 +136,7 @@ cd backend
 dotnet test    # нужен запущенный Docker: тесты поднимают PostgreSQL в контейнере
 ```
 
-84 теста: расчёты (списание по срокам, стоп-лист, горячие предложения, прогноз, закупки) и сквозные
+85 тестов: расчёты (списание по срокам, стоп-лист, горячие предложения, прогноз, закупки) и сквозные
 сценарии через HTTP на настоящем PostgreSQL.
 
 ## Безопасность

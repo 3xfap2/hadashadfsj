@@ -2835,6 +2835,14 @@ body {
   }
 }
 
+.leads {
+  min-width: 720px;
+
+  .g-name {
+    white-space: nowrap;
+  }
+}
+
 // ---------- Журнал и генератор ----------
 
 .journal {

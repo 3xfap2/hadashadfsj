@@ -4,7 +4,6 @@ import { getToken, onAuthChange } from './api';
 import { isNative } from './native';
 import { Landing } from './pages/Landing';
 import { Login } from './pages/Login';
-import { Register } from './pages/Register';
 import { Shell } from './Shell';
 
 const NEXT_KEY = 'ostatok.next';
@@ -45,7 +44,6 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={signedIn ? <AfterLogin /> : <Login />} />
-        <Route path="/register" element={signedIn ? <Navigate to="/app" replace /> : <Register />} />
         <Route path="/app/*" element={signedIn ? <Shell /> : <ToLogin />} />
         {/* Приложение открывается сразу на входе: лендинг нужен тем, кто ещё не клиент. */}
         <Route path="/" element={isNative ? <Navigate to="/login" replace /> : <Landing />} />

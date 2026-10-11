@@ -24,6 +24,8 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
 
+    public FakeTelegram Telegram { get; } = new();
+
     public HttpClient Api { get; private set; } = null!;
     /// <summary>Клиент официанта: заказы оформляет только он.</summary>
     public HttpClient Waiter { get; private set; } = null!;
@@ -43,6 +45,9 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Time);
+            // Настоящий Telegram в тестах заменён записывающей заглушкой.
+            services.RemoveAll<ITelegramApi>();
+            services.AddSingleton<ITelegramApi>(Telegram);
         });
     }
 
@@ -77,9 +82,41 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         return scope;
     }
 
+    /// <summary>Создаёт ресторан так, как это делает поддержка, и возвращает клиент его управляющего.</summary>
+    public async Task<(HttpClient Client, string Login, string Password)> NewRestaurantAsync(string name)
+    {
+        using var support = await SignInAsSupportAsync();
+        var login = $"o{Guid.NewGuid():N}"[..20];
+        var response = await support.PostAsJsonAsync("/api/restaurants", new RestaurantCreateRequest(name, login));
+        response.EnsureSuccessStatusCode();
+        var created = (await response.Content.ReadFromJsonAsync<NewRestaurant>(Json))!;
+        return (await SignInAsync(created.Login, created.Password), created.Login, created.Password);
+    }
+
     async Task IAsyncLifetime.DisposeAsync()
     {
         await base.DisposeAsync();
         await _postgres.DisposeAsync();
+    }
+}
+
+/// <summary>Заглушка Telegram: запоминает, что бот отправил бы операторам.</summary>
+public sealed class FakeTelegram : ITelegramApi
+{
+    public List<(long ChatId, string Text)> Sent { get; } = [];
+    public bool Enabled => true;
+
+    public Task SendAsync(long chatId, string text, CancellationToken ct)
+    {
+        lock (Sent) Sent.Add((chatId, text));
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<TelegramUpdate>> GetUpdatesAsync(long offset, CancellationToken ct) =>
+        Task.Delay(Timeout.Infinite, ct).ContinueWith<IReadOnlyList<TelegramUpdate>>(_ => [], CancellationToken.None);
+
+    public string[] To(long chatId)
+    {
+        lock (Sent) return Sent.Where(m => m.ChatId == chatId).Select(m => m.Text).ToArray();
     }
 }

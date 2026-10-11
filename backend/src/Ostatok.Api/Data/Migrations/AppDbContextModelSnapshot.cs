@@ -632,6 +632,24 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("Supplies");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.TelegramOperator", b =>
+                {
+                    b.Property<long>("ChatId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.HasKey("ChatId");
+
+                    b.ToTable("TelegramOperators");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.User", b =>
                 {
                     b.Property<Guid>("Id")

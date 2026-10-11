@@ -23,6 +23,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
     public DbSet<Movement> Movements => Set<Movement>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<TelegramOperator> TelegramOperators => Set<TelegramOperator>();
     public DbSet<HotSettings> HotSettings => Set<HotSettings>();
     public DbSet<Chat> Chats => Set<Chat>();
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
@@ -103,6 +104,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
         });
 
         model.Entity<HotSettings>(e => e.HasKey(s => s.RestaurantId));
+        model.Entity<TelegramOperator>(e =>
+        {
+            e.HasKey(o => o.ChatId);
+            e.Property(o => o.ChatId).ValueGeneratedNever();
+            e.Property(o => o.Name).HasMaxLength(120);
+        });
         // Нулевое количество в составе делит на ноль расчёт порций, поэтому его не пускает и сама база.
         model.Entity<RecipeItem>().ToTable(t => t.HasCheckConstraint("CK_RecipeItem_Quantity", "\"Quantity\" > 0"));
         model.Entity<PrepItem>().ToTable(t => t.HasCheckConstraint("CK_PrepItem_Quantity", "\"Quantity\" > 0"));

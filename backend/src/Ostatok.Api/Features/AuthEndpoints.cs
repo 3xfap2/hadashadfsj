@@ -46,8 +46,6 @@ public sealed record ShiftInfo(string Start, string End);
 public sealed record MeResponse(
     string Login, string Title, Role Role, IEnumerable<string> Sections, ShiftInfo Shift, IEnumerable<string> Places, string Restaurant);
 
-/// <param name="Restaurant">Название нового ресторана; его первый пользователь становится управляющим.</param>
-public sealed record RegisterRequest(string? Restaurant, string? Login, string? Password);
 
 /// <summary>Часы смены, с которыми создаётся новый ресторан; дальше каждый ресторан настраивает свои.</summary>
 public sealed class RestaurantOptions
@@ -99,7 +97,6 @@ public sealed class LoginAttempts(AuthOptions options, TimeProvider time)
 public static class AuthEndpoints
 {
     public const string LoginRateLimit = "login";
-    public const string RegisterRateLimit = "register";
     private static readonly string DummyHash = new PasswordHasher<User>().HashPassword(null!, "нет такой учётной записи");
 
     public static void MapAuth(this IEndpointRouteBuilder app)
@@ -130,37 +127,6 @@ public static class AuthEndpoints
         .WithTags("Вход")
         .AllowAnonymous()
         .RequireRateLimiting(LoginRateLimit);
-
-        // Новый ресторан — отдельное рабочее пространство: свой склад, меню и сотрудники.
-        app.MapPost("/api/auth/register", async (RegisterRequest req, AppDbContext db, AuthOptions options, RestaurantOptions defaults, TimeProvider time, CancellationToken ct) =>
-        {
-            var (name, login) = ((req.Restaurant ?? "").Trim(), (req.Login ?? "").Trim().ToLowerInvariant());
-            var errors = new Errors()
-                .Check(name is { Length: > 0 and <= 120 }, "restaurant", "Укажите название ресторана — до 120 символов.")
-                .Check(StaffEndpoints.LoginPattern().IsMatch(login), "login", StaffEndpoints.LoginRule)
-                .Check((req.Password ?? "").Length is >= 8 and <= 100, "password", StaffEndpoints.PasswordRule);
-            if (errors.Any) return errors.ToResult();
-            if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Login == login, ct))
-                return Results.Problem("Такой логин уже занят.", statusCode: StatusCodes.Status409Conflict);
-
-            var restaurant = new Restaurant
-            {
-                Id = Guid.NewGuid(), Name = name, CreatedAt = time.GetUtcNow(),
-                ShiftStart = defaults.ShiftStart, ShiftEnd = defaults.ShiftEnd,
-            };
-            var user = new User
-            {
-                Id = Guid.NewGuid(), RestaurantId = restaurant.Id, Login = login, PasswordHash = "", Title = "Управляющий", Role = Role.Manager,
-            };
-            user.PasswordHash = new PasswordHasher<User>().HashPassword(user, req.Password!);
-            db.Restaurants.Add(restaurant);
-            db.Users.Add(user);
-            await db.SaveChangesAsync(ct);
-            return Results.Created("/api/me", Issue(user, options, time));
-        })
-        .WithTags("Вход")
-        .AllowAnonymous()
-        .RequireRateLimiting(RegisterRateLimit);
 
         app.MapGet("/api/me", async (ClaimsPrincipal principal, AppDbContext db, AuthOptions options, CancellationToken ct) =>
         {

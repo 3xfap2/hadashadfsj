@@ -317,6 +317,23 @@ export interface RestaurantSettings {
   hasBar: boolean;
 }
 
+export interface LeadRow {
+  id: number;
+  createdAt: string;
+  name: string;
+  organization: string;
+  contact: string;
+  points: string;
+  comment: string | null;
+}
+
+/** Ответ на создание ресторана: логин и пароль управляющего показываются один раз. */
+export interface NewRestaurant {
+  name: string;
+  login: string;
+  password: string;
+}
+
 export interface StaffRow {
   id: string;
   login: string;
@@ -391,22 +408,6 @@ export async function login(name: string, password: string): Promise<LoginError 
       : { title: 'Слишком много попыток', text: 'Подождите минуту и попробуйте снова.' };
   }
   if (!response.ok) return NO_SERVER;
-  setSession((await response.json()).token, name);
-  return null;
-}
-
-/** Создаёт ресторан и входит под его управляющим. Возвращает текст ошибки или null. */
-export async function register(restaurant: string, name: string, password: string): Promise<string | null> {
-  const response = await fetch(apiUrl('/api/auth/register'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ restaurant, login: name, password }),
-  }).catch(() => null);
-  if (!response) return NO_SERVER.text;
-  if (!response.ok) {
-    const problem = await response.json().catch(() => ({}));
-    return Object.values((problem.errors ?? {}) as Record<string, string[]>).flat().join(' ') || problem.detail || `Сервер ответил ошибкой ${response.status}.`;
-  }
   setSession((await response.json()).token, name);
   return null;
 }

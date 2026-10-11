@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { NavLink } from 'react-router-dom';
-import { post, useApi, type ChatDetails, type ChatRow } from '../api';
+import { post, send, useApi, type ChatDetails, type ChatRow, type LeadRow, type NewRestaurant } from '../api';
 import { dueLong } from '../format';
 import { Messages } from '../LandingChat';
 
@@ -63,7 +63,108 @@ export function Support() {
           </section>
         )}
       </div>
+
+      <div className="sup-row">
+        <Leads />
+        <aside className="sup-side cat-side"><NewRestaurantForm /></aside>
+      </div>
     </>
+  );
+}
+
+/** Заявки на демо с лендинга: по ним мы связываемся с рестораном и открываем ему кабинет. */
+function Leads() {
+  const leads = useApi<LeadRow[]>('/leads', 60_000);
+  return (
+    <section className="sup-main g-panel" aria-labelledby="leads-h">
+      <div className="g-panel__head">
+        <h2 id="leads-h">Заявки на демо</h2>
+        <span className="end">{leads.data ? leads.data.length : ''}</span>
+      </div>
+      {leads.error ? (
+        <p className="g-empty"><strong>Не удалось загрузить заявки</strong>{leads.error}</p>
+      ) : !leads.data ? (
+        <p className="g-empty">Загружаем заявки…</p>
+      ) : leads.data.length === 0 ? (
+        <p className="g-empty"><strong>Заявок пока нет</strong>Они появятся, когда посетитель заполнит форму «Запросить демо».</p>
+      ) : (
+        <div className="g-table-wrap">
+          <table className="g-table leads">
+            <thead><tr><th>Когда</th><th>Кто</th><th>Ресторан</th><th>Контакт</th><th className="r">Точек</th><th>Комментарий</th></tr></thead>
+            <tbody>
+              {leads.data.map((l) => (
+                <tr key={l.id}>
+                  <td className="num muted">{dueLong(l.createdAt)}</td>
+                  <td className="g-name">{l.name}</td>
+                  <td>{l.organization}</td>
+                  <td className="num" style={{ userSelect: 'all' }}>{l.contact}</td>
+                  <td className="r num">{l.points}</td>
+                  <td className="muted">{l.comment ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Кабинет новому ресторану открываем мы: система выдаёт пароль управляющего, его передают клиенту. */
+function NewRestaurantForm() {
+  const [form, setForm] = useState({ restaurant: '', login: '' });
+  const [created, setCreated] = useState<NewRestaurant | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const response = await send('POST', '/restaurants', form);
+      if (response.ok) {
+        setCreated(await response.json());
+        setForm({ restaurant: '', login: '' });
+      } else {
+        const problem = await response.json().catch(() => ({}));
+        setError(problem.detail || `Сервер ответил ошибкой ${response.status}.`);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="g-panel" onSubmit={submit} noValidate>
+      <div className="g-panel__head"><h2>Новый ресторан</h2><span className="end">кабинет для клиента</span></div>
+      <div className="form-body">
+        <div className="g-field">
+          <label htmlFor="nr-name">Название ресторана</label>
+          <input className="g-input" id="nr-name" value={form.restaurant} onChange={(e) => setForm({ ...form, restaurant: e.target.value })} />
+        </div>
+        <div className="g-field">
+          <label htmlFor="nr-login">Логин управляющего</label>
+          <input className="g-input" id="nr-login" autoCapitalize="none" autoComplete="off" value={form.login} onChange={(e) => setForm({ ...form, login: e.target.value })} />
+          <span className="g-hint">Латинские буквы и цифры, например trattoria.admin. Пароль система выдаст сама.</span>
+        </div>
+        {error && <div className="g-note g-note--err" role="alert"><span>{error}</span></div>}
+        {created && (
+          <div className="g-note g-note--ok" role="status">
+            <h3>Ресторан «{created.name}» создан</h3>
+            <span>Логин: <b className="num" style={{ userSelect: 'all' }}>{created.login}</b></span>
+            <span>Пароль: <b className="num" style={{ userSelect: 'all' }}>{created.password}</b></span>
+            <span className="muted small">Пароль показан один раз — передайте его клиенту сейчас.</span>
+          </div>
+        )}
+      </div>
+      <div className="g-panel__foot cat-foot">
+        <span />
+        <button className="g-btn g-btn--primary" type="submit" disabled={busy}>Создать</button>
+      </div>
+    </form>
   );
 }
 

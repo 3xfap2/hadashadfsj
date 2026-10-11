@@ -249,6 +249,14 @@ public class ChatMessage
     public required string Text { get; set; }
 }
 
+/// <summary>Чат Telegram, в который бот поддержки присылает заявки и вопросы с лендинга.</summary>
+public class TelegramOperator
+{
+    public long ChatId { get; set; }
+    public string Name { get; set; } = "";
+    public DateTimeOffset AddedAt { get; set; }
+}
+
 public enum Role { Manager, Chef, Cook, Storekeeper, Waiter }
 
 public class User : IOwned

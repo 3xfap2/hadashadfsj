@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { login, takeExpired, type LoginError } from '../api';
+import { isNative } from '../native';
 
 // Открытая учётная запись демо-ресторана: по ней жюри и гости смотрят систему без регистрации.
 const DEMO = { login: 'demo', password: 'demo2026' };
@@ -139,7 +140,8 @@ export function Login() {
             ))}
           </p>
         </form>
-        <p className="muted">Нет кабинета? <Link className="hd" to="/register">Создать ресторан</Link></p>
+        {/* Кабинет ресторану открываем мы после заявки; в приложении лендинга нет, поэтому ссылка только на сайте. */}
+        {!isNative && <p className="muted">Нет кабинета? <a className="hd" href="/#request">Оставить заявку</a></p>}
       </main>
     </div>
   );

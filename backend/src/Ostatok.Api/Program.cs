@@ -23,6 +23,11 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) => options
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<OrderService>();
 builder.Services.AddScoped<PrepService>();
+builder.Services.AddScoped<SupportDesk>();
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("Telegram").Get<TelegramOptions>() ?? new TelegramOptions());
+builder.Services.AddSingleton<ITelegramApi, TelegramApi>();
+builder.Services.AddHostedService<TelegramBot>();
 builder.Services.AddScoped<WriteOffService>();
 builder.Services.AddScoped<StopTracker>();
 builder.Services.AddScoped<AlertService>();
@@ -87,9 +92,6 @@ builder.Services.AddRateLimiter(options =>
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
     // Открытый чат лендинга раз в несколько секунд спрашивает, нет ли ответа, поэтому предел выше.
-    options.AddPolicy(AuthEndpoints.RegisterRateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
-        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
     // Не больше десяти сообщений в минуту с одного адреса: чат нельзя завалить сотней диалогов.
     options.AddPolicy(ChatEndpoints.WriteRateLimit, http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -194,6 +196,7 @@ api.MapAlerts();
 api.MapSimulator();
 api.MapStaff();
 api.MapRestaurant();
+api.MapSupportDesk();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

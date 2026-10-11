@@ -29,7 +29,7 @@ public static class ChatEndpoints
         // Адреса посетителя открыты. Ключ к диалогу — его случайный идентификатор: чужой диалог не подобрать.
         var visitor = app.MapGroup("/api/chats").WithTags("Чат на лендинге").AllowAnonymous().RequireRateLimiting(RateLimit);
 
-        visitor.MapPost("", async (ChatStartRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        visitor.MapPost("", async (ChatStartRequest req, AppDbContext db, SupportDesk desk, TimeProvider time, CancellationToken ct) =>
         {
             var (name, contact, text) = (req.Name?.Trim() ?? "", req.Contact?.Trim() ?? "", req.Text?.Trim() ?? "");
             var errors = new Errors()
@@ -46,6 +46,7 @@ public static class ChatEndpoints
             };
             db.Chats.Add(chat);
             await db.SaveChangesAsync(ct);
+            await desk.QuestionAsync(chat, text, ct);
             return Results.Created($"/api/chats/{chat.Id}", new ChatResponse(chat.Id, chat.Messages.Select(ToResponse).ToList()));
         }).RequireRateLimiting(WriteRateLimit);
 
@@ -54,8 +55,8 @@ public static class ChatEndpoints
                 ? Results.Ok(new ChatResponse(id, await MessagesAsync(db, id, ct)))
                 : Results.NotFound());
 
-        visitor.MapPost("{id:guid}/messages", (Guid id, ChatTextRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
-            AddMessageAsync(id, req, staff: null, db, time, ct)).RequireRateLimiting(WriteRateLimit);
+        visitor.MapPost("{id:guid}/messages", (Guid id, ChatTextRequest req, AppDbContext db, SupportDesk desk, TimeProvider time, CancellationToken ct) =>
+            AddMessageAsync(id, req, staff: null, db, time, ct, desk)).RequireRateLimiting(WriteRateLimit);
 
         var support = app.MapGroup("/api/support/chats").WithTags("Обращения").RequireRoles(Access.Leads).VendorOnly();
 
@@ -83,7 +84,8 @@ public static class ChatEndpoints
     }
 
     /// <summary>Добавляет сообщение в диалог; staff — логин сотрудника, null — пишет посетитель.</summary>
-    private static async Task<IResult> AddMessageAsync(Guid id, ChatTextRequest req, string? staff, AppDbContext db, TimeProvider time, CancellationToken ct)
+    private static async Task<IResult> AddMessageAsync(
+        Guid id, ChatTextRequest req, string? staff, AppDbContext db, TimeProvider time, CancellationToken ct, SupportDesk? desk = null)
     {
         var text = req.Text?.Trim() ?? "";
         var errors = new Errors().Check(text is { Length: > 0 and <= MaxText }, "text", $"Напишите сообщение — до {MaxText} символов.");
@@ -98,6 +100,7 @@ public static class ChatEndpoints
         // Ответ сотрудника означает, что диалог прочитан; сообщение посетителя ждёт ответа.
         chat.Unread = staff is null ? chat.Unread + 1 : 0;
         await db.SaveChangesAsync(ct);
+        if (staff is null && desk is not null) await desk.QuestionAsync(chat, text, ct);
         return Results.Created($"/api/chats/{id}", ToResponse(message));
     }
 

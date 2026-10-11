@@ -646,9 +646,8 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     [Fact]
     public async Task Событие_об_изменении_получает_только_свой_ресторан()
     {
-        using var anonymous = fx.CreateClient();
-        var registered = await anonymous.PostAsJsonAsync("/api/auth/register", new RegisterRequest("Соседи", $"n{Guid.NewGuid():N}"[..20], "neighbours-2026"));
-        var other = (await Read<LoginResponse>(registered)).Token;
+        var (neighbours, _, _) = await fx.NewRestaurantAsync("Соседи");
+        var other = neighbours.DefaultRequestHeaders.Authorization!.Parameter!;
         using var listener = fx.CreateClient();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
         using var stream = await listener.GetStreamAsync($"/api/events?access_token={other}", cts.Token);
@@ -692,6 +691,67 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal((70m, SupplierReport.Problem), (row.LossPercent, row.Verdict));
         // Отчёт закрыт для ролей без аналитики.
         Assert.Equal(HttpStatusCode.Forbidden, (await fx.Waiter.GetAsync("/api/analytics/suppliers")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Поддержка_в_Telegram_получает_заявки_отвечает_посетителю_и_создаёт_ресторан()
+    {
+        long operatorChat = Random.Shared.NextInt64(1, long.MaxValue), stranger = Random.Shared.NextInt64(1, long.MaxValue);
+        async Task Say(long chat, string text, string? replied = null)
+        {
+            await using var scope = fx.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<SupportDesk>().HandleAsync(new TelegramUpdate(1, chat, "Оператор", text, replied), default);
+        }
+        async Task<string[]> Received(long chat)
+        {
+            // Уведомления уходят в фоне — даём им долететь.
+            for (var i = 0; i < 40 && fx.Telegram.To(chat).Length == 0; i++) await Task.Delay(50);
+            return fx.Telegram.To(chat);
+        }
+
+        // Без пароля бот никого не подключает и на команды постороннего не отвечает.
+        await Say(stranger, "/start");
+        await Say(stranger, "/start not-the-password");
+        await Say(stranger, "/new Чужой ресторан; stranger.one");
+        Assert.All(fx.Telegram.To(stranger), m => Assert.Contains("/start <пароль поддержки>", m));
+        Assert.Equal(2, fx.Telegram.To(stranger).Length);
+
+        await Say(operatorChat, $"/start {ApiFixture.SupportPassword}");
+        Assert.Contains("будут приходить сюда", fx.Telegram.To(operatorChat)[0]);
+
+        // Заявка и вопрос с лендинга приходят оператору, постороннему — нет.
+        using var visitor = fx.CreateClient();
+        var organization = $"Ресторан {Guid.NewGuid():N}";
+        await visitor.PostAsJsonAsync("/api/leads", new LeadRequest("Иван", organization, "ivan@example.com", "2–5", "Есть касса"));
+        var chat = await Read<ChatResponse>(await visitor.PostAsJsonAsync("/api/chats", new ChatStartRequest("Мария", "+7 900 000-00-00", "Работаете с iiko?")));
+        for (var i = 0; i < 40 && fx.Telegram.To(operatorChat).Length < 3; i++) await Task.Delay(50);
+        var inbox = fx.Telegram.To(operatorChat);
+        Assert.Contains(inbox, m => m.Contains("Новая заявка") && m.Contains(organization) && m.Contains("ivan@example.com"));
+        var question = Assert.Single(inbox, m => m.Contains("Работаете с iiko?"));
+        Assert.Equal(2, fx.Telegram.To(stranger).Length);
+
+        // Ответ на сообщение с вопросом уходит посетителю в чат на сайте.
+        await Say(operatorChat, "Да, через открытый API.", replied: question);
+        var forVisitor = (await visitor.GetFromJsonAsync<ChatResponse>($"/api/chats/{chat.Id}", ApiFixture.Json))!;
+        Assert.Equal(("Да, через открытый API.", true), (forVisitor.Messages[^1].Text, forVisitor.Messages[^1].FromStaff));
+        // Посторонний, подделав «ответ» с номером диалога, посетителю написать не может.
+        await Say(stranger, "Взлом", replied: question);
+        Assert.Equal(2, (await visitor.GetFromJsonAsync<ChatResponse>($"/api/chats/{chat.Id}", ApiFixture.Json))!.Messages.Count);
+
+        // Командой создаётся ресторан: бот возвращает логин и пароль, по ним можно войти.
+        var login = $"t{Guid.NewGuid():N}"[..20];
+        await Say(operatorChat, $"/new Кафе у моста; {login}");
+        var created = fx.Telegram.To(operatorChat)[^1];
+        Assert.Contains("Ресторан «Кафе у моста» создан", created);
+        var password = System.Text.RegularExpressions.Regex.Match(created, @"Пароль: (\S+)").Groups[1].Value;
+        using var owner = await fx.SignInAsync(login, password);
+        Assert.Equal("Кафе у моста", (await owner.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Restaurant);
+
+        await Say(operatorChat, "/stop");
+        var before = fx.Telegram.To(operatorChat).Length;
+        await visitor.PostAsJsonAsync("/api/leads", new LeadRequest("Пётр", organization, "petr@example.com", "1", null));
+        await Task.Delay(300);
+        Assert.Equal(before, fx.Telegram.To(operatorChat).Length);
     }
 
     [Fact]
@@ -782,14 +842,16 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var theirSupply = await Supply(new SupplyItemRequest(theirs.Id, 3, null));
 
         using var anonymous = fx.CreateClient();
-        var login = $"owner{Guid.NewGuid():N}"[..20];
-        var registered = await anonymous.PostAsJsonAsync("/api/auth/register", new RegisterRequest("Траттория", login, "trattoria-2026"));
-        var taken = await anonymous.PostAsJsonAsync("/api/auth/register", new RegisterRequest("Двойник", login, "trattoria-2026"));
-        var weak = await anonymous.PostAsJsonAsync("/api/auth/register", new RegisterRequest("Слабый пароль", $"x{login}"[..20], "123"));
-        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.Conflict, HttpStatusCode.BadRequest), (registered.StatusCode, taken.StatusCode, weak.StatusCode));
+        // Ресторан создаёт поддержка; посетитель сайта и управляющий другого ресторана этого сделать не могут.
+        var (owner, login, _) = await fx.NewRestaurantAsync("Траттория");
+        using var support = await fx.SignInAsSupportAsync();
+        var taken = await support.PostAsJsonAsync("/api/restaurants", new RestaurantCreateRequest("Двойник", login));
+        var byVisitor = await anonymous.PostAsJsonAsync("/api/restaurants", new RestaurantCreateRequest("Сам себе", "self.made"));
+        var byOtherManager = await owner.PostAsJsonAsync("/api/restaurants", new RestaurantCreateRequest("Филиал", "branch.one"));
+        var oldRegistration = await anonymous.PostAsJsonAsync("/api/auth/register", new { restaurant = "Открытая", login = "open.door", password = "open-door-2026" });
+        Assert.Equal((HttpStatusCode.Conflict, HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.MethodNotAllowed),
+            (taken.StatusCode, byVisitor.StatusCode, byOtherManager.StatusCode, oldRegistration.StatusCode));
 
-        using var owner = fx.CreateClient();
-        owner.DefaultRequestHeaders.Authorization = new("Bearer", (await Read<LoginResponse>(registered)).Token);
         var me = (await owner.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!;
         Assert.Equal(("Траттория", Role.Manager), (me.Restaurant, me.Role));
         // Обращения с лендинга — раздел команды продукта, у ресторана его нет.

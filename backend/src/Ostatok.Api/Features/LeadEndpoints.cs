@@ -25,7 +25,7 @@ public static partial class LeadEndpoints
     public static void MapLeads(this IEndpointRouteBuilder app)
     {
         // Форму отправляет посетитель без входа, поэтому адрес открыт и ограничен по числу запросов.
-        app.MapPost("/api/leads", async (LeadRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        app.MapPost("/api/leads", async (LeadRequest req, AppDbContext db, SupportDesk desk, TimeProvider time, CancellationToken ct) =>
         {
             var (name, organization, contact) = (req.Name?.Trim() ?? "", req.Organization?.Trim() ?? "", req.Contact?.Trim() ?? "");
             var errors = new Errors()
@@ -47,6 +47,7 @@ public static partial class LeadEndpoints
             };
             db.Leads.Add(lead);
             await db.SaveChangesAsync(ct);
+            await desk.LeadAsync(lead, ct);
             return Results.Created($"/api/leads/{lead.Id}", ToResponse(lead));
         })
         .WithTags("Заявки")
