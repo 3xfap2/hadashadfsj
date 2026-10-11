@@ -430,12 +430,25 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal([35, 0], discounted.Items.Select(i => i.DiscountPercent).OrderDescending());
         Assert.Equal(325 * 2 + 500, discounted.Total);
 
+        var summary = await Get<OrdersSummary>("/api/orders/summary");
+        Assert.Equal(325 * 2 + 500, summary.Tables.Single(t => t.Place == "Стол 7").Total);
+        Assert.True(summary.Orders >= 1 && summary.Revenue >= 1150);
+        // Пока за столом открыт заказ, убрать этот стол из зала нельзя.
+        var manager = await fx.SignInAsync("manager");
+        Assert.Equal(HttpStatusCode.BadRequest, (await manager.PutAsJsonAsync("/api/restaurant", new RestaurantSettings("Демо", "10:00", "23:00", 3, true))).StatusCode);
+        // Продукт уже в поставке и техкарте: единицу измерения сменить нельзя.
+        var unit = await Api.PutAsJsonAsync($"/api/products/{product.Id}", new ProductRequest(product.Name, Unit.L, product.ShelfLifeHours, product.Cost), ApiFixture.Json);
+        Assert.Equal(HttpStatusCode.Conflict, unit.StatusCode);
+        // Логин принимается с заглавной буквы и с пробелом в конце.
+        await fx.SignInAsync(" Waiter ");
+
         var closed = await fx.Waiter.PostAsJsonAsync("/api/orders/close", new CloseTableRequest("Стол 7"));
         var again = await fx.Waiter.PostAsJsonAsync("/api/orders/close", new CloseTableRequest("Стол 7"));
 
         Assert.True((await Read<CloseTableResponse>(closed)).Total >= 1150);
         Assert.Equal(HttpStatusCode.NotFound, again.StatusCode);
         Assert.NotNull((await Get<List<OrderResponse>>("/api/orders?take=200")).Single(o => o.Id == discounted.Id).ClosedAt);
+        Assert.DoesNotContain((await Get<OrdersSummary>("/api/orders/summary")).Tables, t => t.Place == "Стол 7");
     }
 
     [Fact]

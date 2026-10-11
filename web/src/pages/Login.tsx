@@ -46,10 +46,10 @@ export function Login() {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setTried(true);
-    if (name && password) void enter(name, password);
+    if (name.trim() && password) void enter(name.trim(), password);
   };
 
-  const loginMissing = tried && !name;
+  const loginMissing = tried && !name.trim();
   const passwordMissing = tried && !password;
 
   return (

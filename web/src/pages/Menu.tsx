@@ -66,7 +66,8 @@ export function Menu() {
     }
   };
 
-  const recipe = dishes.data.find((d) => d.id === selected?.dishId)?.recipe ?? [];
+  // Продукт техкарты могли завести только что: строка появится, когда обновится справочник.
+  const recipe = (dishes.data.find((d) => d.id === selected?.dishId)?.recipe ?? []).filter((r) => products.data!.some((p) => p.id === r.productId));
 
   return (
     <>

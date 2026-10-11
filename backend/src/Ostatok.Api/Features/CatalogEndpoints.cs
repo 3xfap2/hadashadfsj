@@ -42,6 +42,12 @@ public static class CatalogEndpoints
             if (product is null) return Results.NotFound();
             if (await db.Products.AnyAsync(p => p.Name == req.Name!.Trim() && p.Id != id, ct)) return NameTaken("Продукт");
 
+            // Количества в партиях и техкартах записаны в прежней единице: смена единицы молча исказила бы остатки.
+            if (product.Unit != req.Unit && (await db.Batches.AnyAsync(b => b.ProductId == id, ct)
+                || await db.Dishes.AnyAsync(d => d.Recipe.Any(r => r.ProductId == id), ct)
+                || await db.Products.AnyAsync(p => p.PrepRecipe.Any(i => i.ProductId == id), ct)))
+                return Results.Problem("Единицу измерения нельзя сменить: продукт уже есть в поставках или техкартах.", statusCode: StatusCodes.Status409Conflict);
+
             (product.Name, product.Unit, product.ShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit, req.ShelfLifeHours, req.Cost);
             await SetPrepRecipeAsync(product, req, db, ct);
             await db.SaveChangesAsync(ct);

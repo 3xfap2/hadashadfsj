@@ -12,6 +12,10 @@ public sealed record OrderRequest(List<OrderLine>? Items, string? Place = null);
 public sealed record OrderItemResponse(Guid DishId, string DishName, int Quantity, int DiscountPercent, int DiscountQuantity, decimal Price);
 public sealed record CloseTableRequest(string? Place);
 public sealed record CloseTableResponse(string Place, int Orders, decimal Total);
+public sealed record OpenTable(string Place, decimal Total, DateTimeOffset Last);
+
+/// <summary>Итоги с начала дня и столы с открытыми заказами: считаются по всем заказам, а не по последней странице списка.</summary>
+public sealed record OrdersSummary(int Orders, int Rejected, decimal Revenue, IEnumerable<OpenTable> Tables);
 public sealed record ShortageResponse(Guid ProductId, string ProductName, Unit Unit, decimal Required, decimal Available);
 public sealed record OrderWriteOff(string ProductName, Unit Unit, string SupplyNumber, decimal Quantity);
 
@@ -30,6 +34,18 @@ public static class OrderEndpoints
         orders.MapGet("", async (AppDbContext db, CancellationToken ct, int take = 50) =>
             (await Detailed(db).OrderByDescending(o => o.CreatedAt).Take(Math.Clamp(take, 1, 200)).ToListAsync(ct))
             .Select(ToResponse));
+
+        orders.MapGet("/summary", async (AppDbContext db, TimeProvider time, CancellationToken ct, DateTimeOffset? since = null) =>
+        {
+            var now = time.GetUtcNow();
+            var from = since ?? now.AddHours(-24);
+            var day = await db.Orders.AsNoTracking().Include(o => o.Items).Where(o => o.CreatedAt >= from).ToListAsync(ct);
+            var accepted = day.Where(o => o.Status == OrderStatus.Accepted).ToList();
+            var tables = (await OpenOrders(db, now).AsNoTracking().Include(o => o.Items).ToListAsync(ct))
+                .GroupBy(o => o.Place)
+                .Select(g => new OpenTable(g.Key, g.Sum(Total), g.Max(o => o.CreatedAt)));
+            return new OrdersSummary(day.Count, day.Count - accepted.Count, accepted.Sum(Total), tables);
+        });
 
         // Закрыть стол: гость расплатился, открытые заказы стола уходят в историю, стол снова свободен.
         orders.MapPost("/close", async (CloseTableRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
@@ -100,6 +116,10 @@ public static class OrderEndpoints
         .Produces<OrderResponse>(StatusCodes.Status409Conflict)
         .RequireRoles(Access.Orders);
     }
+
+    /// <summary>Заказы, по которым гость ещё не расплатился. Стол не бывает открыт дольше суток, поэтому старые заказы зал не занимают.</summary>
+    public static IQueryable<Order> OpenOrders(AppDbContext db, DateTimeOffset now) => db.Orders
+        .Where(o => o.Status == OrderStatus.Accepted && o.ClosedAt == null && o.Place != "" && o.CreatedAt >= now.AddHours(-24));
 
     private static IQueryable<Order> Detailed(AppDbContext db) => db.Orders
         .Include(o => o.Items).ThenInclude(i => i.Dish)

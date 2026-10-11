@@ -104,24 +104,26 @@ public static class AuthEndpoints
         app.MapPost("/api/auth/login", async (LoginRequest req, HttpContext http, AppDbContext db, AuthOptions options, LoginAttempts attempts, TimeProvider time, CancellationToken ct) =>
         {
             var address = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            if (attempts.LockedMinutes(req.Login, address) is > 0 and var minutes)
+            // Логины хранятся строчными; телефон любит ставить заглавную букву и пробел в конце.
+            var login = (req.Login ?? "").Trim().ToLowerInvariant();
+            if (attempts.LockedMinutes(login, address) is > 0 and var minutes)
                 return Locked(minutes);
 
             // До входа ресторан неизвестен: учётная запись ищется по логину среди всех.
-            var user = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Login == req.Login, ct);
+            var user = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Login == login, ct);
             var hasher = new PasswordHasher<User>();
             // Для несуществующего логина хеш считается так же долго, как для настоящего: по времени ответа их не различить.
             var matches = hasher.VerifyHashedPassword(user!, user?.PasswordHash ?? DummyHash, req.Password ?? "") != PasswordVerificationResult.Failed;
             if (user is null || !matches)
             {
-                var left = attempts.Fail(req.Login, address);
+                var left = attempts.Fail(login, address);
                 return left == 0
                     ? Locked(options.LockoutMinutes)
                     : Results.Problem("Неверный логин или пароль.", statusCode: StatusCodes.Status401Unauthorized,
                         extensions: new Dictionary<string, object?> { ["attemptsLeft"] = left });
             }
 
-            attempts.Reset(req.Login, address);
+            attempts.Reset(login, address);
             return Results.Ok(Issue(user, options, time));
         })
         .WithTags("Вход")

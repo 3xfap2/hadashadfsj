@@ -1,8 +1,8 @@
 import { Haptics, NotificationType } from '@capacitor/haptics';
 import { isNative } from '../native';
-import { useState } from 'react';
-import { post, useApi, type HotOffer, type Me, type OrderRow, type StopListRow } from '../api';
-import { clock, duration, isToday, money, portions, qty } from '../format';
+import { useEffect, useRef, useState } from 'react';
+import { post, useApi, type HotOffer, type Me, type OrderRow, type OrderSummary, type StopListRow } from '../api';
+import { clock, dayStart, duration, money, portions, qty } from '../format';
 import { Photo, URGENT_HOURS } from '../ui';
 
 const STOP_REASON = {
@@ -22,7 +22,7 @@ const buzz = (type: NotificationType) => {
 export function Orders() {
   const menu = useApi<StopListRow[]>('/stop-list');
   const offers = useApi<HotOffer[]>('/hot-offers');
-  const orders = useApi<OrderRow[]>('/orders?take=200');
+  const orders = useApi<OrderSummary>(`/orders/summary?since=${dayStart()}`);
   const places = useApi<Me>('/me', 300_000).data?.places ?? [];
   const [chosenPlace, setPlace] = useState('');
   const place = chosenPlace || places[0] || '';
@@ -62,12 +62,7 @@ export function Orders() {
     });
 
   // Открытые заказы за каждым столом: сумма и время последнего. После «Закрыть стол» он снова свободен.
-  const served = new Map<string, { total: number; last: string }>();
-  for (const o of orders.data ?? []) {
-    if (o.status !== 'Accepted' || !o.place || o.closedAt || !isToday(o.createdAt)) continue;
-    const seen = served.get(o.place);
-    served.set(o.place, { total: (seen?.total ?? 0) + o.total, last: seen && seen.last > o.createdAt ? seen.last : o.createdAt });
-  }
+  const served = new Map((orders.data?.tables ?? []).map((t) => [t.place, t]));
 
   const submit = async () => {
     setBusy(true);
@@ -85,7 +80,11 @@ export function Orders() {
         buzz(NotificationType.Error);
         setResult({ kind: 'rejected', order: await response.json() });
       } else {
-        setResult({ kind: 'error', message: `Сервер ответил ошибкой ${response.status}. Заказ не создан.` });
+        // Причину отказа называет сервер: блюдо сняли с продажи, стол убрали из зала.
+        const problem = await response.json().catch(() => ({}));
+        const messages = Object.values((problem.errors ?? {}) as Record<string, string[]>).flat();
+        buzz(NotificationType.Error);
+        setResult({ kind: 'error', message: messages.join(' ') || `Сервер ответил ошибкой ${response.status}. Заказ не создан.` });
       }
       await Promise.all([menu.reload(), offers.reload(), orders.reload()]);
     } catch (e) {
@@ -287,14 +286,19 @@ function DishRow(props: {
 }
 
 function ResultNote({ result }: { result: Result }) {
+  // На телефоне итог стоит под меню: без прокрутки официант не увидел бы ни чека, ни отказа.
+  const note = useRef<HTMLElement>(null);
+  useEffect(() => {
+    note.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [result]);
   if (!result) return null;
   if (result.kind === 'error') {
-    return <section className="g-note g-note--err" role="alert"><h3>Заказ не создан</h3><span className="hd">{result.message}</span></section>;
+    return <section ref={note} className="g-note g-note--err" role="alert"><h3>Заказ не создан</h3><span className="hd">{result.message}</span></section>;
   }
   const { order } = result;
   if (result.kind === 'rejected') {
     return (
-      <section className="g-note g-note--err" role="alert">
+      <section ref={note} className="g-note g-note--err" role="alert">
         <h3>Заказ не создан</h3>
         <span className="hd">Не хватает продуктов. Ничего не списано.</span>
         <ul className="orders__lack">
@@ -309,7 +313,7 @@ function ResultNote({ result }: { result: Result }) {
     );
   }
   return (
-    <section className="g-note g-note--ok" aria-live="polite">
+    <section ref={note} className="g-note g-note--ok" aria-live="polite">
       <h3>Заказ № {order.number} принят · <span className="num">{clock(order.createdAt)}</span> · <span className="num">{money(order.total)}</span></h3>
       <span className="muted small">Списано из партий с ближайшим сроком:</span>
       <ul>

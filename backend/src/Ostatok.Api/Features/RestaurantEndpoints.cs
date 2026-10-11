@@ -19,7 +19,7 @@ public static partial class RestaurantEndpoints
 
         restaurant.MapGet("", async (AppDbContext db, CancellationToken ct) => ToSettings(await db.CurrentRestaurantAsync(ct)));
 
-        restaurant.MapPut("", async (RestaurantSettings req, AppDbContext db, CancellationToken ct) =>
+        restaurant.MapPut("", async (RestaurantSettings req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             var (name, start, end) = ((req.Name ?? "").Trim(), req.ShiftStart ?? "", req.ShiftEnd ?? "");
             var errors = new Errors()
@@ -30,6 +30,11 @@ public static partial class RestaurantEndpoints
             if (errors.Any) return errors.ToResult();
             if (StopCost.ParseTime(end) <= StopCost.ParseTime(start))
                 return errors.Add("shift", "Смена должна заканчиваться позже, чем начинается.").ToResult();
+
+            var places = new Restaurant { Name = name, Tables = req.Tables, HasBar = req.HasBar }.Places();
+            var busy = await OrderEndpoints.OpenOrders(db, time.GetUtcNow()).Select(o => o.Place).Distinct().ToListAsync(ct);
+            if (busy.Except(places).Order().ToList() is { Count: > 0 } left)
+                return errors.Add("tables", $"Сначала закройте открытые заказы: {string.Join(", ", left)}.").ToResult();
 
             var row = await db.Restaurants.FirstAsync(r => r.Id == db.TenantId, ct);
             (row.Name, row.ShiftStart, row.ShiftEnd, row.Tables, row.HasBar) = (name, start, end, req.Tables, req.HasBar);

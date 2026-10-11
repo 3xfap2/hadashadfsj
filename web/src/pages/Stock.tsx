@@ -94,7 +94,9 @@ export function Stock() {
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить склад</h3><span>{error}</span></div>;
   if (!stock.data || !batches.data || !products.data || !stopList.data) return <p className="muted">Загружаем склад…</p>;
 
+  // Продукт могли завести, пока экран открыт: его строка появится, когда обновится справочник.
   const rows = stock.data
+    .filter((s) => products.data!.some((p) => p.id === s.productId))
     .map((s) => {
       const product = products.data!.find((p) => p.id === s.productId)!;
       const own = batches.data!.filter((b) => b.productId === s.productId);

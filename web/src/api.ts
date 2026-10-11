@@ -298,6 +298,14 @@ export interface OrderRow {
   writeOffs: { productName: string; unit: Unit; supplyNumber: string; quantity: number }[];
 }
 
+/** Итоги с начала дня и столы с открытыми заказами — считает сервер по всем заказам. */
+export interface OrderSummary {
+  orders: number;
+  rejected: number;
+  revenue: number;
+  tables: { place: string; total: number; last: string }[];
+}
+
 export interface Me {
   login: string;
   title: string;

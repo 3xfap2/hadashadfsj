@@ -82,7 +82,8 @@ export function toLocalInput(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export const isToday = (iso: string) => startOfDay(new Date(iso)) === startOfDay(new Date());
+/** Начало сегодняшнего дня по часам пользователя — для запросов «за сегодня». */
+export const dayStart = () => new Date(startOfDay(new Date())).toISOString();
 
 function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();

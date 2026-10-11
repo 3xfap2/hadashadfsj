@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { post, useApi, type BatchRow, type HotOffer, type OrderRow, type ProductRow, type StopListRow, type SupplyRow } from '../api';
-import { clock, duration, isToday, money, plural, portions, qty, today, until } from '../format';
+import { post, useApi, type BatchRow, type HotOffer, type OrderRow, type OrderSummary, type ProductRow, type StopListRow, type SupplyRow } from '../api';
+import { clock, dayStart, duration, money, plural, portions, qty, today, until } from '../format';
 import { BatchLabel, Photo, PlusIcon, URGENT_HOURS, useCan } from '../ui';
 
 const STOP_REASON = {
@@ -15,7 +15,8 @@ export function Today() {
   const offers = useApi<HotOffer[]>('/hot-offers');
   const stopList = useApi<StopListRow[]>('/stop-list');
   const batches = useApi<BatchRow[]>('/stock/batches');
-  const orders = useApi<OrderRow[]>('/orders?take=200');
+  const orders = useApi<OrderRow[]>('/orders?take=4');
+  const day = useApi<OrderSummary>(`/orders/summary?since=${dayStart()}`);
   const products = useApi<ProductRow[]>('/products', 60_000);
   const supplies = useApi<SupplyRow[]>('/supplies', 60_000);
   const [writingOff, setWritingOff] = useState(false);
@@ -24,18 +25,16 @@ export function Today() {
   const canTune = useCan('catalog');
   const canStaff = useCan('staff');
 
-  const error = offers.error ?? stopList.error ?? batches.error ?? orders.error;
+  const error = offers.error ?? stopList.error ?? batches.error ?? orders.error ?? day.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить данные</h3><span>{error}</span></div>;
-  if (!offers.data || !stopList.data || !batches.data || !orders.data) return <p className="muted">Загружаем смену…</p>;
+  if (!offers.data || !stopList.data || !batches.data || !orders.data || !day.data) return <p className="muted">Загружаем смену…</p>;
 
   const stopped = stopList.data.filter((d) => d.status === 'Stop');
   const low = stopList.data.filter((d) => d.status === 'Low');
   const expiring = batches.data.filter((b) => b.status === 'ExpiringSoon');
   const expired = batches.data.filter((b) => b.status === 'Expired');
   const expiredValue = sum(expired.map((b) => b.value));
-  const todayOrders = orders.data.filter((o) => isToday(o.createdAt));
-  const accepted = todayOrders.filter((o) => o.status === 'Accepted');
-  const rejected = todayOrders.length - accepted.length;
+  const { rejected } = day.data;
 
   const writeOffExpired = async () => {
     setWritingOff(true);
@@ -103,10 +102,10 @@ export function Today() {
         </div>
         <div className="g-kpi">
           <dt>Заказов сегодня</dt>
-          <dd className="v num">{todayOrders.length}</dd>
+          <dd className="v num">{day.data.orders}</dd>
           <dd className="n num">
             {rejected > 0 && `${plural(rejected, 'отказ', 'отказа', 'отказов')} · `}
-            {money(sum(accepted.map((o) => o.total)))}
+            {money(day.data.revenue)}
           </dd>
         </div>
       </dl>
