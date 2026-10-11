@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Data.Common;
-using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -22,20 +21,20 @@ public sealed class EventBus
             if (restaurant is null || owner == restaurant) channel.Writer.TryWrite("changed");
     }
 
-    public async IAsyncEnumerable<string> Subscribe(Guid restaurant, [EnumeratorCancellation] CancellationToken ct)
+    /// <summary>Подписка одного кабинета. Пока она не закрыта, в её канал приходят сообщения об изменениях.</summary>
+    public Subscription Subscribe(Guid restaurant)
     {
         var id = Guid.NewGuid();
         // Если клиент не успевает читать, старые сообщения отбрасываются: ему достаточно одного «изменилось».
         var channel = Channel.CreateBounded<string>(new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.DropOldest });
         _subscribers[id] = (restaurant, channel);
-        try
-        {
-            await foreach (var message in channel.Reader.ReadAllAsync(ct)) yield return message;
-        }
-        finally
-        {
-            _subscribers.TryRemove(id, out _);
-        }
+        return new Subscription(channel.Reader, () => _subscribers.TryRemove(id, out _));
+    }
+
+    public sealed class Subscription(ChannelReader<string> reader, Action close) : IDisposable
+    {
+        public ChannelReader<string> Reader => reader;
+        public void Dispose() => close();
     }
 }
 
@@ -80,19 +79,17 @@ public static class RealtimeEndpoints
 
             try
             {
-                await using var events = bus.Subscribe(tenant.Id, ct).GetAsyncEnumerator(ct);
-                var next = events.MoveNextAsync().AsTask();
+                using var events = bus.Subscribe(tenant.Id);
                 while (!ct.IsCancellationRequested)
                 {
                     // Раз в 25 секунд — пустая строка-«пульс», иначе прокси закрывает молчащее соединение.
-                    var pulse = Task.Delay(TimeSpan.FromSeconds(25), ct);
-                    if (await Task.WhenAny(next, pulse) == next)
+                    using var pulse = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    pulse.CancelAfter(TimeSpan.FromSeconds(25));
+                    try
                     {
-                        if (!await next) break;
-                        await http.Response.WriteAsync($"data: {events.Current}\n\n", ct);
-                        next = events.MoveNextAsync().AsTask();
+                        await http.Response.WriteAsync($"data: {await events.Reader.ReadAsync(pulse.Token)}\n\n", ct);
                     }
-                    else
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                     {
                         await http.Response.WriteAsync(": ping\n\n", ct);
                     }

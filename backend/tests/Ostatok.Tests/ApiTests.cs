@@ -431,6 +431,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(325 * 2 + 500, discounted.Total);
 
         var summary = await Get<OrdersSummary>("/api/orders/summary");
+        Assert.Equal(HttpStatusCode.OK, (await Api.GetAsync("/api/orders/summary?since=2026-01-01T00:00:00%2B03:00")).StatusCode);
         Assert.Equal(325 * 2 + 500, summary.Tables.Single(t => t.Place == "Стол 7").Total);
         Assert.True(summary.Orders >= 1 && summary.Revenue >= 1150);
         // Пока за столом открыт заказ, убрать этот стол из зала нельзя.

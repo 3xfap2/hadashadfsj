@@ -38,7 +38,8 @@ public static class OrderEndpoints
         orders.MapGet("/summary", async (AppDbContext db, TimeProvider time, CancellationToken ct, DateTimeOffset? since = null) =>
         {
             var now = time.GetUtcNow();
-            var from = since ?? now.AddHours(-24);
+            // База принимает время только в UTC; клиент может прислать его со своим часовым поясом.
+            var from = since?.ToUniversalTime() ?? now.AddHours(-24);
             var day = await db.Orders.AsNoTracking().Include(o => o.Items).Where(o => o.CreatedAt >= from).ToListAsync(ct);
             var accepted = day.Where(o => o.Status == OrderStatus.Accepted).ToList();
             var tables = (await OpenOrders(db, now).AsNoTracking().Include(o => o.Items).ToListAsync(ct))
