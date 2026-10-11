@@ -279,7 +279,7 @@ export function Landing() {
                   <span className="muted" style={{ gridColumn: '1 / -1' }}>Приёмка поставки и стоп-лист одной рукой у камеры.</span>
                 </li>
                 <li>
-                  <h3>Telegram-бот</h3><span className="muted small">готовится к запуску</span>
+                  <h3>Telegram-бот</h3><span className="muted small">уведомления и управление</span>
                   <span className="bubble">В стоп: филе миньон. Вырезки 150 г, на порцию нужно 220 г. <b>18:32</b></span>
                 </li>
               </ul>
@@ -332,10 +332,11 @@ export function Landing() {
         <div className="foot-top">
           <div>
             <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-.02em', color: 'var(--h)', margin: 0 }}>Остаток под рукой</h2>
-            <p className="muted" style={{ marginTop: 8 }}>Приложение для Android уже можно скачать. Telegram-бот с уведомлениями о сроках и стоп-листе готовится к запуску.</p>
+            <p className="muted" style={{ marginTop: 8 }}>Приложение для Android и Telegram-бот: уведомления о сроках и стоп-листе, заказы и приёмка поставок с телефона.</p>
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <a className="g-btn" href="https://github.com/3xfap2/hadashadfsj/releases/latest/download/ostatok.apk">Скачать приложение для Android</a>
+            <a className="g-btn" href="https://t.me/flagman228_bot" target="_blank" rel="noreferrer">Открыть Telegram-бота</a>
           </div>
         </div>
         <div className="foot-bot">
