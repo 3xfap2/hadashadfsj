@@ -68,7 +68,8 @@ export function Products() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!form && products.data?.length) setForm(toForm(products.data[0], products.data));
+    // В пустом справочнике сразу открыта форма нового продукта: с этого начинается работа ресторана.
+    if (!form && products.data) setForm(products.data.length ? toForm(products.data[0], products.data) : emptyProduct);
   }, [form, products.data]);
 
   const error = products.error ?? dishes.error;
@@ -289,7 +290,8 @@ export function Dishes() {
   useEffect(() => {
     if (form || !dishes.data || !products.data) return;
     const wanted = dishes.data.find((d) => d.id === params.get('dish')) ?? dishes.data[0];
-    if (wanted) setForm(toDishForm(wanted, products.data));
+    // Блюд ещё нет — открыта форма нового блюда.
+    setForm(wanted ? toDishForm(wanted, products.data) : { id: null, name: '', price: '', category: '', recipe: [] });
   }, [form, dishes.data, products.data, params]);
 
   const error = dishes.error ?? products.error ?? menu.error;

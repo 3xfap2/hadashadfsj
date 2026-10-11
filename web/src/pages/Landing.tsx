@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { login } from '../api';
 import { LandingChat } from '../LandingChat';
@@ -14,6 +14,11 @@ const big: CSSProperties = { height: 52, padding: '0 24px', fontSize: 17 };
 export function Landing() {
   const navigate = useNavigate();
   const [opening, setOpening] = useState(false);
+
+  // По ссылке вида /#request страница открывается сразу на нужном разделе.
+  useEffect(() => {
+    if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
+  }, []);
 
   const openDemo = async () => {
     setOpening(true);
@@ -216,7 +221,7 @@ export function Landing() {
               <li><strong>Предупреждаем до потери, а не после</strong><span>Сигнал приходит, когда у партии остались сутки, а не когда её уже списали. Для блюда видно, во сколько оно уйдёт в стоп, если ничего не привезут.</span></li>
               <li><strong>Экран обновляется сам</strong><span>Заказ, поставка, списание — остатки и стоп-лист меняются у всех сотрудников сразу, страницу перезагружать не нужно.</span></li>
               <li><strong>Поставку не нужно перепечатывать</strong><span>Файл от поставщика в Excel или CSV загружается целиком. Каждая строка проверяется до сохранения.</span></li>
-              <li><strong>У каждого сотрудника свой экран</strong><span>Повар принимает заказы, кладовщик — поставки, управляющий видит закупки и аналитику. Кто что сделал, записано в журнале.</span></li>
+              <li><strong>У каждого сотрудника свой экран</strong><span>Официант оформляет заказы, кладовщик принимает поставки, повар готовит заготовки, управляющий видит закупки и аналитику. Кто что сделал, записано в журнале.</span></li>
             </ul>
           </div>
         </section>
@@ -302,7 +307,8 @@ export function Landing() {
               <details><summary>Можно ли без кассовой системы?</summary><p>Да. Заказы можно вводить в кабинете или с телефона, поставки — вручную или файлом от поставщика.</p></details>
               <details><summary>Что будет, если пропал интернет?</summary><p>Для работы нужен интернет. Если связь пропала, заказ или приёмка не отправятся, и Остаток сразу об этом скажет — действие не потеряется незаметно. Когда связь вернётся, его нужно повторить.</p></details>
               <details><summary>Как учитываются заготовки?</summary><p>Заготовка — такая же партия со своим сроком хранения. Её можно добавить в техкарту блюда наравне с продуктами.</p></details>
-              <details><summary>Кто вводит поставки?</summary><p>Обычно кладовщик или повар с телефона при приёмке. Можно загрузить файл от поставщика или получать поставки через API.</p></details>
+              <details><summary>Кто вводит поставки?</summary><p>Обычно кладовщик с телефона при приёмке. Можно загрузить файл от поставщика или получать поставки через API.</p></details>
+              <details><summary>Как получить свой кабинет?</summary><p>Оставьте заявку или напишите в чат на этой странице. Мы откроем кабинет вашего ресторана и пришлём логин и пароль управляющего; сотрудников он заведёт сам. Самостоятельной регистрации нет.</p></details>
               <details><summary>Сколько времени занимает запуск?</summary><p>Зависит от числа блюд и точек. Сроки называем после того, как увидим ваше меню и техкарты.</p></details>
             </div>
           </div>
@@ -376,18 +382,20 @@ function HotRow(props: { photo: string; name: string; tag: string; urgent?: bool
 }
 
 const PHONE = /^\+?[\d\s()-]{10,}$/;
+// В телефоне должно быть не меньше десяти цифр — так же проверяет сервер.
+const isContact = (value: string) => (PHONE.test(value) && value.replace(/\D/g, '').length >= 10) || EMAIL.test(value);
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 function RequestForm() {
   const [values, setValues] = useState({ name: '', organization: '', contact: '', points: '1', comment: '' });
   const [tried, setTried] = useState(false);
-  const [state, setState] = useState<'idle' | 'sending' | 'done' | 'failed'>('idle');
+  const [state, setState] = useState<'idle' | 'sending' | 'done' | 'failed' | 'limited' | 'rejected'>('idle');
 
   const set = (key: keyof typeof values) => (e: { target: { value: string } }) => setValues((v) => ({ ...v, [key]: e.target.value }));
   const bad = {
     name: tried && !values.name.trim(),
     organization: tried && !values.organization.trim(),
-    contact: tried && !(PHONE.test(values.contact.trim()) || EMAIL.test(values.contact.trim())),
+    contact: tried && !isContact(values.contact.trim()),
   };
   const field = (invalid: boolean) => `g-field${invalid ? ' g-field--error' : ''}`;
 
@@ -395,12 +403,12 @@ function RequestForm() {
     e.preventDefault();
     setTried(true);
     const contact = values.contact.trim();
-    if (!values.name.trim() || !values.organization.trim() || !(PHONE.test(contact) || EMAIL.test(contact))) return;
+    if (!values.name.trim() || !values.organization.trim() || !isContact(contact)) return;
     setState('sending');
-    const ok = await fetch('/api/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
-      .then((r) => r.ok)
-      .catch(() => false);
-    setState(ok ? 'done' : 'failed');
+    const status = await fetch('/api/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
+      .then((r) => r.status)
+      .catch(() => 0);
+    setState(status === 201 ? 'done' : status === 429 ? 'limited' : status === 400 ? 'rejected' : 'failed');
   };
 
   if (state === 'done') {
@@ -416,28 +424,34 @@ function RequestForm() {
 
   return (
     <form className="form" onSubmit={submit} noValidate>
-      {state === 'failed' && (
+      {(state === 'failed' || state === 'limited' || state === 'rejected') && (
         <div className="g-note g-note--err" role="alert">
           <h3>Заявка не отправлена</h3>
-          <span>Проверьте соединение и нажмите «Запросить демо» ещё раз.</span>
+          <span>
+            {state === 'limited'
+              ? 'Слишком много заявок подряд. Подождите минуту и отправьте ещё раз.'
+              : state === 'rejected'
+                ? 'Проверьте поля: имя и название — до 120 символов, телефон — не меньше 10 цифр, комментарий — до 1000 символов.'
+                : 'Проверьте соединение и нажмите «Запросить демо» ещё раз.'}
+          </span>
         </div>
       )}
       <div className="two">
         <div className={field(bad.name)}>
           <label htmlFor="r-name">Имя</label>
-          <input className="g-input" id="r-name" autoComplete="name" value={values.name} onChange={set('name')} aria-invalid={bad.name} aria-describedby={bad.name ? 'r-name-e' : undefined} />
+          <input className="g-input" id="r-name" maxLength={120} autoComplete="name" value={values.name} onChange={set('name')} aria-invalid={bad.name} aria-describedby={bad.name ? 'r-name-e' : undefined} />
           {bad.name && <span className="g-error-text" id="r-name-e">Как к вам обращаться?</span>}
         </div>
         <div className={field(bad.organization)}>
           <label htmlFor="r-org">Ресторан или сеть</label>
-          <input className="g-input" id="r-org" autoComplete="organization" value={values.organization} onChange={set('organization')} aria-invalid={bad.organization} aria-describedby={bad.organization ? 'r-org-e' : undefined} />
+          <input className="g-input" id="r-org" maxLength={120} autoComplete="organization" value={values.organization} onChange={set('organization')} aria-invalid={bad.organization} aria-describedby={bad.organization ? 'r-org-e' : undefined} />
           {bad.organization && <span className="g-error-text" id="r-org-e">Укажите название ресторана или сети</span>}
         </div>
       </div>
       <div className="two">
         <div className={field(bad.contact)}>
           <label htmlFor="r-contact">Телефон или почта</label>
-          <input className="g-input" id="r-contact" value={values.contact} onChange={set('contact')} aria-invalid={bad.contact} aria-describedby={bad.contact ? 'r-contact-e' : undefined} />
+          <input className="g-input" id="r-contact" maxLength={120} value={values.contact} onChange={set('contact')} aria-invalid={bad.contact} aria-describedby={bad.contact ? 'r-contact-e' : undefined} />
           {bad.contact && <span className="g-error-text" id="r-contact-e">Укажите телефон, например +7 900 000-00-00, или почту</span>}
         </div>
         <div className="g-field">
@@ -449,7 +463,7 @@ function RequestForm() {
       </div>
       <div className="g-field">
         <label htmlFor="r-comment">Комментарий <span className="muted" style={{ fontWeight: 400 }}>— необязательно</span></label>
-        <textarea className="g-input" id="r-comment" placeholder="Например: есть касса, хотим подключить по API" value={values.comment} onChange={set('comment')} />
+        <textarea className="g-input" id="r-comment" maxLength={1000} placeholder="Например: есть касса, хотим подключить по API" value={values.comment} onChange={set('comment')} />
       </div>
       <button className="g-btn g-btn--primary g-btn--block" type="submit" disabled={state === 'sending'} style={{ height: 52, fontSize: 17 }}>
         {state === 'sending' ? 'Отправляем…' : 'Запросить демо'}

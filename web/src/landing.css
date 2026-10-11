@@ -190,3 +190,7 @@ html{scroll-behavior:smooth}
 .why strong{font-size:20px;font-weight:800;letter-spacing:-.02em;color:var(--h);line-height:1.25}
 @media (max-width:900px){.landing .why{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:640px){.landing .why{grid-template-columns:1fr;gap:24px}}
+
+/* Белая форма на тёмной секции: внутри неё заголовки и подписи возвращают обычные цвета, иначе текст сливается с фоном. */
+.sec--dark .form h3{color:var(--h)}
+.sec--dark .form .muted{color:var(--ink-2)}

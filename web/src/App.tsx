@@ -12,7 +12,9 @@ const NEXT_KEY = 'ostatok.next';
 function ToLogin() {
   const location = useLocation();
   try {
-    sessionStorage.setItem(NEXT_KEY, location.pathname + location.search);
+    // Запоминается только страница с параметрами (ссылка из QR-кода этикетки): обычный выход из кабинета
+    // не должен вернуть следующего вошедшего на чужой экран.
+    if (location.search) sessionStorage.setItem(NEXT_KEY, location.pathname + location.search);
   } catch {
     // Без хранилища после входа откроется главный экран кабинета.
   }

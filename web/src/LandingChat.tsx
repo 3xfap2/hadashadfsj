@@ -5,6 +5,8 @@ import { clock } from './format';
 const KEY = 'ostatok.chat';
 const PHONE = /^\+?[\d\s()-]{10,}$/;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+// В телефоне должно быть не меньше десяти цифр — так же проверяет сервер.
+const isContact = (value: string) => (PHONE.test(value) && value.replace(/\D/g, '').length >= 10) || EMAIL.test(value);
 
 const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
@@ -82,7 +84,7 @@ export function LandingChat() {
   const contact = form.contact.trim();
   const bad = {
     name: tried && !form.name.trim(),
-    contact: tried && !(PHONE.test(contact) || EMAIL.test(contact)),
+    contact: tried && !isContact(contact),
     text: tried && !form.text.trim(),
   };
   const field = (invalid: boolean) => `g-field${invalid ? ' g-field--error' : ''}`;
@@ -95,7 +97,7 @@ export function LandingChat() {
       if (!text) return;
     } else {
       setTried(true);
-      if (!form.name.trim() || !text || !(PHONE.test(contact) || EMAIL.test(contact))) return;
+      if (!form.name.trim() || !text || !isContact(contact)) return;
     }
     setState('sending');
     const response = await fetch(chatId ? `/api/chats/${chatId}/messages` : '/api/chats', json(chatId ? { text } : form)).catch(() => null);

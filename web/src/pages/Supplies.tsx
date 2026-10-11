@@ -21,12 +21,25 @@ export function Supplies() {
 
   // Форма открывается с сохранённым черновиком, а если его нет — с одной пустой строкой и следующим номером.
   useEffect(() => {
-    if (draft || !products.data || !supplies.data) return;
-    setDraft(savedDraft ?? { number: nextNumber(supplies.data), date: '', supplier: '', lines: [emptyLine(products.data[0])] });
+    if (draft || !products.data || !supplies.data || products.data.length === 0) return;
+    // В черновике могли остаться продукты, которых в справочнике уже нет: такие строки отбрасываются.
+    const known = savedDraft && { ...savedDraft, lines: savedDraft.lines.filter((l) => products.data!.some((p) => p.id === l.productId)) };
+    setDraft(known && known.lines.length > 0 ? known : { number: nextNumber(supplies.data), date: '', supplier: '', lines: [emptyLine(products.data[0])] });
   }, [draft, savedDraft, products.data, supplies.data]);
 
   const error = products.error ?? supplies.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить поставки</h3><span>{error}</span></div>;
+  if (products.data?.length === 0) {
+    return (
+      <>
+        <div className="g-title"><div className="stock-head"><h1>Склад</h1><StockTabs /></div></div>
+        <p className="g-empty">
+          <strong>Сначала заведите продукты</strong>
+          Поставка состоит из продуктов справочника. <Link to="/app/catalog">Открыть справочник продуктов</Link>
+        </p>
+      </>
+    );
+  }
   if (!draft || !products.data || !supplies.data) return <p className="muted">Загружаем поставки…</p>;
 
   const byId = (id: string) => products.data!.find((p) => p.id === id)!;

@@ -1,3 +1,5 @@
+import { getLogin } from './api';
+
 // Черновик поставки хранится в браузере: недописанная форма не пропадает при закрытии страницы.
 // Он виден только на этом устройстве; на склад ничего не попадает, пока поставку не приняли.
 
@@ -15,11 +17,12 @@ export interface SupplyDraft {
   lines: DraftLine[];
 }
 
-const KEY = 'ostatok.supply-draft';
+// Черновик свой у каждого сотрудника: продукты разных ресторанов в одном браузере не смешиваются.
+const key = () => `ostatok.supply-draft.${getLogin()}`;
 
 export function loadDraft(): SupplyDraft | null {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(key());
     return raw ? (JSON.parse(raw) as SupplyDraft) : null;
   } catch {
     return null;
@@ -28,7 +31,7 @@ export function loadDraft(): SupplyDraft | null {
 
 export function saveDraft(draft: SupplyDraft) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(draft));
+    localStorage.setItem(key(), JSON.stringify(draft));
   } catch {
     // Хранилище недоступно (приватный режим) — черновик останется только на открытой странице.
   }
@@ -36,7 +39,7 @@ export function saveDraft(draft: SupplyDraft) {
 
 export function clearDraft() {
   try {
-    localStorage.removeItem(KEY);
+    localStorage.removeItem(key());
   } catch {
     // Нечего удалять.
   }

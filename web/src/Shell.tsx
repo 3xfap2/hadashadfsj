@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { Component, useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { connectEvents, logout, useApi, type Me, type StopListRow } from './api';
 import { Alerts } from './Alerts';
@@ -121,7 +121,7 @@ export function Shell() {
           <p className="muted" role="status">Загружаем кабинет… Если сервер давно не открывали, это занимает до минуты.</p>
         ))}
         {me && <Routes>
-          <Route index element={home} />
+          <Route index element={<Fence>{home}</Fence>} />
           <Route path="staff" element={<Guard section="staff"><Staff /></Guard>} />
           <Route path="orders" element={<Guard section="orders"><Orders /></Guard>} />
           <Route path="stock" element={<Guard section="stock"><Stock /></Guard>} />
@@ -165,8 +165,33 @@ export function Shell() {
 
 /** Раздел, закрытый для роли, не открывается и по прямой ссылке. Сервер проверяет те же права сам. */
 function Guard({ section, children }: { section: string; children: ReactNode }) {
-  if (useCan(section)) return children;
-  return <p className="g-empty"><strong>Раздел недоступен</strong>У вашей учётной записи нет доступа к этому разделу.</p>;
+  if (useCan(section)) return <Fence>{children}</Fence>;
+  // Сюда попадают по старой ссылке или после входа под другой ролью — открываем главный экран этой роли.
+  return <Navigate to="/app" replace />;
+}
+
+/** Ошибка на одном экране не должна оставить человека перед белой страницей без шапки и меню. */
+class Fence extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Экран не открылся', error);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="g-note g-note--err" role="alert">
+        <h3>Экран не открылся</h3>
+        <span>Что-то пошло не так. Обновите страницу; если не поможет — напишите в поддержку.</span>
+        <button className="g-btn" type="button" onClick={() => location.reload()}>Обновить страницу</button>
+      </div>
+    );
+  }
 }
 
 function More({ sections }: { sections: typeof SECTIONS }) {

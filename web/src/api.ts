@@ -377,7 +377,15 @@ export function onAuthChange(listener: () => void) {
   return () => void listeners.delete(listener);
 }
 
-export const logout = () => setSession(null, null);
+export const logout = () => {
+  // Следующий, кто войдёт в этом браузере, начинает со своего главного экрана, а не с чужой страницы.
+  try {
+    sessionStorage.removeItem('ostatok.next');
+  } catch {
+    // Без хранилища запоминать и нечего.
+  }
+  setSession(null, null);
+};
 
 export interface LoginError {
   title: string;

@@ -22,7 +22,8 @@ public static partial class SupplyImport
 
     public static IReadOnlyList<ImportRow> Parse(string text, IReadOnlyCollection<Product> products)
     {
-        var lines = text.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        // Больше пяти тысяч строк в одной накладной не бывает; лишнее не разбирается.
+        var lines = text.Split('\n').Take(MaxRows + 1).Select(l => l.TrimEnd('\r')).ToList();
         // Русский Excel сохраняет CSV через точку с запятой, остальные программы — через запятую.
         var separator = lines[0].Contains(';') ? ';' : ',';
         return ParseRows(lines.Select(l => l.Split(separator)).ToList(), products);

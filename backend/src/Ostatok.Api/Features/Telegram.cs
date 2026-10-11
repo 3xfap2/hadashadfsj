@@ -68,7 +68,8 @@ public sealed class TelegramApi(IHttpClientFactory http, TelegramOptions options
 /// командой создаётся ресторан для нового клиента. Оператором становится тот, кто прислал боту пароль поддержки.
 /// </summary>
 public sealed partial class SupportDesk(
-    AppDbContext db, ITelegramApi telegram, AuthOptions auth, RestaurantOptions defaults, TimeProvider time, IConfiguration config, ILogger<SupportDesk> log)
+    AppDbContext db, ITelegramApi telegram, AuthOptions auth, LoginAttempts attempts, RestaurantOptions defaults, TimeProvider time,
+    IConfiguration config, ILogger<SupportDesk> log)
 {
     [GeneratedRegex("#([0-9a-f]{32})")]
     private static partial Regex ChatTag();
@@ -120,15 +121,25 @@ public sealed partial class SupportDesk(
         if (text.StartsWith("/start"))
         {
             var code = text["/start".Length..].Trim();
+            // Пароль поддержки нельзя перебирать через бота: после нескольких неверных попыток чат блокируется на время,
+            // как и вход на сайте.
+            var (who, where) = ("telegram", update.ChatId.ToString());
             if (isOperator) await Reply("Вы уже получаете заявки и вопросы.\n\n" + Help);
-            else if (auth.SupportPassword != "" && CryptographicOperations.FixedTimeEquals(
+            else if (attempts.LockedMinutes(who, where) is > 0 and var minutes)
+                await Reply($"Слишком много неверных попыток. Попробуйте через {minutes} мин.");
+            else if (code != "" && auth.SupportPassword != "" && CryptographicOperations.FixedTimeEquals(
                          System.Text.Encoding.UTF8.GetBytes(code), System.Text.Encoding.UTF8.GetBytes(auth.SupportPassword)))
             {
+                attempts.Reset(who, where);
                 db.TelegramOperators.Add(new TelegramOperator { ChatId = update.ChatId, Name = update.From, AddedAt = time.GetUtcNow() });
                 await db.SaveChangesAsync(ct);
                 await Reply("Готово: заявки и вопросы с сайта будут приходить сюда.\nСообщение с паролем лучше удалить из переписки.\n\n" + Help);
             }
-            else await Reply("Это служебный бот поддержки «Остатка». Чтобы получать заявки, отправьте: /start <пароль поддержки>");
+            else
+            {
+                if (code != "") attempts.Fail(who, where);
+                await Reply("Это служебный бот поддержки «Остатка». Чтобы получать заявки, отправьте: /start <пароль поддержки>");
+            }
             return;
         }
 
@@ -141,7 +152,9 @@ public sealed partial class SupportDesk(
             await Reply("Больше не присылаю заявки и вопросы. Вернуться: /start <пароль поддержки>");
         }
         else if (text.StartsWith("/new")) await Reply(await NewRestaurantAsync(text["/new".Length..], ct));
-        else if (update.RepliedText is { } replied && ChatTag().Match(replied) is { Success: true } tag)
+        // Метку диалога сервер ставит в конце сообщения. Берётся последняя: похожая «метка» в тексте посетителя
+        // не должна увести ответ в другой диалог.
+        else if (update.RepliedText is { } replied && ChatTag().Matches(replied).LastOrDefault() is { } tag)
             await Reply(await AnswerAsync(Guid.ParseExact(tag.Groups[1].Value, "N"), text, update.From, ct));
         else await Reply(Help);
 
