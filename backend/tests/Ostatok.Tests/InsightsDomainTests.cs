@@ -210,7 +210,7 @@ public class ForecastTests
         Batch Lot(Supply supply, Product product, decimal quantity, decimal remaining, double lifeHours) => new()
         {
             Id = Guid.NewGuid(), SupplyId = supply.Id, Supply = supply, ProductId = product.Id, Product = product,
-            Quantity = quantity, Remaining = remaining, ExpiresAt = supply.CreatedAt.AddHours(lifeHours),
+            Quantity = quantity, Remaining = remaining, ExpiresAt = supply.CreatedAt.AddHours(lifeHours), UnitCost = product.Cost,
         };
         var good = Supplied("Северная рыба", 10);
         var bad = Supplied("Овощная база", 60);
@@ -251,6 +251,44 @@ public class ForecastTests
         Assert.Equal(6m / 72, Demand.PerHour(history, today.AddDays(3), 3)[product]);
         // Сегодняшние продажи в прогноз не входят: день ещё не закончился.
         Assert.Empty(Demand.PerHour([new DailyUse(product, today, 5)], today, 3));
+    }
+
+    [Fact]
+    public void Смена_через_полночь_заканчивается_на_следующий_день()
+    {
+        var zone = TimeSpan.FromHours(3);
+        var (start, end) = StopCost.Shift("18:00", "02:00");
+        DateTimeOffset At(int day, int hour, int minute = 0) => new(2026, 10, day, hour, minute, 0, zone);
+        double Open(DateTimeOffset from, DateTimeOffset to) => StopCost.OpenHours(from, to, start, end, zone);
+
+        Assert.Equal((TimeSpan.FromHours(18), TimeSpan.FromHours(26)), (start, end));
+        Assert.Equal(3, Open(At(7, 23), At(8, 3)));          // до 02:00, дальше ресторан закрыт
+        Assert.Equal(1, Open(At(8, 0, 30), At(8, 1, 30)));   // после полуночи — хвост вчерашней смены
+        Assert.Equal(0, Open(At(8, 10), At(8, 17)));         // днём закрыто
+        Assert.Equal(16, Open(At(7, 12), At(9, 12)));        // двое суток — две смены по 8 часов
+        // Обычная смена считается как раньше, «9:00» — то же, что «09:00».
+        Assert.Equal((TimeSpan.FromHours(9), TimeSpan.FromHours(24)), StopCost.Shift("9:00", "24:00"));
+    }
+
+    [Fact]
+    public void Отчёт_смены_берёт_простой_за_день_а_скорость_продаж_за_весь_период()
+    {
+        var zone = TimeSpan.FromHours(3);
+        var (start, end) = StopCost.Shift("12:00", "24:00");
+        var now = new DateTimeOffset(2026, 10, 9, 24 - 1, 59, 59, zone).AddSeconds(1);
+        var since = now.AddDays(-2);
+        var dish = new Dish { Id = Guid.NewGuid(), Name = "Стейк", Price = 1000 };
+        // Вчера блюдо стояло 6 часов, сегодня — 3.
+        (DateTimeOffset, DateTimeOffset)[] stops =
+        [
+            (new DateTimeOffset(2026, 10, 8, 12, 0, 0, zone), new DateTimeOffset(2026, 10, 8, 18, 0, 0, zone)),
+            (new DateTimeOffset(2026, 10, 9, 20, 0, 0, zone), new DateTimeOffset(2026, 10, 9, 23, 0, 0, zone)),
+        ];
+
+        var row = StopCost.Of(dish, stops, soldPortions: 30, since, now, start, end, zone, from: now.AddDays(-1));
+
+        // За два дня блюдо продавалось 24 − 9 = 15 часов: 30 порций ÷ 15 ч = 2 в час; за сегодняшние 3 часа стопа — 6 порций.
+        Assert.Equal((3, 2, 6, 6000), (row.StopHours, row.PortionsPerHour, row.LostPortions, row.LostRevenue));
     }
 
     [Fact]

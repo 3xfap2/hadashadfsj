@@ -29,6 +29,9 @@ const batchKind = (b: BatchRow): Kind =>
 export function StockTabs() {
   // Заготовки делает кухня: вкладка видна тем, кто работает с меню.
   const kitchen = useCan('kitchen');
+  const stock = useCan('stock');
+  // Повару без доступа к складу остаются одни «Заготовки»: переключать нечего.
+  if (!stock) return null;
   return (
     <nav className="g-seg" aria-label="Раздел склада">
       <NavLink to="/app/stock" end>Остатки</NavLink>
@@ -124,7 +127,7 @@ export function Stock() {
       const product = products.data!.find((p) => p.id === s.productId)!;
       const own = batches.data!.filter((b) => b.productId === s.productId);
       const fresh = own.filter((b) => b.status !== 'Expired');
-      const expiredValue = own.filter((b) => b.status === 'Expired').reduce((sum, b) => sum + b.value, 0);
+      const expiredValue = own.filter((b) => b.status === 'Expired').reduce((sum, b) => sum + (b.value ?? 0), 0);
       // Блюда, которые стоят или заканчиваются из-за этого продукта.
       const blocked = stopList.data!.filter((d) => d.status !== 'Available' && d.limitingProductId === s.productId);
       const stopped = blocked.filter((d) => d.status === 'Stop');
@@ -193,7 +196,7 @@ export function Stock() {
                 <span className="prow__name">
                   <span className="g-name">{p.productName}</span>
                   <span className="muted small">
-                    {unitName(p.unit)} · хранение {shelfLife(p.product.shelfLifeHours)} · {money(p.product.cost)}/{unitName(p.unit)}
+                    {unitName(p.unit)} · хранение {shelfLife(p.product.shelfLifeHours)} · {money(p.product.cost ?? 0)}/{unitName(p.unit)}
                   </span>
                 </span>
                 <span className="hide-s prow__total">

@@ -52,9 +52,6 @@ namespace Ostatok.Api.Data.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
-                    b.Property<DateTimeOffset?>("ReadAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uuid");
 
@@ -65,11 +62,11 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("RestaurantId");
+
                     b.HasIndex("BatchId", "Kind")
                         .IsUnique()
                         .HasFilter("\"BatchId\" IS NOT NULL");
-
-                    b.HasIndex("RestaurantId", "ReadAt");
 
                     b.ToTable("Alerts");
                 });
@@ -102,6 +99,10 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.Property<Guid>("SupplyId")
                         .HasColumnType("uuid");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
 
                     b.HasKey("Id");
 
@@ -339,6 +340,81 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("IncomingSupplies");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.Inventory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Shortage")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.Property<decimal>("Surplus")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("Inventories");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.InventoryItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Accounted")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.Property<decimal>("Actual")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.Property<decimal>("Difference")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.Property<Guid>("InventoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Value")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InventoryId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("InventoryItem");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Lead", b =>
                 {
                     b.Property<long>("Id")
@@ -448,6 +524,9 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("ReadyAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uuid");
@@ -614,6 +693,9 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<int>("LastCheckNumber")
                         .HasColumnType("integer");
 
+                    b.Property<int>("LastInventoryNumber")
+                        .HasColumnType("integer");
+
                     b.Property<int>("LastOrderNumber")
                         .HasColumnType("integer");
 
@@ -734,6 +816,9 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<long>("LastReadAlertId")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Login")
                         .IsRequired()
@@ -864,6 +949,32 @@ namespace Ostatok.Api.Data.Migrations
                         .HasForeignKey("RestaurantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Inventory", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.InventoryItem", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Inventory", null)
+                        .WithMany("Items")
+                        .HasForeignKey("InventoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Movement", b =>
@@ -1024,6 +1135,11 @@ namespace Ostatok.Api.Data.Migrations
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.IncomingSupply", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Inventory", b =>
                 {
                     b.Navigation("Items");
                 });

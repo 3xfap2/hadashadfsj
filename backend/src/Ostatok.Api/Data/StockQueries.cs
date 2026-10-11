@@ -55,6 +55,26 @@ public static class StockQueries
             .SqlQuery<int>($"""UPDATE "Restaurants" SET "LastCheckNumber" = "LastCheckNumber" + 1 WHERE "Id" = {db.TenantId} RETURNING "LastCheckNumber" """)
             .ToListAsync(ct)).Single();
 
+    public static async Task<int> NextInventoryNumberAsync(this AppDbContext db, CancellationToken ct) =>
+        (await db.Database
+            .SqlQuery<int>($"""UPDATE "Restaurants" SET "LastInventoryNumber" = "LastInventoryNumber" + 1 WHERE "Id" = {db.TenantId} RETURNING "LastInventoryNumber" """)
+            .ToListAsync(ct)).Single();
+
+    /// <summary>
+    /// Пересчитывает цену заготовок, в состав которых входят продукты с изменившейся ценой.
+    /// Вызывается до сохранения: новые цены берутся из уже изменённых записей.
+    /// </summary>
+    public static async Task RecalcPrepCostsAsync(this AppDbContext db, IReadOnlyCollection<Guid> changed, CancellationToken ct)
+    {
+        var preps = await db.Products.Include(p => p.PrepRecipe).Where(p => p.PrepRecipe.Any(i => changed.Contains(i.ProductId))).ToListAsync(ct);
+        if (preps.Count == 0) return;
+
+        var ids = preps.SelectMany(p => p.PrepRecipe).Select(i => i.ProductId).Distinct().ToArray();
+        var costs = (await db.Products.Where(p => ids.Contains(p.Id)).ToListAsync(ct)).ToDictionary(p => p.Id, p => p.Cost);
+        foreach (var prep in preps)
+            prep.Cost = Math.Round(prep.PrepRecipe.Sum(i => i.Quantity * costs[i.ProductId]), 2);
+    }
+
     public static Task<List<Dish>> LoadDishesAsync(this AppDbContext db, CancellationToken ct) =>
         db.Dishes.AsNoTracking().Include(d => d.Recipe).ThenInclude(r => r.Product).ToListAsync(ct);
 

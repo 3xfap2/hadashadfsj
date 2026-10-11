@@ -73,7 +73,7 @@ public static class DemoSeed
                 // Просроченная партия должна была пролежать хотя бы полсуток, иначе её сразу спишет автосписание.
                 var createdAt = expiresAt.AddHours(-13);
                 if (createdAt < supply.CreatedAt) supply.CreatedAt = createdAt;
-                supply.Batches.Add(new Batch { Id = Guid.NewGuid(), ProductId = product.Id, Quantity = quantity, Remaining = quantity, ExpiresAt = expiresAt });
+                supply.Batches.Add(new Batch { Id = Guid.NewGuid(), ProductId = product.Id, Quantity = quantity, Remaining = quantity, ExpiresAt = expiresAt, UnitCost = product.Cost });
             }
             return supply;
         }

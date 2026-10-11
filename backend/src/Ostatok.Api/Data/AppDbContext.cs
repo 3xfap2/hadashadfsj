@@ -31,6 +31,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
     public DbSet<DishPhoto> DishPhotos => Set<DishPhoto>();
     public DbSet<StopLog> StopLogs => Set<StopLog>();
     public DbSet<Alert> Alerts => Set<Alert>();
+    public DbSet<Inventory> Inventories => Set<Inventory>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
     {
@@ -128,7 +129,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
         // Нулевое количество в составе делит на ноль расчёт порций, поэтому его не пускает и сама база.
         model.Entity<RecipeItem>().ToTable(t => t.HasCheckConstraint("CK_RecipeItem_Quantity", "\"Quantity\" > 0"));
         model.Entity<PrepItem>().ToTable(t => t.HasCheckConstraint("CK_PrepItem_Quantity", "\"Quantity\" > 0"));
-        model.Entity<Alert>().HasIndex(a => new { a.RestaurantId, a.ReadAt });
         model.Entity<StopLog>().HasIndex(l => new { l.RestaurantId, l.EndedAt });
         model.Entity<Restaurant>(e =>
         {
@@ -154,6 +154,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             // Журнал ресторана читается от новых записей к старым.
             e.HasIndex(m => new { m.RestaurantId, m.At });
         });
+
+        model.Entity<Inventory>(e =>
+        {
+            e.Property(i => i.Number).ValueGeneratedNever();
+            e.Property(i => i.Actor).HasMaxLength(60);
+            e.HasIndex(i => new { i.RestaurantId, i.Number }).IsUnique();
+            e.HasMany(i => i.Items).WithOne().HasForeignKey(i => i.InventoryId);
+        });
+        model.Entity<InventoryItem>().HasOne(i => i.Product).WithMany().HasForeignKey(i => i.ProductId).OnDelete(DeleteBehavior.Restrict);
 
         model.Entity<DishPhoto>(e =>
         {

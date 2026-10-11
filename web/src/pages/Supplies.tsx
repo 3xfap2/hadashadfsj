@@ -12,7 +12,7 @@ const number = (text: string) => Number(text.replace(',', '.'));
 
 export function Supplies() {
   const products = useApi<ProductRow[]>('/products', 300_000);
-  const supplies = useApi<SupplyRow[]>('/supplies?take=50');
+  const supplies = useApi<SupplyRow[]>('/supplies?take=200');
   const incoming = useApi<IncomingRow[]>('/supplies/incoming');
   const [deciding, setDeciding] = useState({ id: '', busy: false, error: '' });
   const [draft, setDraft] = useState<SupplyDraft | null>(null);
@@ -67,7 +67,7 @@ export function Supplies() {
 
   const badQty = (l: DraftLine) => !(number(l.quantity) > 0);
   const badLife = (l: DraftLine) => !(number(l.life) > 0);
-  const total = draft.lines.reduce((sum, l) => sum + (number(l.quantity) || 0) * byId(l.productId).cost, 0);
+  const total = draft.lines.reduce((sum, l) => sum + (number(l.quantity) || 0) * (byId(l.productId).cost ?? 0), 0);
   const weekAgo = Date.now() - 7 * 86_400_000;
 
   const keepDraft = () => {
@@ -95,7 +95,7 @@ export function Supplies() {
         clearDraft();
         setSavedDraft(null);
         setTried(false);
-        setNote({ kind: 'ok', title: `Поставка ${created.number} принята`, text: `На склад добавлено: ${plural(created.items.length, 'партия', 'партии', 'партий')} на ${money(created.total)}.` });
+        setNote({ kind: 'ok', title: `Поставка ${created.number} принята`, text: `На склад добавлено: ${plural(created.items.length, 'партия', 'партии', 'партий')} на ${money(created.total ?? 0)}.` });
         await supplies.reload();
         setDraft({ number: bump(created.number), date: '', supplier: '', lines: [emptyLine(products.data![0])] });
       } else if (response.status === 409) {
@@ -249,7 +249,7 @@ export function Supplies() {
                 {savedDraft.supplier && <span className="muted small">{savedDraft.supplier}</span>}
                 <span className="sup__items">Черновик · {plural(savedDraft.lines.length, 'позиция', 'позиции', 'позиций')}</span>
                 <div className="sup__bottom">
-                  <strong className="num hd">{money(savedDraft.lines.reduce((sum, l) => sum + (number(l.quantity) || 0) * byId(l.productId).cost, 0))}</strong>
+                  <strong className="num hd">{money(savedDraft.lines.reduce((sum, l) => sum + (number(l.quantity) || 0) * (byId(l.productId).cost ?? 0), 0))}</strong>
                   <span className="g-tag g-tag--amber">Черновик</span>
                 </div>
               </li>
@@ -260,7 +260,7 @@ export function Supplies() {
                 <div className="sup__top"><span className="g-name num">{s.number}</span><span className="num muted small">{dueLong(s.createdAt)}</span></div>
                 {s.supplier && <span className="muted small">{s.supplier}</span>}
                 <span className="sup__items">{s.items.map((i) => `${i.productName} ${qty(i.quantity, i.unit)}`).join(' · ')}</span>
-                <div className="sup__bottom"><strong className="num hd">{money(s.total)}</strong><span className="muted small">Принята · <Link to={`/app/labels?supply=${encodeURIComponent(s.number)}`}>этикетки</Link></span></div>
+                <div className="sup__bottom"><strong className="num hd">{money(s.total ?? 0)}</strong><span className="muted small">Принята · <Link to={`/app/labels?supply=${encodeURIComponent(s.number)}`}>этикетки</Link></span></div>
               </li>
             ))}
           </ul>

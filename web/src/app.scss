@@ -1,6 +1,13 @@
 // Раскладки экранов поверх утверждённой дизайн-системы (g.css) и адаптация под телефон.
 $narrow: 900px;
 
+// Отступы под системные панели. В приложении Capacitor сам записывает их в --safe-area-inset-* из отступов окна
+// (env() в WebView на Android бывает нулём); в браузере работает env().
+:root {
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}
+
 html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
@@ -105,6 +112,14 @@ body {
   .more > li {
     display: flex;
     min-height: 60px;
+    position: relative;
+
+    // Нажимается вся строка, а не только надпись.
+    > a::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+    }
   }
 }
 
@@ -2894,8 +2909,9 @@ body {
 .login {
   display: flex;
   flex-wrap: wrap;
-  // В приложении экран уходит под системную панель с часами.
-  padding-top: env(safe-area-inset-top, 0px);
+  // В приложении экран уходит под системные панели: сверху часы, снизу навигация.
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
 
   &__photo-col {
     flex: 1 1 520px;
@@ -3004,8 +3020,8 @@ body {
       position: sticky;
       top: 0;
       z-index: 5;
-      padding-top: env(safe-area-inset-top, 0px);
-      height: calc(56px + env(safe-area-inset-top, 0px));
+      padding-top: var(--safe-top);
+      height: calc(56px + var(--safe-top));
 
       .g-brand {
         font-size: 19px;
@@ -3021,7 +3037,11 @@ body {
       position: sticky;
       bottom: 0;
       z-index: 5;
-      padding-bottom: env(safe-area-inset-bottom, 0px);
+      padding-bottom: var(--safe-bottom);
+      // Разделов у роли бывает меньше пяти: делят всю ширину поровну, без пустого места справа.
+      grid-template-columns: none;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(0, 1fr);
     }
 
     .g-page {
@@ -3183,7 +3203,7 @@ body {
 
     &__bar {
       position: sticky;
-      bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+      bottom: calc(64px + var(--safe-bottom));
       z-index: 4;
       display: flex;
       align-items: center;
@@ -3213,9 +3233,15 @@ body {
   }
 
   .g .dish-row {
-    grid-template-columns: 64px minmax(0, 1fr) auto;
-    gap: 0 12px;
+    // Фото чуть меньше: место отдано кнопкам «−/+» шириной 44 px.
+    grid-template-columns: 56px minmax(0, 1fr) auto;
+    gap: 0 10px;
     min-height: 88px;
+
+    .g-photo {
+      width: 56px;
+      height: 56px;
+    }
 
     &__wide {
       display: none;
@@ -3243,7 +3269,7 @@ body {
       }
 
       span {
-        min-width: 28px;
+        min-width: 24px;
         line-height: 42px;
       }
     }
@@ -3271,7 +3297,7 @@ body {
   // Над нижней панелью разделов, чтобы она не закрывала сообщение.
   .toasts {
     right: 14px;
-    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(76px + var(--safe-bottom));
   }
 
   .shell__foot {
@@ -3485,5 +3511,365 @@ body {
       grid-column: 1 / -1;
       text-align: right;
     }
+  }
+}
+
+// ---------- Журнал операций: подвал и телефон ----------
+
+.journal-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 14px 20px;
+}
+
+@media (max-width: 640px) {
+  // Шесть видов операций в ряд не помещаются — сегмент прокручивается.
+  .journal-filters {
+    scrollbar-width: none;
+  }
+
+  .journal-more {
+    padding: 14px;
+
+    .g-btn {
+      width: 100%;
+    }
+  }
+
+  // Строка таблицы складывается в карточку: время и операция, продукт и количество, ниже основание и сотрудник.
+  .g-table.journal {
+    display: block;
+
+    thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+
+    tbody {
+      display: block;
+    }
+
+    tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: baseline;
+      gap: 2px 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    td {
+      display: block;
+      padding: 0;
+      border: 0;
+    }
+
+    .journal__at,
+    .journal__type,
+    .journal__note,
+    .journal__actor {
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .journal__type,
+    .journal__actor {
+      justify-self: end;
+    }
+
+    .journal__name,
+    .journal__qty {
+      font-size: 17px;
+    }
+  }
+}
+
+// ---------- Касания: отклик на нажатие и области не меньше 44 px ----------
+
+html {
+  // Двойное касание не увеличивает страницу; прокрутка и масштаб двумя пальцами остаются.
+  touch-action: manipulation;
+}
+
+.g {
+  button,
+  summary,
+  .g-seg a {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  // Наведения на телефоне нет: кнопка отвечает на само нажатие.
+  .g-btn:not(.g-btn--primary):active,
+  .g-seg button:active,
+  .g-seg a:active,
+  .g-qty button:not([disabled]):active,
+  .alerts__bell:active {
+    background: #f4f6f3;
+  }
+
+  .g-btn--primary:active {
+    background: #8fdc5d;
+  }
+
+  .g-tabs a:active {
+    color: var(--h);
+  }
+}
+
+// Ширина тут ни при чём: правила для любого экрана, где нажимают пальцем.
+@media (pointer: coarse) {
+  .g {
+    .g-btn--sm,
+    .g-seg button,
+    .g-seg a {
+      height: 44px;
+    }
+
+    .alerts__bell,
+    .x,
+    .ask__close {
+      width: 44px;
+      height: 44px;
+    }
+
+    .g-qty.g-qty {
+      height: 46px;
+
+      button {
+        width: 44px;
+        height: 44px;
+      }
+
+      span {
+        line-height: 44px;
+      }
+    }
+
+    // Текстовые ссылки и кнопки-ссылки: область нажатия больше самой надписи.
+    .shell__foot a,
+    .g-panel__head a.end,
+    .muted.small a,
+    .dish-row__discount,
+    .login__label-row button,
+    .login__roles button {
+      position: relative;
+
+      &::after {
+        content: '';
+        position: absolute;
+        inset: -13px -6px;
+      }
+    }
+
+    // Поле с шрифтом мельче 16 px браузер телефона увеличивает при фокусе вместе со страницей.
+    input,
+    select,
+    textarea {
+      font-size: max(16px, 1em);
+    }
+  }
+}
+
+// Поле в фокусе прокручивается так, чтобы его не закрывали шапка и нижняя панель разделов.
+@media (max-width: $narrow) {
+  html {
+    scroll-padding: calc(56px + var(--safe-top) + 8px) 0 calc(64px + var(--safe-bottom) + 16px);
+  }
+
+  html:has(.orders__bar) {
+    scroll-padding-bottom: calc(140px + var(--safe-bottom) + 16px);
+  }
+}
+
+// Раздел подгружается: надпись появляется, только если ждать приходится заметно.
+.screen-wait {
+  animation: screen-wait 0.2s 0.3s both;
+}
+
+@keyframes screen-wait {
+  from {
+    opacity: 0;
+  }
+}
+
+// ---------- Экран кухни ----------
+
+.kb {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+  align-items: start;
+
+  &__card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  &__place {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  &__items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+
+    li {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr);
+      gap: 8px;
+      font-size: 18px;
+    }
+  }
+
+  &__qty {
+    font-weight: 700;
+  }
+}
+
+.g-rows.kb-done > li {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 52px;
+}
+
+// Отметка «готов» у стола на экране официанта.
+.hall__ready {
+  color: var(--brand);
+  font-weight: 700;
+}
+
+// ---------- Отчёт смены ----------
+
+.shift-report {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.shift-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  .g-input {
+    width: auto;
+  }
+}
+
+.shift-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.shift-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: 20px;
+  align-items: start;
+
+  .g-table td,
+  .g-table th {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+@media print {
+  .shift-report .g-seg,
+  .shift-report .lead-text,
+  .shift-tools {
+    display: none !important;
+  }
+
+  .shift-report {
+    gap: 14px;
+  }
+
+  .shift-report .g-panel {
+    break-inside: avoid;
+  }
+}
+
+// ---------- Прошлые инвентаризации, цена из файла поставки, карточка блюда без себестоимости ----------
+
+.inv-past {
+  min-width: 640px;
+
+  &__doc td {
+    background: #fafbf9;
+  }
+
+  &__doc ul {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
+.imp-cost {
+  font-weight: 400;
+  white-space: normal;
+}
+
+.facts-3--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+// На телефоне в инвентаризации главное — поле «по факту»: оно должно быть на экране без прокрутки.
+@media (max-width: 640px) {
+  .inv {
+    min-width: 0;
+
+    th:nth-child(4),
+    td:nth-child(4) {
+      display: none;
+    }
+
+    &__in {
+      width: 112px;
+      max-width: none;
+    }
+
+    th,
+    td {
+      padding-inline: 10px;
+    }
+  }
+
+  .inv-past {
+    min-width: 0;
+
+    th:nth-child(3),
+    td:nth-child(3),
+    th:nth-child(4),
+    td:nth-child(4) {
+      display: none;
+    }
+  }
+
+  // Вкладки склада прокручиваются: без этого последние уходят за край незаметно.
+  .stock-head .g-seg {
+    max-width: 100%;
+    overflow-x: auto;
   }
 }

@@ -14,7 +14,11 @@ public sealed record InventoryRequest(List<InventoryLine>? Items);
 
 /// <param name="Value">Расхождение в рублях по закупочной цене: недостача — с минусом.</param>
 public sealed record InventoryRow(Guid ProductId, string ProductName, Unit Unit, decimal Accounted, decimal Actual, decimal Difference, decimal Value);
-public sealed record InventoryResponse(decimal Shortage, decimal Surplus, IEnumerable<InventoryRow> Rows);
+/// <param name="Rows">В ответе на проведение — только продукты с расхождением; в документе — все пересчитанные.</param>
+public sealed record InventoryResponse(Guid Id, int Number, decimal Shortage, decimal Surplus, IEnumerable<InventoryRow> Rows);
+/// <param name="Counted">Сколько продуктов пересчитали.</param>
+/// <param name="Differences">У скольких из них остаток не сошёлся с учётом.</param>
+public sealed record InventorySummary(Guid Id, int Number, DateTimeOffset At, string Actor, int Counted, int Differences, decimal Shortage, decimal Surplus);
 
 public static class InventoryEndpoints
 {
@@ -37,7 +41,7 @@ public static class InventoryEndpoints
             if (batch is null) return Results.NotFound();
 
             var life = await db.Products.Where(p => p.Id == batch.ProductId).Select(p => p.OpenedShelfLifeHours).FirstAsync(ct);
-            var quantity = req?.Quantity ?? batch.Remaining;
+            var quantity = Math.Round(req?.Quantity ?? batch.Remaining, 3);
             if (life is null) return new Errors().Add("product", "У продукта не задан срок после вскрытия. Укажите его в справочнике.").ToResult();
             if (batch.OpenedAt is not null) return Conflict("Эта партия уже вскрыта.");
             if (batch.Remaining == 0 || batch.ExpiresAt <= now) return Conflict("Партия пуста или просрочена: вскрывать нечего.");
@@ -48,7 +52,7 @@ public static class InventoryEndpoints
             var opened = batch;
             if (quantity < batch.Remaining)
             {
-                opened = new Batch { Id = Guid.NewGuid(), RestaurantId = batch.RestaurantId, SupplyId = batch.SupplyId, ProductId = batch.ProductId, Quantity = quantity, Remaining = quantity };
+                opened = new Batch { Id = Guid.NewGuid(), RestaurantId = batch.RestaurantId, SupplyId = batch.SupplyId, ProductId = batch.ProductId, Quantity = quantity, Remaining = quantity, UnitCost = batch.UnitCost };
                 db.Batches.Add(opened);
                 batch.Quantity -= quantity;
                 batch.Remaining -= quantity;
@@ -61,6 +65,7 @@ public static class InventoryEndpoints
 
         // Инвентаризация: сотрудник вводит, сколько продукта есть на самом деле. Недостача уходит из партий
         // с самым ранним сроком, излишек добавляется к партии с самым поздним; обе операции видны в журнале.
+        // Пересчёт сохраняется документом с номером: по нему видно, кто, когда и что насчитал.
         stock.MapPost("/inventory", async (InventoryRequest req, AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var items = req.Items ?? [];
@@ -75,6 +80,8 @@ public static class InventoryEndpoints
             var now = time.GetUtcNow();
             var actor = user.Identity?.Name ?? "";
             await using var tx = await db.Database.BeginTransactionAsync(ct);
+            // Номер берётся до блокировки партий — в том же порядке, что и при заказе, иначе они могли бы заблокировать друг друга.
+            var number = await db.NextInventoryNumberAsync(ct);
             // Та же блокировка, что и при заказе: пересчёт не разойдётся с параллельной продажей.
             var batches = (await db.Batches
                 .FromSql($"""
@@ -94,6 +101,8 @@ public static class InventoryEndpoints
                 var accounted = own.Sum(b => b.Remaining);
                 var actual = Math.Round(item.Actual, 3);
                 var difference = actual - accounted;
+                // Расхождение оценивается по цене тех партий, из которых ушло или в которые добавилось.
+                var value = 0m;
                 if (difference < 0)
                 {
                     var left = -difference;
@@ -103,6 +112,7 @@ public static class InventoryEndpoints
                         var take = Math.Min(left, batch.Remaining);
                         batch.Remaining -= take;
                         left -= take;
+                        value -= take * batch.UnitCost;
                         db.Movements.Add(Move(MovementType.Shortage, batch, take));
                     }
                 }
@@ -114,15 +124,23 @@ public static class InventoryEndpoints
                         return errors.Add("items", $"{product.Name}: годных партий нет, излишек записать некуда. Оформите его поставкой.").ToResult();
                     batch.Remaining += difference;
                     if (batch.Remaining > batch.Quantity) batch.Quantity = batch.Remaining;
+                    value = difference * batch.UnitCost;
                     db.Movements.Add(Move(MovementType.Surplus, batch, difference));
                 }
-                rows.Add(new InventoryRow(product.Id, product.Name, product.Unit, accounted, actual, difference, Math.Round(difference * product.Cost, 2)));
+                rows.Add(new InventoryRow(product.Id, product.Name, product.Unit, accounted, actual, difference, Math.Round(value, 2)));
             }
+            var changed = rows.Where(r => r.Difference != 0).OrderBy(r => r.Value).ToList();
+            var doc = new Inventory
+            {
+                Id = Guid.NewGuid(), Number = number, At = now, Actor = actor,
+                Shortage = -changed.Where(r => r.Value < 0).Sum(r => r.Value), Surplus = changed.Where(r => r.Value > 0).Sum(r => r.Value),
+                Items = rows.Select(r => new InventoryItem { ProductId = r.ProductId, Accounted = r.Accounted, Actual = r.Actual, Difference = r.Difference, Value = r.Value }).ToList(),
+            };
+            db.Inventories.Add(doc);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
 
-            var changed = rows.Where(r => r.Difference != 0).OrderBy(r => r.Value).ToList();
-            return Results.Ok(new InventoryResponse(-changed.Where(r => r.Value < 0).Sum(r => r.Value), changed.Where(r => r.Value > 0).Sum(r => r.Value), changed));
+            return Results.Ok(new InventoryResponse(doc.Id, doc.Number, doc.Shortage, doc.Surplus, changed));
 
             Movement Move(MovementType type, Batch batch, decimal quantity) => new()
             {
@@ -130,6 +148,20 @@ public static class InventoryEndpoints
                 Quantity = quantity, Note = Note, Actor = actor,
             };
         }).Produces<InventoryResponse>();
+
+        stock.MapGet("/inventories", async (AppDbContext db, CancellationToken ct, int take = 30) =>
+            await db.Inventories
+                .OrderByDescending(i => i.Number)
+                .Take(Math.Clamp(take, 1, 200))
+                .Select(i => new InventorySummary(i.Id, i.Number, i.At, i.Actor, i.Items.Count, i.Items.Count(x => x.Difference != 0), i.Shortage, i.Surplus))
+                .ToListAsync(ct));
+
+        stock.MapGet("/inventories/{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+            await db.Inventories.AsNoTracking().Include(i => i.Items).ThenInclude(x => x.Product).FirstOrDefaultAsync(i => i.Id == id, ct) is { } doc
+                ? Results.Ok(new InventoryResponse(doc.Id, doc.Number, doc.Shortage, doc.Surplus, doc.Items.OrderBy(x => x.Value).ThenBy(x => x.Product!.Name)
+                    .Select(x => new InventoryRow(x.ProductId, x.Product!.Name, x.Product.Unit, x.Accounted, x.Actual, x.Difference, x.Value))))
+                : Results.NotFound())
+        .Produces<InventoryResponse>();
     }
 
     private static IResult Conflict(string text) => Results.Problem(text, statusCode: StatusCodes.Status409Conflict);

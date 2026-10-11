@@ -19,6 +19,13 @@ public static class Access
     public static readonly Role[] Catalog = [Role.Manager, Role.Chef];
     public static readonly Role[] Staff = [Role.Manager];
     public static readonly Role[] Leads = [Role.Manager];
+    /// <summary>
+    /// Кто видит закупочные цены и суммы по ним. Официанту и повару они для работы не нужны:
+    /// сервер отдаёт им те же списки без этих цифр.
+    /// </summary>
+    public static readonly Role[] Costs = [Role.Manager, Role.Chef, Role.Storekeeper];
+
+    public static bool SeesCosts(this System.Security.Claims.ClaimsPrincipal user) => Costs.Any(r => user.IsInRole(r.ToString()));
 
     /// <summary>Разделы кабинета, которые видит роль; по этому списку сайт строит меню.</summary>
     /// <param name="vendor">Сотрудник команды продукта: ему приходят заявки и вопросы с лендинга.</param>
@@ -28,6 +35,7 @@ public static class Access
         if (Orders.Contains(role)) yield return "orders";
         if (Stock.Contains(role)) yield return "stock";
         if (role != Role.Storekeeper) yield return "menu";
+        if (Kitchen.Contains(role)) yield return "board";
         if (Kitchen.Contains(role)) yield return "kitchen";
         if (Purchasing.Contains(role)) yield return "purchasing";
         if (Analytics.Contains(role)) yield return "analytics";

@@ -123,7 +123,7 @@ export function Orders() {
                 Закрыть {place.toLowerCase()} · <span className="num">{money(open.total)}</span>
               </button>
             ) : (
-              <span className="end">выберите стол · под номером — открытые заказы</span>
+              <span className="end">выберите стол · под номером — открытые заказы; «готов» — кухня отдала заказ</span>
             )}
           </div>
           <div className="hall__grid" role="group" aria-label="Стол">
@@ -134,7 +134,7 @@ export function Orders() {
                 <button key={p} className="hall__table" type="button" aria-pressed={place === p} aria-label={p} onClick={() => setPlace(p)}>
                   <strong className={table ? 'num' : 'hall__word'}>{table ?? p}</strong>
                   {seen ? (
-                    <><span className="num hd">{money(seen.total)}</span><span className="num muted small">{clock(seen.last)}</span></>
+                    <><span className="num hd">{money(seen.total)}</span>{seen.ready ? <span className="hall__ready small">готов</span> : <span className="num muted small">{clock(seen.last)}</span>}</>
                   ) : (
                     <span className="muted small">свободен</span>
                   )}

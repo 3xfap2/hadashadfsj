@@ -112,7 +112,7 @@ export function HotSettings() {
                       <span className="g-name">{o.dishName}{o.pinned && <span className="g-tag g-tag--amber hot-row__pin">Закреплено</span>}</span>
                       <span className="g-why">{o.reason}</span>
                       <span className="muted small num">
-                        приоритет {Math.round(o.score).toLocaleString('ru-RU')} · {portions(o.portions)} · {money(o.valueAtRisk)} под списание
+                        приоритет {Math.round(o.score).toLocaleString('ru-RU')} · {portions(o.portions)} · {money(o.valueAtRisk ?? 0)} под списание
                         {o.discount && ` · скидка ${o.discount.percent}%`}
                       </span>
                     </div>

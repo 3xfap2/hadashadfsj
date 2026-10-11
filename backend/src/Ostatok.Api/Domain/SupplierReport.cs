@@ -34,7 +34,7 @@ public static class SupplierReport
             .GroupBy(f => string.IsNullOrWhiteSpace(f.Batch.Supply!.Supplier) ? NoName : f.Batch.Supply.Supplier!)
             .Select(group =>
             {
-                decimal Value(Func<BatchFlow, decimal> quantity) => group.Sum(f => quantity(f) * f.Batch.Product!.Cost);
+                decimal Value(Func<BatchFlow, decimal> quantity) => group.Sum(f => quantity(f) * f.Batch.UnitCost);
 
                 var delivered = Value(f => f.Batch.Quantity);
                 // Просроченный остаток уже потерян, даже если его ещё не списали.
@@ -45,7 +45,7 @@ public static class SupplierReport
 
                 var worst = group
                     .GroupBy(f => f.Batch.Product!.Name)
-                    .Select(p => (Name: p.Key, Loss: p.Sum(f => (f.Expired + f.Defective + f.Spoiled + (f.Batch.ExpiresAt <= now ? f.Batch.Remaining : 0)) * f.Batch.Product!.Cost)))
+                    .Select(p => (Name: p.Key, Loss: p.Sum(f => (f.Expired + f.Defective + f.Spoiled + (f.Batch.ExpiresAt <= now ? f.Batch.Remaining : 0)) * f.Batch.UnitCost)))
                     .Where(p => p.Loss > 0)
                     .OrderByDescending(p => p.Loss)
                     .Select(p => p.Name)

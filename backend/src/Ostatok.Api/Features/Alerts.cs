@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ostatok.Api.Data;
 using Ostatok.Api.Domain;
@@ -10,6 +11,7 @@ public sealed record AlertsResponse(int Unread, IEnumerable<AlertResponse> Items
 /// <summary>
 /// Сигналы: партия скоро истекает, партия просрочена, блюдо ушло в стоп или вернулось.
 /// Каждый сигнал создаётся один раз и хранится, пока его не прочитают, — он не пропадёт, если экран был закрыт.
+/// Прочитанность у каждого сотрудника своя: запоминается номер последнего сигнала, который он видел.
 /// </summary>
 public sealed class AlertService(AppDbContext db, TimeProvider time, StockOptions options)
 {
@@ -53,18 +55,22 @@ public static class AlertEndpoints
     {
         var alerts = api.MapGroup("/alerts").WithTags("Сигналы");
 
-        alerts.MapGet("", async (AppDbContext db, CancellationToken ct, int take = 30) =>
+        alerts.MapGet("", async (AppDbContext db, ClaimsPrincipal user, CancellationToken ct, int take = 30) =>
         {
+            var login = user.Identity?.Name;
+            var read = await db.Users.Where(u => u.Login == login).Select(u => u.LastReadAlertId).FirstOrDefaultAsync(ct);
             var items = await db.Alerts.OrderByDescending(a => a.Id).Take(Math.Clamp(take, 1, 100)).ToListAsync(ct);
             return new AlertsResponse(
-                await db.Alerts.CountAsync(a => a.ReadAt == null, ct),
-                items.Select(a => new AlertResponse(a.Id, a.At, a.Kind, a.Title, a.Detail, a.ExpiresAt, a.ReadAt != null)));
+                await db.Alerts.CountAsync(a => a.Id > read, ct),
+                items.Select(a => new AlertResponse(a.Id, a.At, a.Kind, a.Title, a.Detail, a.ExpiresAt, a.Id <= read)));
         });
 
-        alerts.MapPost("/read", async (AppDbContext db, TimeProvider time, EventBus bus, CancellationToken ct) =>
+        // upTo — последний сигнал, который сотрудник увидел в списке: пришедшие позже остаются непрочитанными.
+        alerts.MapPost("/read", async (AppDbContext db, ClaimsPrincipal user, EventBus bus, CancellationToken ct, long? upTo = null) =>
         {
-            var now = time.GetUtcNow();
-            await db.Alerts.Where(a => a.ReadAt == null).ExecuteUpdateAsync(s => s.SetProperty(a => a.ReadAt, now), ct);
+            var login = user.Identity?.Name;
+            var last = await db.Alerts.Where(a => upTo == null || a.Id <= upTo).MaxAsync(a => (long?)a.Id, ct) ?? 0;
+            await db.Users.Where(u => u.Login == login && u.LastReadAlertId < last).ExecuteUpdateAsync(s => s.SetProperty(u => u.LastReadAlertId, last), ct);
             bus.Publish(db.TenantId);
             return Results.NoContent();
         });

@@ -33,7 +33,9 @@ export function Today() {
   const low = stopList.data.filter((d) => d.status === 'Low');
   const expiring = batches.data.filter((b) => b.status === 'ExpiringSoon');
   const expired = batches.data.filter((b) => b.status === 'Expired');
-  const expiredValue = sum(expired.map((b) => b.value));
+  // Закупочные суммы повару сервер не отдаёт: вместо рублей он видит число партий.
+  const costs = batches.data.every((b) => b.value !== null);
+  const expiredValue = sum(expired.map((b) => b.value ?? 0));
   const { rejected } = day.data;
 
   const writeOffExpired = async () => {
@@ -88,7 +90,7 @@ export function Today() {
         </div>
         <div className="g-kpi g-kpi--main">
           <dt>Может уйти в списание</dt>
-          <dd className="v num">{money(sum(expiring.map((b) => b.value)))}</dd>
+          <dd className="v num">{costs ? money(sum(expiring.map((b) => b.value ?? 0))) : plural(expiring.length, 'партия', 'партии', 'партий')}</dd>
           <dd className="n num">
             {expiring.length > 0
               ? `${plural(expiring.length, 'партия', 'партии', 'партий')} ${until(expiring[expiring.length - 1].expiresAt)}`
@@ -97,7 +99,7 @@ export function Today() {
         </div>
         <div className="g-kpi">
           <dt>Просрочено</dt>
-          <dd className="v num">{money(expiredValue)}</dd>
+          <dd className="v num">{costs ? money(expiredValue) : plural(expired.length, 'партия', 'партии', 'партий')}</dd>
           <dd className="n">{expired.map((b) => `${b.productName.toLowerCase()}, ${b.supplyNumber}`).join('; ') || 'просрочки нет'}</dd>
         </div>
         <div className="g-kpi">
@@ -125,7 +127,7 @@ export function Today() {
                   <span />
                   <span>Блюдо и причина</span>
                   <span className="r">Хватит на</span>
-                  <span className="r">В списание</span>
+                  <span className="r">{offers.data.some((o) => o.valueAtRisk !== null) && 'В списание'}</span>
                 </div>
                 <ul className="g-rows">
                   {offers.data.map((o) => <Offer key={o.dishId} offer={o} />)}
@@ -210,7 +212,7 @@ export function Today() {
                   <li key={b.id} className="batch">
                     <span className="g-name">{b.productName}</span>
                     <BatchLabel batch={b} />
-                    <span className="muted small num batch__meta">{b.supplyNumber} · {qty(b.remaining, b.unit)} · {money(b.value)}</span>
+                    <span className="muted small num batch__meta">{b.supplyNumber} · {qty(b.remaining, b.unit)}{b.value !== null && ` · ${money(b.value)}`}</span>
                   </li>
                 ))}
               </ul>
@@ -252,7 +254,7 @@ function Offer({ offer }: { offer: HotOffer }) {
       </div>
       <div className="sell__nums">
         <span className="num r hd sell__portions">{portions(offer.availablePortions)}</span>
-        <span className="num r hd sell__loss">{money(offer.valueAtRisk)}</span>
+        {offer.valueAtRisk !== null && <span className="num r hd sell__loss">{money(offer.valueAtRisk)}</span>}
       </div>
     </li>
   );

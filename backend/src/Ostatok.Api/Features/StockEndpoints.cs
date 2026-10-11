@@ -7,20 +7,21 @@ namespace Ostatok.Api.Features;
 
 public enum BatchStatus { Fresh, ExpiringSoon, Expired }
 
+/// <param name="FreshValue">Стоимость годного остатка по закупочной цене; пусто для ролей, которым она не видна.</param>
 public sealed record StockRow(
     Guid ProductId, string ProductName, Unit Unit,
-    decimal Fresh, decimal Expired, decimal FreshValue,
+    decimal Fresh, decimal Expired, decimal? FreshValue,
     int Batches, DateTimeOffset? NearestExpiry);
 
 public sealed record BatchRow(
     Guid Id, Guid ProductId, string ProductName, Unit Unit, string SupplyNumber,
-    decimal Quantity, decimal Remaining, decimal Value, DateTimeOffset ReceivedAt, DateTimeOffset ExpiresAt, double HoursLeft, BatchStatus Status,
+    decimal Quantity, decimal Remaining, decimal? Value, DateTimeOffset ReceivedAt, DateTimeOffset ExpiresAt, double HoursLeft, BatchStatus Status,
     DateTimeOffset? OpenedAt, int? OpenedShelfLifeHours);
 
 public sealed record StopListRow(
     Guid DishId, string DishName, string? PhotoUrl, decimal Price, DishStatus Status, int Portions,
     Guid LimitingProductId, string LimitingProductName, StopReason? Reason,
-    DateTimeOffset? StopForecastAt, decimal Cost, string? Category);
+    DateTimeOffset? StopForecastAt, decimal? Cost, string? Category);
 
 /// <param name="Reason">Нужна только для годной партии; просроченная списывается без причины.</param>
 public sealed record WriteOffRequest(WriteOffCause? Reason);
@@ -56,9 +57,10 @@ public static class StockEndpoints
     {
         var stock = api.MapGroup("/stock").WithTags("Склад");
 
-        stock.MapGet("", async (AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        stock.MapGet("", async (AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var now = time.GetUtcNow();
+            var costs = user.SeesCosts();
             var totals = await db.Batches
                 .Where(b => b.Remaining > 0)
                 .GroupBy(b => b.ProductId)
@@ -67,6 +69,7 @@ public static class StockEndpoints
                     ProductId = g.Key,
                     Fresh = g.Sum(b => b.ExpiresAt > now ? b.Remaining : 0m),
                     Expired = g.Sum(b => b.ExpiresAt <= now ? b.Remaining : 0m),
+                    FreshValue = g.Sum(b => b.ExpiresAt > now ? b.Remaining * b.UnitCost : 0m),
                     Batches = g.Count(),
                     NearestExpiry = g.Min(b => b.ExpiresAt),
                 })
@@ -76,22 +79,23 @@ public static class StockEndpoints
             return (await db.Products.OrderBy(p => p.Name).ToListAsync(ct)).Select(p =>
             {
                 var t = totals.GetValueOrDefault(p.Id);
-                return new StockRow(p.Id, p.Name, p.Unit, t?.Fresh ?? 0, t?.Expired ?? 0, (t?.Fresh ?? 0) * p.Cost, t?.Batches ?? 0, t?.NearestExpiry);
+                return new StockRow(p.Id, p.Name, p.Unit, t?.Fresh ?? 0, t?.Expired ?? 0, costs ? t?.FreshValue ?? 0 : null, t?.Batches ?? 0, t?.NearestExpiry);
             });
         });
 
-        stock.MapGet("/batches", async (AppDbContext db, TimeProvider time, StockOptions options, CancellationToken ct, Guid? productId = null) =>
+        stock.MapGet("/batches", async (AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct, Guid? productId = null) =>
         {
             var now = time.GetUtcNow();
+            var costs = user.SeesCosts();
             var soon = now.AddHours(options.ExpiringSoonHours);
             var batches = await db.Batches
                 .Where(b => b.Remaining > 0 && (productId == null || b.ProductId == productId))
                 .OrderBy(b => b.ExpiresAt)
-                .Select(b => new { b.Id, b.ProductId, ProductName = b.Product!.Name, b.Product.Unit, SupplyNumber = b.Supply!.Number, ReceivedAt = b.Supply.CreatedAt, b.Quantity, b.Remaining, b.Product.Cost, b.ExpiresAt, b.OpenedAt, b.Product.OpenedShelfLifeHours })
+                .Select(b => new { b.Id, b.ProductId, ProductName = b.Product!.Name, b.Product.Unit, SupplyNumber = b.Supply!.Number, ReceivedAt = b.Supply.CreatedAt, b.Quantity, b.Remaining, Cost = b.UnitCost, b.ExpiresAt, b.OpenedAt, b.Product.OpenedShelfLifeHours })
                 .ToListAsync(ct);
 
             return batches.Select(b => new BatchRow(
-                b.Id, b.ProductId, b.ProductName, b.Unit, b.SupplyNumber, b.Quantity, b.Remaining, b.Remaining * b.Cost, b.ReceivedAt, b.ExpiresAt,
+                b.Id, b.ProductId, b.ProductName, b.Unit, b.SupplyNumber, b.Quantity, b.Remaining, costs ? b.Remaining * b.Cost : null, b.ReceivedAt, b.ExpiresAt,
                 Math.Round((b.ExpiresAt - now).TotalHours, 1),
                 b.ExpiresAt <= now ? BatchStatus.Expired : b.ExpiresAt <= soon ? BatchStatus.ExpiringSoon : BatchStatus.Fresh,
                 b.OpenedAt, b.OpenedShelfLifeHours));
@@ -106,9 +110,10 @@ public static class StockEndpoints
                 _ => Results.NoContent(),
             }).RequireRoles(Access.Stock);
 
-        api.MapGet("/stop-list", async (AppDbContext db, TimeProvider time, StockOptions options, CancellationToken ct) =>
+        api.MapGet("/stop-list", async (AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var now = time.GetUtcNow();
+            var costs = user.SeesCosts();
             var totals = await db.LoadTotalsAsync(now, ct);
             var batches = (await db.LoadFreshBatchesAsync(now, ct)).ToLookup(b => b.ProductId);
             var perHour = await db.LoadConsumptionPerHourAsync(now, options, ct);
@@ -119,7 +124,7 @@ public static class StockEndpoints
                     var limiting = d.Recipe.First(r => r.ProductId == a.LimitingProductId).Product!;
                     var forecast = a.Status == DishStatus.Stop ? null : Forecast.DishStopAt(d, batches, perHour, now, options.PurchaseCoverHours);
                     return new StopListRow(d.Id, d.Name, d.PhotoUrl, d.Price, a.Status, a.Portions, limiting.Id, limiting.Name, a.Reason, forecast,
-                        d.Recipe.Sum(r => r.Quantity * r.Product!.Cost), d.Category);
+                        costs ? d.Recipe.Sum(r => r.Quantity * r.Product!.Cost) : null, d.Category);
                 })
                 .OrderByDescending(r => r.Status).ThenBy(r => r.Portions).ThenBy(r => r.DishName);
         })

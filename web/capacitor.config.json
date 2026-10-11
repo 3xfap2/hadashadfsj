@@ -4,6 +4,6 @@
   "webDir": "dist",
   "backgroundColor": "#ffffff",
   "plugins": {
-    "SystemBars": { "style": "LIGHT" }
+    "SystemBars": { "style": "LIGHT", "insetsHandling": "css", "initialViewportFitValueHint": "cover" }
   }
 }

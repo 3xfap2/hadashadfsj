@@ -4,9 +4,10 @@ namespace Ostatok.Api.Domain;
 /// <param name="NearestQuantity">Сколько в партии с самым ранним сроком; HoursLeft — её срок.</param>
 /// <param name="UsableQuantity">Сколько из этого блюдо успеет израсходовать при доступном числе порций.</param>
 /// <param name="AlternativeDishes">Сколько блюд в продаже используют этот продукт, включая это.</param>
+/// <param name="ValueAtRisk">Стоимость истекающего продукта по закупочной цене; пусто, если цены показывать нельзя.</param>
 public sealed record HotIngredient(
     Guid ProductId, string ProductName, Unit Unit,
-    decimal AtRiskQuantity, decimal NearestQuantity, double HoursLeft, decimal UsableQuantity, decimal ValueAtRisk,
+    decimal AtRiskQuantity, decimal NearestQuantity, double HoursLeft, decimal UsableQuantity, decimal? ValueAtRisk,
     int AlternativeDishes, decimal Score);
 
 /// <summary>Правила расчёта, которые менеджер может менять.</summary>
@@ -22,13 +23,13 @@ public sealed record HotRules(double HorizonHours = 48, int UrgencyWeight = 50, 
 /// <param name="Percent">Рекомендуемая скидка, кратна 5.</param>
 /// <param name="Price">Цена блюда со скидкой.</param>
 /// <param name="FloorPrice">Ниже этой цены продавать невыгодно: столько стоят продукты блюда, которые не истекают.</param>
-public sealed record HotDiscount(int Percent, decimal Price, decimal FloorPrice, string Reason);
+public sealed record HotDiscount(int Percent, decimal Price, decimal? FloorPrice, string Reason);
 
 /// <param name="Portions">Сколько порций стоит продать, чтобы израсходовать истекающие продукты.</param>
-/// <param name="ValueAtRisk">Сколько рублей продуктов блюдо спасает от списания.</param>
+/// <param name="ValueAtRisk">Сколько рублей продуктов блюдо спасает от списания; пусто, если цены показывать нельзя.</param>
 public sealed record HotOffer(
     Guid DishId, string DishName, string? PhotoUrl, decimal Price, decimal Score,
-    int Portions, int AvailablePortions, decimal ValueAtRisk,
+    int Portions, int AvailablePortions, decimal? ValueAtRisk,
     IReadOnlyList<HotIngredient> Ingredients, string Reason, HotDiscount? Discount, bool Pinned);
 
 /// <summary>
@@ -41,6 +42,7 @@ public sealed record HotOffer(
 /// Количество ограничено и остатком партии, и числом порций, на которое хватает остальных ингредиентов.
 /// Горизонт, вес срочности, деление на √N и потолок скидки задаёт менеджер (<see cref="HotRules"/>);
 /// он же может закрепить блюдо первым или убрать его из списка.
+/// Официанту и повару закупочные цены не показываются (costs = false): список и порядок те же, но без сумм в рублях.
 ///
 /// Скидка предлагается, только если при обычном спросе партия не успеет продаться до конца срока:
 ///   скидка = 40% × доля партии, которая не продастся × срочность, с округлением вниз до 5%
@@ -55,7 +57,8 @@ public static class HotOffers
         StockTotals stock,
         DateTimeOffset now,
         HotRules rules,
-        IReadOnlyDictionary<Guid, decimal>? perHour = null)
+        IReadOnlyDictionary<Guid, decimal>? perHour = null,
+        bool costs = true)
     {
         var horizonHours = rules.HorizonHours;
         var horizon = now.AddHours(horizonHours);
@@ -116,16 +119,24 @@ public static class HotOffers
                 Math.Min(recommended, portions), portions,
                 ingredients.Sum(i => i.ValueAtRisk),
                 ingredients,
-                Explain(ingredients, Math.Min(recommended, portions), horizonHours),
-                Discount(dish, ingredients, perHour, rules),
+                Explain(ingredients, Math.Min(recommended, portions), horizonHours, costs),
+                Discount(dish, ingredients, perHour, rules, costs),
                 dish.HotPinned));
         }
 
-        return offers.OrderByDescending(o => o.Pinned).ThenByDescending(o => o.Score).ThenBy(o => o.DishName).ToList();
+        var ranked = offers.OrderByDescending(o => o.Pinned).ThenByDescending(o => o.Score).ThenBy(o => o.DishName).ToList();
+        if (costs) return ranked;
+        // Приоритет — это рубли с весом срочности, поэтому вместе с суммами скрывается и он; порядок списка остаётся.
+        return ranked.Select(o => o with
+        {
+            Score = 0, ValueAtRisk = null,
+            Ingredients = o.Ingredients.Select(i => i with { Score = 0, ValueAtRisk = null }).ToList(),
+            Discount = o.Discount is null ? null : o.Discount with { FloorPrice = null },
+        }).ToList();
     }
 
     private static HotDiscount? Discount(
-        Dish dish, IReadOnlyList<HotIngredient> ingredients, IReadOnlyDictionary<Guid, decimal>? perHour, HotRules rules)
+        Dish dish, IReadOnlyList<HotIngredient> ingredients, IReadOnlyDictionary<Guid, decimal>? perHour, HotRules rules, bool costs)
     {
         if (dish.Price <= 0) return null;
         var main = ingredients[0];
@@ -144,16 +155,19 @@ public static class HotOffers
             ? $"При обычном спросе до конца срока уйдёт около {Ru.Qty(Math.Round(expected, 2), main.Unit)} из {Ru.Qty(main.NearestQuantity, main.Unit)}"
             : $"Спроса на {main.ProductName.ToLowerInvariant()} в истории продаж пока нет";
         return new HotDiscount(percent, price, Math.Round(floor),
-            $"{pace}. Скидка {percent}% — {Ru.Money(price)} вместо {Ru.Money(dish.Price)}. Ниже {Ru.Money(floor)} продавать невыгодно: столько стоят остальные продукты блюда.");
+            $"{pace}. Скидка {percent}% — {Ru.Money(price)} вместо {Ru.Money(dish.Price)}."
+            + (costs ? $" Ниже {Ru.Money(floor)} продавать невыгодно: столько стоят остальные продукты блюда." : ""));
     }
 
-    private static string Explain(IReadOnlyList<HotIngredient> ingredients, int portions, double horizonHours)
+    private static string Explain(IReadOnlyList<HotIngredient> ingredients, int portions, double horizonHours, bool costs)
     {
         var main = ingredients[0];
         var text = $"{main.ProductName}: {Ru.Qty(main.NearestQuantity, main.Unit)} истекает через {Ru.Duration(main.HoursLeft)}";
         if (main.AtRiskQuantity > main.NearestQuantity)
             text += $" (всего {Ru.Qty(main.AtRiskQuantity, main.Unit)} за {Ru.Duration(horizonHours)})";
-        text += $". Продайте {Ru.Portions(portions)} — это {Ru.Money(ingredients.Sum(i => i.ValueAtRisk))} продуктов, которые иначе уйдут в списание.";
+        text += costs
+            ? $". Продайте {Ru.Portions(portions)} — это {Ru.Money(ingredients.Sum(i => i.ValueAtRisk) ?? 0)} продуктов, которые иначе уйдут в списание."
+            : $". Продайте {Ru.Portions(portions)}, иначе продукты уйдут в списание.";
         if (main.AlternativeDishes == 1) text += " Других блюд с этим продуктом в продаже нет.";
         if (ingredients.Count > 1) text += $" Также истекает: {string.Join(", ", ingredients.Skip(1).Select(i => i.ProductName.ToLowerInvariant()))}.";
         return text;

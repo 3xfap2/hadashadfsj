@@ -53,7 +53,7 @@ export function Alerts() {
   const toggle = () => {
     setOpen((o) => !o);
     // Открыли список — сигналы считаются прочитанными.
-    if (!open && unread > 0) void post('/alerts/read').then(alerts.reload);
+    if (!open && unread > 0) void post(`/alerts/read?upTo=${alerts.data?.items[0]?.id ?? 0}`).then(alerts.reload);
   };
 
   return (

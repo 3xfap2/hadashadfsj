@@ -46,6 +46,7 @@ export function RestaurantSettings({ onSaved }: { onSaved: () => void }) {
             <input className="g-input num" id="r-end" placeholder="24:00" value={form.shiftEnd} onChange={(e) => setForm({ ...form, shiftEnd: e.target.value })} />
           </div>
         </div>
+        <span className="g-hint">Если смена заканчивается после полуночи, укажите время как есть: 18:00 – 02:00.</span>
         <div className="g-field">
           <label htmlFor="r-tables">Столов в зале</label>
           <input className="g-input num" id="r-tables" inputMode="numeric" value={form.tables} onChange={(e) => setForm({ ...form, tables: Number(e.target.value) || 0 })} />

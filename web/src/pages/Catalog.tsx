@@ -53,7 +53,7 @@ const emptyProduct: ProductForm = { id: null, name: '', unit: 'Kg', life: '', li
 function toForm(p: ProductRow, products: ProductRow[]): ProductForm {
   const inDays = p.shelfLifeHours > 120 && p.shelfLifeHours % 24 === 0;
   return {
-    id: p.id, name: p.name, unit: p.unit, life: String(inDays ? p.shelfLifeHours / 24 : p.shelfLifeHours), lifeInDays: inDays, opened: p.openedShelfLifeHours ? String(p.openedShelfLifeHours) : '', cost: String(p.cost).replace('.', ','),
+    id: p.id, name: p.name, unit: p.unit, life: String(inDays ? p.shelfLifeHours / 24 : p.shelfLifeHours), lifeInDays: inDays, opened: p.openedShelfLifeHours ? String(p.openedShelfLifeHours) : '', cost: String(p.cost ?? 0).replace('.', ','),
     prep: p.prepRecipe.map((r) => {
       const unit = products.find((x) => x.id === r.productId)!.unit;
       return { productId: r.productId, quantity: String(Math.round(r.quantity * small(unit) * 1000) / 1000).replace('.', ',') };
@@ -84,7 +84,7 @@ export function Products() {
   const byId = (id: string) => products.data!.find((p) => p.id === id)!;
   // В состав заготовки идут только покупные продукты, кроме неё самой и уже выбранных.
   const raw = products.data.filter((p) => p.prepRecipe.length === 0 && p.id !== form.id && !form.prep.some((l) => l.productId === p.id));
-  const prepCost = form.prep.reduce((sum, l) => sum + ((number(l.quantity) || 0) / small(byId(l.productId).unit)) * byId(l.productId).cost, 0);
+  const prepCost = form.prep.reduce((sum, l) => sum + ((number(l.quantity) || 0) / small(byId(l.productId).unit)) * (byId(l.productId).cost ?? 0), 0);
   // У заготовки цена считается по составу, вводить её не нужно.
   const bad = { name: tried && !form.name.trim(), life: tried && !(number(form.life) > 0), cost: tried && !isPrep && !(number(form.cost) > 0), prep: tried && !prepOk };
   const pick = (next: ProductForm) => { setForm(next); setTried(false); setNote(null); };
@@ -146,7 +146,7 @@ export function Products() {
                 <span className="g-name">{p.name}{p.prepRecipe.length > 0 && <span className="muted small"> · заготовка</span>}</span>
                 <span>{unitName(p.unit)}</span>
                 <span className="s-hide num r">{shelfLife(p.shelfLifeHours)}</span>
-                <span className="s-hide num r hd prod-row__price">{money(p.cost)}</span>
+                <span className="s-hide num r hd prod-row__price">{money(p.cost ?? 0)}</span>
               </button>
             ))}
           </div>
@@ -313,7 +313,7 @@ export function Dishes() {
   const current = dishes.data.find((d) => d.id === form.id);
   const state = menu.data.find((d) => d.dishId === form.id);
   const categories = [...new Set(dishes.data.map((d) => d.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, 'ru'));
-  const lineCost = (l: RecipeLine) => ((number(l.quantity) || 0) / small(byId(l.productId).unit)) * byId(l.productId).cost;
+  const lineCost = (l: RecipeLine) => ((number(l.quantity) || 0) / small(byId(l.productId).unit)) * (byId(l.productId).cost ?? 0);
   const cost = form.recipe.reduce((sum, l) => sum + lineCost(l), 0);
   const price = number(form.price) || 0;
   const bad = {

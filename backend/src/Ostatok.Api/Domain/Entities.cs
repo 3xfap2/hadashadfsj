@@ -26,6 +26,8 @@ public class Restaurant
     /// <summary>Счётчики номеров заготовок («З-0001») и проверочных партий («Т-0001»).</summary>
     public int LastPrepNumber { get; set; }
     public int LastCheckNumber { get; set; }
+    /// <summary>Номер последней инвентаризации.</summary>
+    public int LastInventoryNumber { get; set; }
 
     /// <summary>Места, откуда приходят заказы: столы и бар.</summary>
     public IEnumerable<string> Places() =>
@@ -108,6 +110,11 @@ public class Batch : IOwned
     public decimal Quantity { get; set; }
     public decimal Remaining { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }
+    /// <summary>
+    /// Закупочная цена за единицу на момент приёмки. По ней считаются суммы поставки, списаний и недостач:
+    /// новая цена в справочнике не переоценивает то, что уже куплено.
+    /// </summary>
+    public decimal UnitCost { get; set; }
     /// <summary>Когда упаковку вскрыли; с этого момента срок партии считается по сроку после вскрытия.</summary>
     public DateTimeOffset? OpenedAt { get; set; }
 }
@@ -163,7 +170,7 @@ public class HotSettings : IOwned
 
 public enum AlertKind { BatchExpiring, BatchExpired, DishStopped, DishBack, SupplyWaiting }
 
-/// <summary>Сигнал для сотрудников; ReadAt пуст, пока сигнал не прочитан.</summary>
+/// <summary>Сигнал для сотрудников. Прочитан он или нет, у каждого сотрудника своё: см. <see cref="User.LastReadAlertId"/>.</summary>
 public class Alert : IOwned
 {
     public Guid RestaurantId { get; set; }
@@ -176,7 +183,6 @@ public class Alert : IOwned
     public DateTimeOffset? ExpiresAt { get; set; }
     public Guid? BatchId { get; set; }
     public Guid? DishId { get; set; }
-    public DateTimeOffset? ReadAt { get; set; }
 }
 
 public class RecipeItem
@@ -200,6 +206,8 @@ public class Order : IOwned
     public string Place { get; set; } = "";
     /// <summary>Когда стол закрыли (гость расплатился); пусто, пока заказ открыт.</summary>
     public DateTimeOffset? ClosedAt { get; set; }
+    /// <summary>Когда кухня отдала заказ; пусто, пока он в очереди у поваров.</summary>
+    public DateTimeOffset? ReadyAt { get; set; }
     public List<OrderItem> Items { get; set; } = [];
     /// <summary>Чего не хватило; заполнено только у отклонённого заказа.</summary>
     public List<OrderShortage> Shortages { get; set; } = [];
@@ -248,6 +256,35 @@ public class Movement : IOwned
     public string? Note { get; set; }
     /// <summary>Логин сотрудника, который провёл операцию; «система» — для автосписания.</summary>
     public string Actor { get; set; } = "";
+}
+
+/// <summary>Инвентаризация как документ: кто и когда пересчитал склад и что при этом нашлось.</summary>
+public class Inventory : IOwned
+{
+    public Guid RestaurantId { get; set; }
+    public Guid Id { get; set; }
+    public int Number { get; set; }
+    public DateTimeOffset At { get; set; }
+    /// <summary>Логин сотрудника, который провёл пересчёт.</summary>
+    public string Actor { get; set; } = "";
+    /// <summary>Недостача и излишек в рублях по закупочным ценам на момент пересчёта.</summary>
+    public decimal Shortage { get; set; }
+    public decimal Surplus { get; set; }
+    public List<InventoryItem> Items { get; set; } = [];
+}
+
+/// <summary>Строка инвентаризации: пересчитанный продукт, в том числе без расхождения.</summary>
+public class InventoryItem
+{
+    public long Id { get; set; }
+    public Guid InventoryId { get; set; }
+    public Guid ProductId { get; set; }
+    public Product? Product { get; set; }
+    public decimal Accounted { get; set; }
+    public decimal Actual { get; set; }
+    public decimal Difference { get; set; }
+    /// <summary>Расхождение в рублях: недостача — с минусом.</summary>
+    public decimal Value { get; set; }
 }
 
 public class Lead
@@ -310,4 +347,6 @@ public class User : IOwned
     /// сотрудника просят войти заново.
     /// </summary>
     public int TokenVersion { get; set; }
+    /// <summary>Номер последнего сигнала, который сотрудник прочитал: всё, что новее, для него непрочитано.</summary>
+    public long LastReadAlertId { get; set; }
 }

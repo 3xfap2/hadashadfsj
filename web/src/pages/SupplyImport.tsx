@@ -2,7 +2,7 @@ import { isNative } from '../native';
 import { useState, type ChangeEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { post, postFile, type ImportRow, type SupplyRow } from '../api';
-import { money, plural, qty, shelfLife } from '../format';
+import { money, plural, qty, shelfLife, unitName } from '../format';
 import { saveDraft } from '../supplyDraft';
 import { useCan } from '../ui';
 import { CatalogTabs } from './Catalog';
@@ -11,6 +11,9 @@ const TEMPLATE = 'продукт;количество;единица;срок х
 const CHIPS = { Ok: ['muted', 'Готово', ''], Warning: ['g-tag g-tag--amber', 'Предупреждение', 'warn'], Error: ['g-tag g-tag--red', 'Ошибка', 'bad'] } as const;
 
 type Result = { kind: 'ok' | 'err'; title: string; text: string } | null;
+
+/** Цена за единицу — с копейками: по ней видно даже небольшое изменение. */
+const price = (value: number) => `${value.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
 
 export function SupplyImport() {
   const navigate = useNavigate();
@@ -55,6 +58,8 @@ export function SupplyImport() {
   const good = rows?.filter((r) => r.status !== 'Error') ?? [];
   const bad = rows?.filter((r) => r.status === 'Error') ?? [];
   const warned = good.filter((r) => r.status === 'Warning').length;
+  // У скольких продуктов цена в файле отличается от справочника: после приёмки она заменит прежнюю.
+  const repriced = new Set(good.filter((r) => r.cost !== null && r.cost !== r.currentCost).map((r) => r.productId)).size;
   const step = result?.kind === 'ok' ? 3 : rows ? 2 : 1;
 
   const upload = async () => {
@@ -64,11 +69,12 @@ export function SupplyImport() {
       const response = await post('/supplies', {
         number: number.trim(),
         supplier: supplier.trim() || null,
-        items: good.map((r) => ({ productId: r.productId, quantity: r.quantity, shelfLifeHours: r.shelfLifeHours })),
+        // Цена за единицу из файла станет закупочной ценой продукта в справочнике.
+        items: good.map((r) => ({ productId: r.productId, quantity: r.quantity, shelfLifeHours: r.shelfLifeHours, cost: r.cost })),
       });
       if (response.status === 201) {
         const created: SupplyRow = await response.json();
-        setResult({ kind: 'ok', title: `Поставка ${created.number} принята`, text: `На склад добавлено: ${plural(created.items.length, 'партия', 'партии', 'партий')} на ${money(created.total)}.` });
+        setResult({ kind: 'ok', title: `Поставка ${created.number} принята`, text: `На склад добавлено: ${plural(created.items.length, 'партия', 'партии', 'партий')} на ${money(created.total ?? 0)}.${repriced > 0 ? ` Закупочная цена обновлена у ${plural(repriced, 'продукта', 'продуктов', 'продуктов')}.` : ''}` });
       } else if (response.status === 409) {
         setResult({ kind: 'err', title: 'Поставка не принята', text: 'Поставка с таким номером уже есть. Укажите другой номер.' });
       } else {
@@ -118,7 +124,7 @@ export function SupplyImport() {
         <label className="g-btn" htmlFor="file">{fileName ? 'Выбрать другой файл' : 'Выбрать файл'}</label>
         <input id="file" type="file" accept=".xlsx,.csv" className="sr" onChange={choose} />
         <span className="muted small drop__hint">
-          Подходит Excel или CSV с колонками: продукт, количество, единица, срок хранения, цена.{' '}
+          Подходит Excel или CSV с колонками: продукт, количество, единица, срок хранения, цена (сумма по строке).{' '}
           {!isNative && <button type="button" className="hd drop__link" onClick={downloadTemplate}>Скачать шаблон</button>}
         </span>
       </div>
@@ -153,7 +159,12 @@ export function SupplyImport() {
                       <td className="g-name">{r.productText || '—'}</td>
                       <td className="r num hd">{r.quantity !== null && r.unit ? qty(r.quantity, r.unit) : '—'}</td>
                       <td className="r num">{r.shelfLifeHours !== null ? shelfLife(r.shelfLifeHours) : '—'}</td>
-                      <td className="r num hd imp-price">{r.price !== null ? money(r.price) : '—'}</td>
+                      <td className="r num hd imp-price">
+                        {r.price !== null ? money(r.price) : '—'}
+                        {r.cost !== null && r.unit && r.cost !== r.currentCost && (
+                          <div className="small muted imp-cost">цена изменится: {price(r.currentCost ?? 0)} → <span className="hd">{price(r.cost)}</span> за {unitName(r.unit)}</div>
+                        )}
+                      </td>
                       <td className="imp-check">
                         <span className={CHIPS[r.status][0]}>{CHIPS[r.status][1]}</span>
                         {r.message && <div className="small imp-msg">{r.message}</div>}
@@ -172,6 +183,7 @@ export function SupplyImport() {
                 <div><span>Готовы к загрузке</span><strong className="num r hd">{good.length - warned}</strong></div>
                 <div><span>С предупреждением</span><strong className="num r hd">{warned}</strong></div>
                 <div className={bad.length > 0 ? 'imp-sum__bad' : ''}><span>С ошибками</span><span className="num r">{bad.length}</span></div>
+                {repriced > 0 && <div><span>Изменится закупочная цена</span><strong className="num r hd">{repriced}</strong></div>}
                 <div className="imp-sum__total"><span>Сумма к загрузке</span><strong className="num r hd">{money(good.reduce((s, r) => s + (r.price ?? 0), 0))}</strong></div>
                 <div className="g-field">
                   <label htmlFor="imp-no">Номер поставки</label>

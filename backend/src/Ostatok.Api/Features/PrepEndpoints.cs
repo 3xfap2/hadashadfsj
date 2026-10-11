@@ -32,13 +32,17 @@ public sealed class PrepService(AppDbContext db, TimeProvider time)
         var prep = await db.Products.Include(p => p.PrepRecipe).FirstOrDefaultAsync(p => p.Id == productId, ct);
         if (prep is null || prep.PrepRecipe.Count == 0) return null;
 
-        var required = prep.PrepRecipe.ToDictionary(i => i.ProductId, i => i.Quantity * quantity);
+        // Сырьё округляется вверх до грамма: учёт ведётся с тремя знаками, и заготовка не должна получаться «из воздуха».
+        var required = prep.PrepRecipe.ToDictionary(i => i.ProductId, i => Math.Ceiling(i.Quantity * quantity * 1000) / 1000);
         var now = time.GetUtcNow();
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
+        // Номер берётся до блокировки партий — в том же порядке, что у заказа и инвентаризации, иначе они блокируют друг друга.
+        // Если сырья не хватит, транзакция откатится и номер не пропадёт.
+        var number = $"З-{await db.NextPrepNumberAsync(ct):0000}";
         var productIds = required.Keys.ToArray();
-        // Тот же порядок блокировки, что и в заказе: заготовка и заказ не спишут один остаток дважды.
+        // Та же блокировка, что и в заказе: заготовка и заказ не спишут один остаток дважды.
         var batches = await db.Batches
             .FromSql($"""
                 SELECT * FROM "Batches"
@@ -69,7 +73,6 @@ public sealed class PrepService(AppDbContext db, TimeProvider time)
         }
 
         // Заготовка приходит на склад как поставка из собственного цеха: у неё есть номер, партия и этикетка.
-        var number = $"З-{await db.NextPrepNumberAsync(ct):0000}";
         // Заготовка годна не дольше самого раннего срока сырья, которое в неё ушло.
         var byNorm = now.AddHours(prep.ShelfLifeHours);
         var byRaw = result.Allocations.Min(a => byId[a.BatchId].ExpiresAt);
@@ -78,6 +81,8 @@ public sealed class PrepService(AppDbContext db, TimeProvider time)
         {
             Id = Guid.NewGuid(), SupplyId = supply.Id, ProductId = prep.Id,
             Quantity = quantity, Remaining = quantity, ExpiresAt = byRaw < byNorm ? byRaw : byNorm,
+            // Заготовка стоит столько, сколько стоило сырьё, которое в неё ушло.
+            UnitCost = Math.Round(result.Allocations.Sum(a => a.Quantity * byId[a.BatchId].UnitCost) / quantity, 2),
         };
         supply.Batches.Add(batch);
         db.Supplies.Add(supply);

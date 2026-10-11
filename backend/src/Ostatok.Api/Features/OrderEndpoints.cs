@@ -12,7 +12,8 @@ public sealed record OrderRequest(List<OrderLine>? Items, string? Place = null);
 public sealed record OrderItemResponse(Guid DishId, string DishName, int Quantity, int DiscountPercent, int DiscountQuantity, decimal Price);
 public sealed record CloseTableRequest(string? Place);
 public sealed record CloseTableResponse(string Place, int Orders, decimal Total);
-public sealed record OpenTable(string Place, decimal Total, DateTimeOffset Last);
+/// <param name="Ready">Кухня отдала все открытые заказы стола.</param>
+public sealed record OpenTable(string Place, decimal Total, DateTimeOffset Last, bool Ready);
 
 /// <summary>Итоги с начала дня и столы с открытыми заказами: считаются по всем заказам, а не по последней странице списка.</summary>
 public sealed record OrdersSummary(int Orders, int Rejected, decimal Revenue, IEnumerable<OpenTable> Tables);
@@ -23,10 +24,16 @@ public sealed record OrderWriteOff(string ProductName, Unit Unit, string SupplyN
 public sealed record OrderResponse(
     Guid Id, int Number, DateTimeOffset CreatedAt, OrderStatus Status, string Place, decimal Total,
     IEnumerable<OrderItemResponse> Items, IEnumerable<ShortageResponse> Shortages,
-    IEnumerable<OrderWriteOff> WriteOffs, DateTimeOffset? ClosedAt);
+    IEnumerable<OrderWriteOff> WriteOffs, DateTimeOffset? ClosedAt, DateTimeOffset? ReadyAt);
+
+/// <summary>Экран кухни: очередь заказов от старых к новым и несколько последних отданных.</summary>
+public sealed record KitchenBoard(IEnumerable<OrderResponse> Queue, IEnumerable<OrderResponse> Ready);
 
 public static class OrderEndpoints
 {
+    /// <summary>Сколько часов заказ остаётся на экране кухни: вчерашние и забытые заказы очередь не занимают.</summary>
+    private const int KitchenHours = 6;
+
     public static void MapOrders(this RouteGroupBuilder api)
     {
         var orders = api.MapGroup("/orders").WithTags("Заказы");
@@ -44,18 +51,41 @@ public static class OrderEndpoints
             var accepted = day.Where(o => o.Status == OrderStatus.Accepted).ToList();
             var tables = (await OpenOrders(db, now).AsNoTracking().Include(o => o.Items).ToListAsync(ct))
                 .GroupBy(o => o.Place)
-                .Select(g => new OpenTable(g.Key, g.Sum(Total), g.Max(o => o.CreatedAt)));
+                .Select(g => new OpenTable(g.Key, g.Sum(Total), g.Max(o => o.CreatedAt), g.All(o => o.ReadyAt != null)));
             return new OrdersSummary(day.Count, day.Count - accepted.Count, accepted.Sum(Total), tables);
         });
+
+        orders.MapGet("/kitchen", async (AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        {
+            var since = time.GetUtcNow().AddHours(-KitchenHours);
+            var recent = Detailed(db).AsNoTracking().Where(o => o.Status == OrderStatus.Accepted && o.CreatedAt >= since);
+            return new KitchenBoard(
+                (await recent.Where(o => o.ReadyAt == null).OrderBy(o => o.CreatedAt).Take(100).ToListAsync(ct)).Select(ToResponse),
+                (await recent.Where(o => o.ReadyAt != null).OrderByDescending(o => o.ReadyAt).Take(5).ToListAsync(ct)).Select(ToResponse));
+        })
+        .RequireRoles(Access.Kitchen);
+
+        // Повар отдал заказ: он уходит из очереди, официант видит отметку «готов».
+        orders.MapPost("{id:guid}/ready", async (Guid id, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        {
+            var order = await db.Orders.FirstOrDefaultAsync(o => o.Id == id && o.Status == OrderStatus.Accepted, ct);
+            if (order is null) return Results.NotFound();
+            // Повторная отметка время не меняет: два повара могут нажать одновременно.
+            order.ReadyAt ??= time.GetUtcNow();
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        })
+        .RequireRoles(Access.Kitchen);
 
         // Закрыть стол: гость расплатился, открытые заказы стола уходят в историю, стол снова свободен.
         orders.MapPost("/close", async (CloseTableRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             var place = req.Place?.Trim() ?? "";
-            var open = await Detailed(db).Where(o => o.Place == place && o.Status == OrderStatus.Accepted && o.ClosedAt == null).ToListAsync(ct);
+            var now = time.GetUtcNow();
+            // Закрываются те же заказы, что показаны на столе в зале: открытые за последние сутки.
+            var open = await OpenOrders(db, now).Include(o => o.Items).Where(o => o.Place == place).ToListAsync(ct);
             if (place == "" || open.Count == 0) return Results.NotFound();
 
-            var now = time.GetUtcNow();
             foreach (var order in open) order.ClosedAt = now;
             await db.SaveChangesAsync(ct);
             return Results.Ok(new CloseTableResponse(place, open.Count, open.Sum(Total)));
@@ -132,9 +162,11 @@ public static class OrderEndpoints
         o.Id, o.Number, o.CreatedAt, o.Status, o.Place, Total(o),
         o.Items.Select(i => new OrderItemResponse(i.DishId, i.Dish!.Name, i.Quantity, i.DiscountPercent, i.DiscountQuantity, i.Price)),
         o.Shortages.Select(s => new ShortageResponse(s.ProductId, s.Product!.Name, s.Product.Unit, s.Required, s.Available)),
-        writeOffs, o.ClosedAt);
+        writeOffs, o.ClosedAt, o.ReadyAt);
 
     /// <summary>Сумма заказа; цена со скидкой округляется до рубля, как её показывает горячее предложение.</summary>
-    private static decimal Total(Order o) => o.Items.Sum(i =>
-        i.Price * (i.Quantity - i.DiscountQuantity) + Math.Round(i.Price * (100 - i.DiscountPercent) / 100) * i.DiscountQuantity);
+    public static decimal Total(Order o) => o.Items.Sum(LineTotal);
+
+    public static decimal LineTotal(OrderItem i) =>
+        i.Price * (i.Quantity - i.DiscountQuantity) + Math.Round(i.Price * (100 - i.DiscountPercent) / 100) * i.DiscountQuantity;
 }

@@ -43,6 +43,8 @@ public static partial class StaffEndpoints
 
             var user = new User { Id = Guid.NewGuid(), Login = login, PasswordHash = "", Title = title, Role = req.Role };
             user.PasswordHash = new PasswordHasher<User>().HashPassword(user, req.Password!);
+            // Сигналы, которые были до прихода сотрудника, для него не новые.
+            user.LastReadAlertId = await db.Alerts.MaxAsync(a => (long?)a.Id, ct) ?? 0;
             db.Users.Add(user);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/users/{user.Id}", new StaffResponse(user.Id, user.Login, user.Title, user.Role));

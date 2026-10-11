@@ -13,6 +13,10 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Фон окна и системные панели — белые, как шапка и нижняя панель кабинета, в том числе при тёмной теме телефона. -->
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
     </style>
 
 

@@ -7,9 +7,14 @@ public enum ImportRowStatus { Ok, Warning, Error }
 
 /// <param name="Line">Номер строки в файле, считая заголовок первой.</param>
 /// <param name="Price">Сумма по строке: из файла, а если её там нет — количество × цена из справочника.</param>
+/// <param name="Cost">
+/// Цена за единицу по файлу (сумма ÷ количество): после приёмки она станет закупочной ценой продукта.
+/// Пусто, если суммы в файле нет или продукт — заготовка (её цена считается по составу).
+/// </param>
+/// <param name="CurrentCost">Закупочная цена продукта в справочнике сейчас.</param>
 public sealed record ImportRow(
     int Line, string ProductText, Guid? ProductId, decimal? Quantity, Unit? Unit, int? ShelfLifeHours, decimal? Price,
-    ImportRowStatus Status, string Message);
+    ImportRowStatus Status, string Message, decimal? Cost = null, decimal? CurrentCost = null);
 
 /// <summary>
 /// Разбор файла поставки: таблица с колонками «продукт; количество; единица; срок хранения; цена».
@@ -66,12 +71,16 @@ public static partial class SupplyImport
         if (unitText != "" && ParseUnit(unitText) != product.Unit)
             return Fail($"Единица «{unitText}» не совпадает со справочником: {product.Name} учитывается в {UnitName(product.Unit)}.", product.Id);
 
-        var price = TryNumber(priceText.Replace("₽", "").Replace(" ", "").Replace(" ", ""), out var p) ? p : quantity * product.Cost;
+        var fromFile = TryNumber(priceText.Replace("₽", "").Replace(" ", "").Replace(" ", ""), out var p) && p > 0 ? p : (decimal?)null;
+        var price = fromFile ?? quantity * product.Cost;
+        var cost = fromFile is null || product.PrepRecipe.Count > 0 ? (decimal?)null : Math.Round(fromFile.Value / quantity, 2);
+        // Сумма меньше копейки за единицу — не цена: справочник не меняется.
+        if (cost == 0) cost = null;
 
         if (lifeText is "" or "—" or "-")
         {
             return new ImportRow(line, name, product.Id, quantity, product.Unit, product.ShelfLifeHours, price, ImportRowStatus.Warning,
-                $"Срок хранения пустой. Подставим норматив из справочника: {Ru.Duration(product.ShelfLifeHours)}.");
+                $"Срок хранения пустой. Подставим норматив из справочника: {Ru.Duration(product.ShelfLifeHours)}.", cost, product.Cost);
         }
 
         var match = ShelfLife().Match(lifeText);
@@ -80,7 +89,7 @@ public static partial class SupplyImport
 
         var inDays = match.Groups[2].Value.ToLowerInvariant() is var u && (u.StartsWith('д') || u.StartsWith("сут"));
         var hours = (int)Math.Round(amount * (inDays ? 24 : 1));
-        return new ImportRow(line, name, product.Id, quantity, product.Unit, hours, price, ImportRowStatus.Ok, "");
+        return new ImportRow(line, name, product.Id, quantity, product.Unit, hours, price, ImportRowStatus.Ok, "", cost, product.Cost);
     }
 
     private static bool TryNumber(string text, out decimal value) =>

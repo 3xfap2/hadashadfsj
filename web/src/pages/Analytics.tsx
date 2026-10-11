@@ -1,9 +1,19 @@
 import { useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useApi, type AnalyticsSummary, type DeficitRow, type StopCostReport, type SupplierReport, type WriteOffReport } from '../api';
 import { dayMonthShort, money, plural, portions, qty, weekdayLong } from '../format';
 
 const PERIODS = [7, 14, 30];
 const AXIS_STEPS = 4;
+
+export function AnalyticsTabs() {
+  return (
+    <nav className="g-seg" aria-label="Аналитика">
+      <NavLink to="/app/analytics" end>За период</NavLink>
+      <NavLink to="/app/analytics/shift">Отчёт смены</NavLink>
+    </nav>
+  );
+}
 
 export function Analytics() {
   const [days, setDays] = useState(14);
@@ -31,6 +41,7 @@ export function Analytics() {
       <div className="an-head">
         <div className="buy-head">
           <h1>Аналитика</h1>
+          <AnalyticsTabs />
           <p className="lead-text">Сколько денег ушло в списание и каких продуктов не хватает чаще всего.</p>
         </div>
         <div className="g-seg" role="group" aria-label="Период">
@@ -42,7 +53,7 @@ export function Analytics() {
 
       <dl className="g-kpis kpis-a" aria-label="Итоги периода">
         <div className="g-kpi g-kpi--main">
-          <dt>Списано за {plural(days, 'день', 'дня', 'дней')}</dt>
+          <dt>Потери за {plural(days, 'день', 'дня', 'дней')}</dt>
           <dd className="v num">{money(report.data.total)}</dd>
           <dd className="n num">{dayMonthShort(byDay[0].date)} – {dayMonthShort(byDay[byDay.length - 1].date)}</dd>
         </div>
@@ -65,7 +76,7 @@ export function Analytics() {
 
       <section className="g-panel" aria-labelledby="days-h">
         <div className="g-panel__head an-wrap">
-          <h2 id="days-h">Списания по дням, ₽</h2>
+          <h2 id="days-h">Списания и недостача по дням, ₽</h2>
           {peak.value > 0 && <span className="end">максимум — {money(peak.value)} в {accusativeDay(peak.date)} {dayMonthShort(peak.date)}</span>}
         </div>
         <div className="pbody">
@@ -91,7 +102,7 @@ export function Analytics() {
 
       <div className="sup-row">
         <section className="sup-main g-panel an-products" aria-labelledby="prod-h">
-          <div className="g-panel__head an-wrap"><h2 id="prod-h">По продуктам</h2><span className="end">рубли и доля от всех списаний</span></div>
+          <div className="g-panel__head an-wrap"><h2 id="prod-h">По продуктам</h2><span className="end">рубли и доля от всех потерь</span></div>
           <div className="pbody pbody--tight">
             {report.data.byProduct.length === 0 && <p className="muted">За период ничего не списано.</p>}
             {report.data.byProduct.map((p) => (
@@ -101,9 +112,11 @@ export function Analytics() {
                 <div className="hbar__track"><div className="hbar__fill" style={{ width: `${(p.value / maxProduct) * 100}%` }} /></div>
               </div>
             ))}
-            {reasons.length > 0 && (
+            {(reasons.length > 0 || report.data.surplus > 0) && (
               <div className="an-reasons">
                 {reasons.map((r) => <span key={r.name}><span className="muted">{r.name}:</span> <strong className="num hd">{money(r.value)}</strong></span>)}
+                {/* Излишек — не потеря и потери не уменьшает: он показан отдельно. */}
+                {report.data.surplus > 0 && <span><span className="muted">Излишек по инвентаризации:</span> <strong className="num hd">+{money(report.data.surplus)}</strong></span>}
               </div>
             )}
           </div>
@@ -221,7 +234,7 @@ export function Analytics() {
   );
 }
 
-const hours = (value: number) => (value < 1 ? `${Math.round(value * 60)} мин` : `${Math.round(value)} ч`);
+export const hours = (value: number) => (value < 1 ? `${Math.round(value * 60)} мин` : `${Math.round(value)} ч`);
 
 /** Верх шкалы: ближайшее «круглое» число выше максимума, чтобы подписи оси были ровными. */
 function niceTop(max: number): number {

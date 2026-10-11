@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { login } from '../api';
 import { LandingChat } from '../LandingChat';
@@ -14,6 +14,19 @@ const big: CSSProperties = { height: 52, padding: '0 24px', fontSize: 17 };
 export function Landing() {
   const navigate = useNavigate();
   const [opening, setOpening] = useState(false);
+  // Меню разделов на телефоне.
+  const [menu, setMenu] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setMenu(false);
+      menuButton.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [menu]);
 
   // По ссылке вида /#request страница открывается сразу на нужном разделе.
   useEffect(() => {
@@ -34,7 +47,11 @@ export function Landing() {
       <header className="lh">
         <div className="w">
           <a className="g-brand" href="#top">Остаток</a>
-          <nav aria-label="Разделы страницы">
+          {/* На телефоне разделы раскрываются по этой кнопке. */}
+          <button className="g-btn lh__menu" type="button" ref={menuButton} aria-expanded={menu} aria-controls="lh-nav" aria-label="Разделы страницы" onClick={() => setMenu(!menu)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d={menu ? 'M6 6l12 12M18 6 6 18' : 'M4 7h16M4 12h16M4 17h16'} /></svg>
+          </button>
+          <nav id="lh-nav" className={menu ? 'is-open' : undefined} aria-label="Разделы страницы" onClick={() => setMenu(false)}>
             <a href="#features">Возможности</a>
             <a href="#why">Почему мы</a>
             <a href="#rollout">Внедрение</a>
@@ -123,7 +140,7 @@ export function Landing() {
                   <span>Лосось охлаждённый</span><span className="r">Остаток</span><span className="r">Срок</span>
                 </div>
                 <ul className="g-rows">
-                  <li style={cols('minmax(0, 1fr) auto auto')}>
+                  <li className="frag__batch">
                     <div style={stack(2)}>
                       <span className="g-name">Партия П-0412</span>
                       <span className="small" style={{ color: 'var(--brand)', fontWeight: 600 }}>списывается первой</span>
@@ -134,7 +151,7 @@ export function Landing() {
                       <span className="g-lbl__b" aria-hidden="true"><span>до 23:52</span><span className="g-lbl__left">5 ч</span></span>
                     </span>
                   </li>
-                  <li style={cols('minmax(0, 1fr) auto auto')}>
+                  <li className="frag__batch">
                     <div style={stack(2)}>
                       <span className="g-name">Партия П-0422</span>
                       <span className="muted small">принята сегодня</span>

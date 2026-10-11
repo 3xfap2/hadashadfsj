@@ -23,10 +23,11 @@ export interface HotOffer {
   price: number;
   portions: number;
   availablePortions: number;
-  valueAtRisk: number;
+  /** Закупочные суммы официанту и повару сервер не отдаёт: у них здесь null. */
+  valueAtRisk: number | null;
   ingredients: HotIngredient[];
   reason: string;
-  discount: { percent: number; price: number; floorPrice: number; reason: string } | null;
+  discount: { percent: number; price: number; floorPrice: number | null; reason: string } | null;
   score: number;
   /** Менеджер закрепил блюдо первым в списке. */
   pinned: boolean;
@@ -64,7 +65,8 @@ export interface StopListRow {
   limitingProductName: string;
   reason: StopReason | null;
   stopForecastAt: string | null;
-  cost: number;
+  /** Себестоимость по закупочным ценам; null у ролей, которым они не видны. */
+  cost: number | null;
   category: string | null;
 }
 
@@ -92,7 +94,10 @@ export interface PurchaseRow {
 }
 
 export interface WriteOffReport {
+  /** Все потери: списания и недостача по инвентаризации. */
   total: number;
+  /** Излишек по инвентаризации; потери он не уменьшает. */
+  surplus: number;
   byDay: { date: string; value: number }[];
   byProduct: { productId: string; productName: string; unit: Unit; quantity: number; value: number }[];
   byReason: { reason: string; value: number }[];
@@ -152,7 +157,8 @@ export interface BatchRow {
   supplyNumber: string;
   quantity: number;
   remaining: number;
-  value: number;
+  /** Стоимость остатка по закупочной цене; null у ролей, которым она не видна. */
+  value: number | null;
   receivedAt: string;
   expiresAt: string;
   hoursLeft: number;
@@ -169,7 +175,7 @@ export interface StockRow {
   unit: Unit;
   fresh: number;
   expired: number;
-  freshValue: number;
+  freshValue: number | null;
 }
 
 export interface ProductRow {
@@ -179,7 +185,8 @@ export interface ProductRow {
   shelfLifeHours: number;
   /** Срок хранения после вскрытия упаковки; null — вскрытие срок не меняет. */
   openedShelfLifeHours: number | null;
-  cost: number;
+  /** Закупочная цена; null у ролей, которым она не видна. */
+  cost: number | null;
   /** Состав на единицу продукта, если это заготовка; у покупных продуктов пусто. */
   prepRecipe: { productId: string; quantity: number }[];
 }
@@ -211,7 +218,7 @@ export interface SupplyRow {
   number: string;
   supplier: string | null;
   createdAt: string;
-  total: number;
+  total: number | null;
   items: { productName: string; unit: Unit; quantity: number }[];
 }
 
@@ -235,6 +242,10 @@ export interface ImportRow {
   price: number | null;
   status: 'Ok' | 'Warning' | 'Error';
   message: string;
+  /** Цена за единицу по файлу: после приёмки станет закупочной ценой продукта; null — в файле суммы нет. */
+  cost: number | null;
+  /** Закупочная цена в справочнике сейчас. */
+  currentCost: number | null;
 }
 
 export interface MovementRow {
@@ -312,6 +323,14 @@ export interface OrderRow {
   closedAt: string | null;
   shortages: Shortage[];
   writeOffs: { productName: string; unit: Unit; supplyNumber: string; quantity: number }[];
+  /** Когда кухня отдала заказ; null, пока он в очереди у поваров. */
+  readyAt: string | null;
+}
+
+/** Экран кухни: очередь заказов от старых к новым и несколько последних отданных. */
+export interface KitchenBoard {
+  queue: OrderRow[];
+  ready: OrderRow[];
 }
 
 /** Итоги с начала дня и столы с открытыми заказами — считает сервер по всем заказам. */
@@ -319,7 +338,7 @@ export interface OrderSummary {
   orders: number;
   rejected: number;
   revenue: number;
-  tables: { place: string; total: number; last: string }[];
+  tables: { place: string; total: number; last: string; ready: boolean }[];
 }
 
 export interface Me {
@@ -334,11 +353,44 @@ export interface Me {
   restaurantId: string;
 }
 
-/** Итог инвентаризации: только продукты с расхождением. */
+/** Итог инвентаризации: только продукты с расхождением; в сохранённом документе — все пересчитанные. */
 export interface InventoryResult {
+  id: string;
+  number: number;
   shortage: number;
   surplus: number;
   rows: { productId: string; productName: string; unit: Unit; accounted: number; actual: number; difference: number; value: number }[];
+}
+
+/** Прошлая инвентаризация в списке: кто, когда и с каким итогом пересчитал склад. */
+export interface InventorySummary {
+  id: string;
+  number: number;
+  at: string;
+  actor: string;
+  counted: number;
+  differences: number;
+  shortage: number;
+  surplus: number;
+}
+
+/** Отчёт за смену. expiring и toOrder заполнены только у текущей смены: это состояние склада сейчас. */
+export interface ShiftReport {
+  date: string;
+  from: string;
+  to: string;
+  current: boolean;
+  orders: number;
+  rejectedOrders: number;
+  revenue: number;
+  topDishes: { dishId: string; dishName: string; portions: number; revenue: number }[];
+  losses: number;
+  writeOffs: { reason: string; value: number }[];
+  surplus: number;
+  stopCost: number;
+  stops: StopCostReport['dishes'];
+  expiring: { productId: string; productName: string; unit: Unit; quantity: number; expiresAt: string; value: number }[] | null;
+  toOrder: PurchaseRow[] | null;
 }
 
 /** Меню для гостя: блюда, которые сейчас можно заказать; offerPrice — цена по предложению дня. */
@@ -404,7 +456,16 @@ function write(key: string, value: string | null) {
 export const getToken = () => read(TOKEN_KEY);
 export const getLogin = () => read(LOGIN_KEY) ?? '';
 
+// Последние ответы GET за сессию: экран открывается с ними сразу, а свежие данные подтягиваются в фоне.
+const cache = new Map<string, unknown>();
+// Одинаковые GET, запрошенные одновременно, уходят на сервер один раз.
+const inflight = new Map<string, Promise<unknown>>();
+// Ключ включает сессию: следующий вошедший не увидит данные предыдущего.
+const cacheKey = (path: string) => `${getToken()} ${path}`;
+
 function setSession(token: string | null, login: string | null) {
+  cache.clear();
+  inflight.clear();
   write(TOKEN_KEY, token);
   write(LOGIN_KEY, login);
   listeners.forEach((l) => l());
@@ -496,13 +557,29 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
     logout();
     throw new Error('Сессия истекла, войдите заново.');
   }
+  // После записи уже летящие GET могут нести прежнее состояние: следующий запрос пойдёт на сервер заново.
+  if (init?.method && init.method !== 'GET') inflight.clear();
   return response;
 }
 
-export async function get<T>(path: string): Promise<T> {
-  const response = await request(path);
-  if (!response.ok) throw new Error(`Сервер ответил ошибкой ${response.status}.`);
-  return response.json();
+export function get<T>(path: string): Promise<T> {
+  const key = cacheKey(path);
+  const running = inflight.get(key);
+  if (running) return running as Promise<T>;
+  const started: Promise<T> = request(path)
+    .then((response) => {
+      if (!response.ok) throw new Error(`Сервер ответил ошибкой ${response.status}.`);
+      return response.json() as Promise<T>;
+    })
+    .then((data) => {
+      if (inflight.get(key) === started) cache.set(key, data);
+      return data;
+    })
+    .finally(() => {
+      if (inflight.get(key) === started) inflight.delete(key);
+    });
+  inflight.set(key, started);
+  return started;
 }
 
 /** Отправляет действие. Ответ с ошибкой не бросается: экран сам решает, что показать по коду. */
@@ -537,7 +614,11 @@ export function postFile(path: string, file: File): Promise<Response> {
 const liveReloads = new Set<() => void>();
 
 /** Перечитывает всё, что сейчас на экране: приложение зовёт это, когда его снова открыли. */
-export const reloadAll = () => liveReloads.forEach((reload) => reload());
+export const reloadAll = () => {
+  // Запрос, начатый до сигнала об изменении, мог прочитать старые данные.
+  inflight.clear();
+  liveReloads.forEach((reload) => reload());
+};
 
 /**
  * Подключается к потоку событий сервера (SSE). Сообщение не несёт данных — оно только говорит,
@@ -591,28 +672,35 @@ export function connectEvents(): () => void {
  * а раз в refreshMs — на случай, если поток событий оборвался или изменилось только время.
  */
 export function useApi<T>(path: string, refreshMs = 30_000) {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData] = useState<T | null>(() => (cache.get(cacheKey(path)) as T | undefined) ?? null);
   const [error, setError] = useState<string | null>(null);
-  const loaded = useRef(false);
+  const loaded = useRef(data !== null);
+  // Номер последнего запроса: ответ, который пришёл позже более нового (или уже для другого адреса), отбрасывается.
+  const latest = useRef(0);
 
-  const reload = useCallback(
-    () =>
+  const reload = useCallback(() => {
+    const mine = ++latest.current;
+    return (
       get<T>(path)
         .then((d) => {
+          if (mine !== latest.current) return;
           loaded.current = true;
           setData(d);
           setError(null);
         })
         // Короткий обрыв связи не должен стирать уже показанные данные: они остаются на экране до следующей удачной попытки.
         .catch((e: Error) => {
-          if (!loaded.current) setError(e.message);
-        }),
-    [path],
-  );
+          if (mine === latest.current && !loaded.current) setError(e.message);
+        })
+    );
+  }, [path]);
 
-  // Другой адрес — другие данные: прежние «уже загружено» к ним не относятся.
+  // Другой адрес — другие данные: прежние «уже загружено» к ним не относятся. Если этот адрес уже открывали — показываем, что знаем.
   useEffect(() => {
-    loaded.current = false;
+    const known = cache.get(cacheKey(path)) as T | undefined;
+    loaded.current = known !== undefined;
+    if (known !== undefined) setData(known);
+    setError(null);
   }, [path]);
 
   useEffect(() => {

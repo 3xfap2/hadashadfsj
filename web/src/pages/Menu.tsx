@@ -48,7 +48,7 @@ export function Menu() {
     const offer = offers.data!.find((o) => o.dishId === d.dishId)?.ingredients[0];
     if (offer && offer.hoursLeft < URGENT_HOURS)
       return { text: `${offer.productName} истекает через ${duration(offer.hoursLeft)} — продать первым`, color: 'var(--red)' };
-    if (d.stopForecastAt && !lastsUntilShiftEnd(d.stopForecastAt, me.data?.shift.end))
+    if (d.stopForecastAt && !lastsUntilShiftEnd(d.stopForecastAt, me.data?.shift))
       return { text: `Уйдёт в стоп примерно в ${clock(d.stopForecastAt)}`, color: 'var(--amber)' };
     if (offer) return { text: `${offer.productName} истекает через ${duration(offer.hoursLeft)}`, color: 'var(--amber)' };
     return { text: 'До конца смены хватит', color: 'var(--ink-2)' };
@@ -128,9 +128,10 @@ export function Menu() {
                 <span className={CHIPS[selected.status][0]}>{CHIPS[selected.status][1]}</span>
               </div>
               <div className="menu-side__body">
-                <div className="facts-3">
+                <div className={selected.cost === null ? 'facts-3 facts-3--two' : 'facts-3'}>
                   <div className="fact"><div className="small">Цена</div><div className="v num">{money(selected.price)}</div></div>
-                  <div className="fact"><div className="small">Себестоимость</div><div className="v num">{money(selected.cost)}</div></div>
+                  {/* Себестоимость официанту и повару сервер не отдаёт. */}
+                  {selected.cost !== null && <div className="fact"><div className="small">Себестоимость</div><div className="v num">{money(selected.cost)}</div></div>}
                   <div className="fact"><div className="small">Хватит на</div><div className="v num">{selected.portions} порц.</div></div>
                 </div>
                 <p className="hd menu-forecast">{why(selected).text}</p>
@@ -165,12 +166,16 @@ export function Menu() {
 }
 
 /** Доживёт ли запас до конца смены: прогноз стопа позже, чем время закрытия сегодня. */
-function lastsUntilShiftEnd(forecast: string, shiftEnd?: string): boolean {
-  if (!shiftEnd) return false;
-  const [hours, minutes] = shiftEnd.split(':').map(Number);
-  const end = new Date();
-  end.setHours(hours, minutes, 0, 0);
-  return new Date(forecast).getTime() > end.getTime();
+function lastsUntilShiftEnd(forecast: string, shift?: Me['shift']): boolean {
+  if (!shift) return false;
+  const today = (time: string) => {
+    const [hours, minutes] = time.split(':').map(Number);
+    return new Date().setHours(hours, minutes, 0, 0);
+  };
+  let end = today(shift.end);
+  // Смена через полночь (18:00–02:00): вечером её конец — уже завтра.
+  if (end <= today(shift.start) && end < Date.now()) end += 86_400_000;
+  return new Date(forecast).getTime() > end;
 }
 
 /** Что с продуктом на складе — для строки техкарты. */

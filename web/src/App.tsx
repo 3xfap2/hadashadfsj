@@ -1,11 +1,13 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { lazy, useEffect, useSyncExternalStore } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { getToken, onAuthChange } from './api';
 import { isNative } from './native';
-import { GuestMenu } from './pages/GuestMenu';
-import { Landing } from './pages/Landing';
 import { Login } from './pages/Login';
-import { Shell } from './Shell';
+import { Fence, Shell } from './Shell';
+
+// Лендинг и меню для гостя сотруднику в кабинете не нужны: грузятся отдельно.
+const Landing = lazy(() => import('./pages/Landing').then((m) => ({ default: m.Landing })));
+const GuestMenu = lazy(() => import('./pages/GuestMenu').then((m) => ({ default: m.GuestMenu })));
 
 const NEXT_KEY = 'ostatok.next';
 
@@ -45,6 +47,7 @@ export function App() {
   const signedIn = useSyncExternalStore(onAuthChange, getToken) !== null;
   return (
     <BrowserRouter>
+      <Fence>
       <Routes>
         <Route path="/login" element={signedIn ? <AfterLogin /> : <Login />} />
         <Route path="/app/*" element={signedIn ? <Shell /> : <ToLogin />} />
@@ -53,6 +56,7 @@ export function App() {
         <Route path="/menu/:restaurant" element={<GuestMenu />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Fence>
     </BrowserRouter>
   );
 }

@@ -82,7 +82,11 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
             .Select(g => new OrderLine(g.Key, g.Count()))
             .ToList();
         var place = places.Length > 0 ? places[_random.Next(places.Length)] : "";
-        await services.GetRequiredService<OrderService>().PlaceAsync(lines, place, Actor, ct);
+        var order = await services.GetRequiredService<OrderService>().PlaceAsync(lines, place, Actor, ct);
+        // Генератор имитирует кассу, а не кухню: отдавать его заказы некому, поэтому очередь поваров они не занимают.
+        if (order.Status != OrderStatus.Accepted) return;
+        order.ReadyAt = order.CreatedAt;
+        await db.SaveChangesAsync(ct);
     }
 
     private async Task RestockAsync(IServiceProvider services, CancellationToken ct)
@@ -109,7 +113,7 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
             var batch = new Batch
             {
                 Id = Guid.NewGuid(), ProductId = product.Id, Quantity = item.Quantity, Remaining = item.Quantity,
-                ExpiresAt = now.AddHours(product.ShelfLifeHours),
+                ExpiresAt = now.AddHours(product.ShelfLifeHours), UnitCost = product.Cost,
             };
             supply.Batches.Add(batch);
             db.Movements.Add(new Movement
@@ -167,7 +171,7 @@ public static class SimulatorEndpoints
             var batch = new Batch
             {
                 Id = Guid.NewGuid(), SupplyId = supply.Id, ProductId = product!.Id,
-                Quantity = portion * 5, Remaining = portion * 5, ExpiresAt = now.AddMinutes(req.Minutes),
+                Quantity = portion * 5, Remaining = portion * 5, ExpiresAt = now.AddMinutes(req.Minutes), UnitCost = product.Cost,
             };
             supply.Batches.Add(batch);
             db.Supplies.Add(supply);

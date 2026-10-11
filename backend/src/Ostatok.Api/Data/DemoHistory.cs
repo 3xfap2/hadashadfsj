@@ -126,7 +126,7 @@ public static class DemoHistory
                     var batch = new Batch
                     {
                         Id = Guid.NewGuid(), SupplyId = supply.Id, ProductId = product.Id, Product = product,
-                        Quantity = quantity, Remaining = quantity, ExpiresAt = morning.AddHours(product.ShelfLifeHours),
+                        Quantity = quantity, Remaining = quantity, ExpiresAt = morning.AddHours(product.ShelfLifeHours), UnitCost = product.Cost,
                     };
                     supply.Batches.Add(batch);
                     batches.Add(batch);
@@ -183,6 +183,8 @@ public static class DemoHistory
                 if (result.Ok)
                 {
                     order.Status = OrderStatus.Accepted;
+                    // Прошлые заказы кухня давно отдала: в очередь поваров они не попадают.
+                    order.ReadyAt = at.AddMinutes(12);
                     var byId = batches.ToDictionary(b => b.Id);
                     foreach (var a in result.Allocations)
                     {

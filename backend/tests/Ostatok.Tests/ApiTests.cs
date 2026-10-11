@@ -438,7 +438,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var manager = await fx.SignInAsync("manager");
         Assert.Equal(HttpStatusCode.BadRequest, (await manager.PutAsJsonAsync("/api/restaurant", new RestaurantSettings("Демо", "10:00", "23:00", 3, true))).StatusCode);
         // Продукт уже в поставке и техкарте: единицу измерения сменить нельзя.
-        var unit = await Api.PutAsJsonAsync($"/api/products/{product.Id}", new ProductRequest(product.Name, Unit.L, product.ShelfLifeHours, product.Cost), ApiFixture.Json);
+        var unit = await Api.PutAsJsonAsync($"/api/products/{product.Id}", new ProductRequest(product.Name, Unit.L, product.ShelfLifeHours, product.Cost!.Value), ApiFixture.Json);
         Assert.Equal(HttpStatusCode.Conflict, unit.StatusCode);
         // Логин принимается с заглавной буквы и с пробелом в конце.
         await fx.SignInAsync(" Waiter ");
@@ -844,7 +844,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.All([await fx.Waiter.GetAsync("/api/stop-list"), await fx.Waiter.GetAsync("/api/hot-offers")], r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
 
         Assert.Equal(["orders", "menu"], (await fx.Waiter.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
-        Assert.Equal(["today", "menu", "kitchen"], (await cook.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
+        Assert.Equal(["today", "menu", "board", "kitchen"], (await cook.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
     }
 
     [Fact]
@@ -909,7 +909,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(("Траттория на углу", "10:00"), (renamed.Restaurant, renamed.Shift.Start));
         Assert.Equal(["Стол 1", "Стол 2", "Стол 3"], renamed.Places);
         Assert.Equal(HttpStatusCode.BadRequest, (await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)], "Стол 7"))).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PutAsJsonAsync("/api/restaurant", new RestaurantSettings("Траттория", "23:00", "10:00", 3, false))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await owner.PutAsJsonAsync("/api/restaurant", new RestaurantSettings("Траттория", "23:00", "23:00", 3, false))).StatusCode);
         Assert.Equal(0.6m, (await owner.GetFromJsonAsync<List<BatchRow>>("/api/stock/batches", ApiFixture.Json))!.Single().Remaining);
 
         // Удалённый сотрудник теряет доступ сразу, а не когда истечёт его токен.
@@ -973,7 +973,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         using var support = await fx.SignInAsSupportAsync();
         Assert.Contains("support", (await support.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
         using var manager = await fx.SignInAsync("manager");
-        Assert.Equal(["today", "stock", "menu", "kitchen", "purchasing", "analytics", "catalog", "staff"],
+        Assert.Equal(["today", "stock", "menu", "board", "kitchen", "purchasing", "analytics", "catalog", "staff"],
             (await manager.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
     }
 
@@ -1308,5 +1308,383 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.DoesNotContain(menu.Dishes, d => d.DishId == stopped.Id);
         // Продукт истекает через 4 часа: блюдо попало в предложения дня, гость видит цену со скидкой (500 → 325).
         Assert.Equal((500m, 325m, 35), menu.Dishes.Where(d => d.DishId == available.Id).Select(d => (d.Price, d.OfferPrice!.Value, d.OfferPercent!.Value)).Single());
+    }
+
+    private static async Task<T> Get<T>(HttpClient client, string url) => (await client.GetFromJsonAsync<T>(url, ApiFixture.Json))!;
+
+    /// <summary>Сотрудник нового ресторана: управляющий заводит его, и он входит под своим паролем.</summary>
+    private async Task<HttpClient> Staff(HttpClient owner, Role role)
+    {
+        var login = $"s{Guid.NewGuid():N}"[..20];
+        (await owner.PostAsJsonAsync("/api/users", new StaffRequest(login, "staff-2026-pw", role.ToString(), role), ApiFixture.Json)).EnsureSuccessStatusCode();
+        return await fx.SignInAsync(login, "staff-2026-pw");
+    }
+
+    /// <summary>Продукт по 500 ₽ в ресторане управляющего.</summary>
+    private async Task<ProductResponse> Product(HttpClient owner) =>
+        await Read<ProductResponse>(await owner.PostAsJsonAsync("/api/products", new ProductRequest($"Продукт {Guid.NewGuid():N}", Unit.Kg, 48, 500), ApiFixture.Json));
+
+    private async Task<SupplyResponse> Supply(HttpClient owner, params SupplyItemRequest[] items)
+    {
+        var response = await owner.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null, items.ToList()));
+        response.EnsureSuccessStatusCode();
+        return await Read<SupplyResponse>(response);
+    }
+
+    [Fact]
+    public async Task Цена_заготовки_пересчитывается_когда_меняется_цена_сырья()
+    {
+        var cream = await Product();
+        var cheese = await Product();
+        var sauce = await Read<ProductResponse>(await Api.PostAsJsonAsync("/api/products", new ProductRequest(
+            $"Соус {Guid.NewGuid():N}", Unit.L, 48, 0, [new RecipeItemDto(cream.Id, 0.5m), new RecipeItemDto(cheese.Id, 0.2m)]), ApiFixture.Json));
+        Assert.Equal(700, sauce.Cost);
+
+        var update = await Api.PutAsJsonAsync($"/api/products/{cream.Id}", new ProductRequest(cream.Name, Unit.Kg, cream.ShelfLifeHours, 1400), ApiFixture.Json);
+
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        // 0,5 × 1400 + 0,2 × 1000: сливки подорожали — подорожал и соус.
+        Assert.Equal(900, (await Get<List<ProductResponse>>("/api/products")).Single(p => p.Id == sauce.Id).Cost);
+    }
+
+    [Fact]
+    public async Task Цена_из_файла_поставки_становится_закупочной_ценой_продукта()
+    {
+        var cream = await Product();
+        var sauce = await Read<ProductResponse>(await Api.PostAsJsonAsync("/api/products", new ProductRequest(
+            $"Соус {Guid.NewGuid():N}", Unit.L, 48, 0, [new RecipeItemDto(cream.Id, 0.5m)]), ApiFixture.Json));
+        async Task<decimal?> Cost(ProductResponse product) => (await Get<List<ProductResponse>>("/api/products")).Single(p => p.Id == product.Id).Cost;
+        // В файле — сумма по строке: 4 кг на 4 800 ₽, то есть 1 200 ₽ за килограмм при цене в справочнике 1 000 ₽.
+        var csv = $"продукт;количество;единица;срок хранения;цена\n{cream.Name};4;кг;72 ч;4800\n{sauce.Name};1;л;24 ч;999\n{cream.Name};1;кг;72 ч;";
+        var content = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(csv));
+
+        var rows = await Read<List<ImportRow>>(await Api.PostAsync("/api/supplies/import/preview", content));
+
+        // Предпросмотр показывает, как изменится цена, но сам её не трогает. У заготовки цена своя, без суммы в файле цены нет.
+        Assert.Equal((1200m, 1000m), (rows[0].Cost!.Value, rows[0].CurrentCost!.Value));
+        Assert.Equal((null, null), (rows[1].Cost, rows[2].Cost));
+        Assert.Equal(1000, await Cost(cream));
+
+        var supply = await Supply(new SupplyItemRequest(cream.Id, 4, 72, rows[0].Cost));
+
+        Assert.Equal(4800, supply.Total);
+        Assert.Equal(1200, await Cost(cream));
+        Assert.Equal(600, await Cost(sauce));
+        // Поставка, введённая вручную, цену не передаёт и справочник не меняет; нулевая цена не принимается.
+        await Supply(new SupplyItemRequest(cream.Id, 1, null));
+        var free = await Api.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null, [new SupplyItemRequest(cream.Id, 1, null, 0)]));
+        Assert.Equal(HttpStatusCode.BadRequest, free.StatusCode);
+        Assert.Equal(1200, await Cost(cream));
+    }
+
+    [Fact]
+    public async Task Инвентаризация_сохраняется_документом_с_номером_и_попадает_в_потери()
+    {
+        var (owner, login, _) = await fx.NewRestaurantAsync("Учёт");
+        var (less, more, same) = (await Product(owner), await Product(owner), await Product(owner));
+        var spoiled = await Supply(owner, new SupplyItemRequest(same.Id, 1, null));
+        await Supply(owner, new SupplyItemRequest(less.Id, 2, null), new SupplyItemRequest(more.Id, 3, null), new SupplyItemRequest(same.Id, 1, null));
+        (await owner.PostAsJsonAsync($"/api/stock/batches/{spoiled.Items.Single().BatchId}/write-off", new WriteOffRequest(WriteOffCause.Spoiled), ApiFixture.Json)).EnsureSuccessStatusCode();
+
+        // Излишек без годной партии записать некуда: такой пересчёт отклоняется и номер не занимает.
+        var absent = await Product(owner);
+        var failed = await owner.PostAsJsonAsync("/api/stock/inventory", new InventoryRequest([new InventoryLine(absent.Id, 1)]));
+        var first = await Read<InventoryResponse>(await owner.PostAsJsonAsync("/api/stock/inventory",
+            new InventoryRequest([new InventoryLine(less.Id, 1.5m), new InventoryLine(more.Id, 3.4m), new InventoryLine(same.Id, 1)])));
+        var second = await Read<InventoryResponse>(await owner.PostAsJsonAsync("/api/stock/inventory", new InventoryRequest([new InventoryLine(same.Id, 1)])));
+
+        Assert.Equal(HttpStatusCode.BadRequest, failed.StatusCode);
+        Assert.Equal((1, 2), (first.Number, second.Number));
+        var list = await Get<List<InventorySummary>>(owner, "/api/stock/inventories");
+        Assert.Equal([second.Id, first.Id], list.Select(i => i.Id));
+        // Цена продукта 500 ₽: не хватило 0,5 кг, нашлось лишних 0,4 кг.
+        Assert.Equal((login, fx.Time.GetUtcNow(), 3, 2, 250m, 200m), (list[1].Actor, list[1].At, list[1].Counted, list[1].Differences, list[1].Shortage, list[1].Surplus));
+        var doc = await Get<InventoryResponse>(owner, $"/api/stock/inventories/{first.Id}");
+        // В документе все пересчитанные продукты, в том числе тот, что сошёлся.
+        Assert.Equal([(less.Id, 2m, 1.5m, -0.5m, -250m), (same.Id, 1m, 1m, 0m, 0m), (more.Id, 3m, 3.4m, 0.4m, 200m)],
+            doc.Rows.Select(r => (r.ProductId, r.Accounted, r.Actual, r.Difference, r.Value)));
+
+        // Недостача — такая же потеря, как списание: она входит в общую сумму отдельной причиной, излишек её не уменьшает.
+        var report = await Get<WriteOffReport>(owner, "/api/analytics/write-offs?days=7");
+        Assert.Equal((750m, 200m), (report.Total, report.Surplus));
+        Assert.Equal([(WriteOffService.SpoiledNote, 500m), (InsightsEndpoints.ShortageReason, 250m)], report.ByReason.Select(r => (r.Reason, r.Value)));
+        Assert.Equal(750m, report.ByDay.Sum(d => d.Value));
+        Assert.Contains(report.ByProduct, p => p.ProductId == less.Id && p.Quantity == 0.5m && p.Value == 250m);
+
+        // Документы другого ресторана не видны, официанту раздел закрыт.
+        Assert.DoesNotContain(await Get<List<InventorySummary>>("/api/stock/inventories"), i => i.Id == first.Id);
+        Assert.Equal(HttpStatusCode.NotFound, (await Api.GetAsync($"/api/stock/inventories/{first.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await fx.Waiter.GetAsync("/api/stock/inventories")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Сигнал_прочитан_только_у_того_кто_его_прочитал()
+    {
+        var (owner, _, _) = await fx.NewRestaurantAsync("Сигналы");
+        var product = await Product(owner);
+        using var cook = await Staff(owner, Role.Cook);
+        // Поставка от внешней системы поднимает сигнал «ждёт подтверждения».
+        Task Signal() => owner.PostAsJsonAsync("/api/supplies/incoming", new SupplyRequest(null, $"В-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 1, null)]));
+        // Счётчик непрочитанных и сколько сигналов в списке помечены прочитанными.
+        async Task<(int Unread, int Read)> Alerts(HttpClient client)
+        {
+            var alerts = await Get<AlertsResponse>(client, "/api/alerts");
+            return (alerts.Unread, alerts.Items.Count(a => a.Read));
+        }
+
+        await Signal();
+        Assert.Equal((1, 0), await Alerts(owner));
+        Assert.Equal((1, 0), await Alerts(cook));
+
+        (await owner.PostAsync("/api/alerts/read", null)).EnsureSuccessStatusCode();
+
+        // Управляющий прочитал — у повара сигнал по-прежнему новый.
+        Assert.Equal((0, 1), await Alerts(owner));
+        Assert.Equal((1, 0), await Alerts(cook));
+
+        await Signal();
+        Assert.Equal((1, 1), await Alerts(owner));
+        Assert.Equal((2, 0), await Alerts(cook));
+        // Сотруднику, которого завели позже, прежние сигналы не показываются новыми.
+        using var late = await Staff(owner, Role.Storekeeper);
+        Assert.Equal((0, 2), await Alerts(late));
+    }
+
+    [Fact]
+    public async Task Официант_и_повар_не_получают_закупочные_цены()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.2m));
+        // Продукт истекает через 4 часа: блюдо попадает в горячие предложения со скидкой.
+        await Supply(new SupplyItemRequest(product.Id, 2, 4));
+        using var cook = await fx.SignInAsync("cook");
+        using var storekeeper = await fx.SignInAsync("storekeeper");
+
+        foreach (var client in new[] { fx.Waiter, cook })
+        {
+            Assert.Null((await Get<List<ProductResponse>>(client, "/api/products")).Single(p => p.Id == product.Id).Cost);
+            Assert.Null((await Get<List<StopListRow>>(client, "/api/stop-list")).Single(r => r.DishId == dish.Id).Cost);
+            Assert.Null((await Get<List<StockRow>>(client, "/api/stock")).Single(r => r.ProductId == product.Id).FreshValue);
+            Assert.Null((await Get<List<BatchRow>>(client, $"/api/stock/batches?productId={product.Id}")).Single().Value);
+            Assert.All(await Get<List<SupplyResponse>>(client, "/api/supplies?take=5"), s => Assert.Null(s.Total));
+            var offer = (await Get<List<HotOffer>>(client, "/api/hot-offers")).Single(o => o.DishId == dish.Id);
+            Assert.Equal((null, null, null, 0m), (offer.ValueAtRisk, offer.Ingredients[0].ValueAtRisk, offer.Discount!.FloorPrice, offer.Score));
+            // Цена для гостя и размер скидки остаются: без них официант не продаст блюдо.
+            Assert.Equal((500m, 35, 325m), (offer.Price, offer.Discount.Percent, offer.Discount.Price));
+            Assert.DoesNotContain("продуктов, которые", offer.Reason);
+            Assert.DoesNotContain("невыгодно", offer.Discount.Reason);
+        }
+
+        // Шеф-повар и кладовщик работают с деньгами склада — им цифры приходят как раньше.
+        foreach (var client in new[] { Api, storekeeper })
+        {
+            Assert.Equal(1000, (await Get<List<ProductResponse>>(client, "/api/products")).Single(p => p.Id == product.Id).Cost);
+            Assert.Equal(200, (await Get<List<StopListRow>>(client, "/api/stop-list")).Single(r => r.DishId == dish.Id).Cost);
+            Assert.Equal(2000, (await Get<List<StockRow>>(client, "/api/stock")).Single(r => r.ProductId == product.Id).FreshValue);
+            var offer = (await Get<List<HotOffer>>(client, "/api/hot-offers")).Single(o => o.DishId == dish.Id);
+            Assert.Equal((2000m, 0m), (offer.ValueAtRisk!.Value, offer.Discount!.FloorPrice!.Value));
+            Assert.Contains("невыгодно", offer.Discount.Reason);
+        }
+    }
+
+    [Fact]
+    public async Task Смена_может_переходить_через_полночь()
+    {
+        var (owner, _, _) = await fx.NewRestaurantAsync("Ночной бар");
+        Task<HttpResponseMessage> Shift(string start, string end) =>
+            owner.PutAsJsonAsync("/api/restaurant", new RestaurantSettings("Ночной бар", start, end, 4, true));
+
+        // Конец раньше начала — смена до следующего дня; «9:00» принимается как «09:00».
+        Assert.Equal(HttpStatusCode.OK, (await Shift("9:00", "2:30")).StatusCode);
+        var me = await Get<MeResponse>(owner, "/api/me");
+        Assert.Equal(("09:00", "02:30"), (me.Shift.Start, me.Shift.End));
+        Assert.Equal(HttpStatusCode.OK, (await Shift("18:00", "02:00")).StatusCode);
+        Assert.All([await Shift("18:00", "18:00"), await Shift("24:00", "02:00"), await Shift("18:00", "25:00"), await Shift("вечер", "02:00")],
+            r => Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode));
+        // Отчёты с такой сменой считаются, а не падают.
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync("/api/analytics/stop-cost")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync("/api/analytics/shift")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Отчёт_смены_собирает_продажи_потери_стопы_и_дела_на_завтра()
+    {
+        var zone = TimeSpan.FromHours(3);
+        // Отчёт считается за сутки ресторана: сценарий начинается в полдень, чтобы не пересечь полночь.
+        var local = fx.Time.GetUtcNow().ToOffset(zone);
+        fx.Time.Advance(local.Date.AddHours(local.Hour < 12 ? 12 : 36) - local.DateTime);
+        var today = DateOnly.FromDateTime(fx.Time.GetUtcNow().ToOffset(zone).Date);
+
+        var (owner, _, _) = await fx.NewRestaurantAsync("Вечер");
+        var me = await Get<MeResponse>(owner, "/api/me");
+        using var waiter = await Staff(owner, Role.Waiter);
+        var (product, empty, spare) = (await Product(owner), await Product(owner), await Product(owner));
+        async Task<DishResponse> Dish(ProductResponse of) =>
+            await Read<DishResponse>(await owner.PostAsJsonAsync("/api/dishes", new DishRequest($"Блюдо {Guid.NewGuid():N}", 400, [new RecipeItemDto(of.Id, 0.2m)])));
+        var (dish, stopped) = (await Dish(product), await Dish(empty));
+        // Партия продукта истекает завтра; запасную партию спишут как испорченную.
+        await Supply(owner, new SupplyItemRequest(product.Id, 3, 20));
+        var bad = await Supply(owner, new SupplyItemRequest(spare.Id, 1, null));
+        async Task Track()
+        {
+            await using var scope = fx.Services.CreateAsyncScope();
+            scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.Tenant>().Id = me.RestaurantId;
+            await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(default);
+        }
+
+        await Track();                                   // второе блюдо в стопе: продукта нет
+        (await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 2)]))).EnsureSuccessStatusCode();
+        var rejected = await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(stopped.Id, 1)]));
+        (await owner.PostAsJsonAsync($"/api/stock/batches/{bad.Items.Single().BatchId}/write-off", new WriteOffRequest(WriteOffCause.Spoiled), ApiFixture.Json)).EnsureSuccessStatusCode();
+        (await owner.PostAsJsonAsync("/api/stock/inventory", new InventoryRequest([new InventoryLine(product.Id, 2.1m)]))).EnsureSuccessStatusCode();
+        fx.Time.Advance(TimeSpan.FromHours(2));
+        await Track();
+
+        var report = await Get<ShiftReport>(owner, "/api/analytics/shift");
+
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        Assert.Equal((today, true, 2, 1, 800m), (report.Date, report.Current, report.Orders, report.RejectedOrders, report.Revenue));
+        Assert.Equal([(dish.Id, 2, 800m)], report.TopDishes.Select(d => (d.DishId, d.Portions, d.Revenue)));
+        // Списана испорченная партия (500 ₽) и не хватило 0,5 кг по инвентаризации (250 ₽).
+        Assert.Equal(750m, report.Losses);
+        Assert.Equal([(WriteOffService.SpoiledNote, 500m), (InsightsEndpoints.ShortageReason, 250m)], report.WriteOffs.Select(r => (r.Reason, r.Value)));
+        Assert.Equal([(stopped.Id, 2d)], report.Stops.Select(s => (s.DishId, s.StopHours)));
+        Assert.Equal([(product.Id, 2.1m, 1050m)], report.Expiring!.Select(e => (e.ProductId, e.Quantity, e.Value)));
+        Assert.Contains(report.ToOrder!, p => p.ProductId == empty.Id);
+
+        // Вчерашний отчёт пуст и не подмешивает сегодняшнее состояние склада; официанту аналитика закрыта.
+        var yesterday = await Get<ShiftReport>(owner, $"/api/analytics/shift?date={today.AddDays(-1):yyyy-MM-dd}");
+        Assert.Equal((false, 0, 0m, 0m), (yesterday.Current, yesterday.Orders, yesterday.Revenue, yesterday.Losses));
+        Assert.Null(yesterday.Expiring);
+        Assert.Null(yesterday.ToOrder);
+        Assert.Equal(HttpStatusCode.Forbidden, (await waiter.GetAsync("/api/analytics/shift")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Заказ_стоит_в_очереди_кухни_пока_повар_не_отметит_его_готовым()
+    {
+        var (owner, _, _) = await fx.NewRestaurantAsync("Кухня");
+        using var waiter = await Staff(owner, Role.Waiter);
+        using var cook = await Staff(owner, Role.Cook);
+        var product = await Product(owner);
+        var dish = await Read<DishResponse>(await owner.PostAsJsonAsync("/api/dishes", new DishRequest("Суп дня", 400, [new RecipeItemDto(product.Id, 0.2m)])));
+        await Supply(owner, new SupplyItemRequest(product.Id, 1, null));
+        Task<HttpResponseMessage> Order(int quantity) => waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, quantity)], "Стол 3"));
+
+        var old = await Read<OrderResponse>(await Order(1));
+        fx.Time.Advance(TimeSpan.FromHours(7));
+        var first = await Read<OrderResponse>(await Order(2));
+        fx.Time.Advance(TimeSpan.FromMinutes(5));
+        var second = await Read<OrderResponse>(await Order(1));
+        var rejected = await Order(50);
+
+        // В очереди — принятые заказы последних часов, от старых к новым: забытый утренний и отклонённый в неё не попадают.
+        var board = await Get<KitchenBoard>(cook, "/api/orders/kitchen");
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        Assert.Equal([first.Id, second.Id], board.Queue.Select(o => o.Id));
+        Assert.Equal(("Стол 3", "Суп дня", 2, first.CreatedAt), board.Queue.First().Items.Select(i => (board.Queue.First().Place, i.DishName, i.Quantity, board.Queue.First().CreatedAt)).Single());
+        Assert.Empty(board.Ready);
+
+        // Отмечает готовность только кухня; повторная отметка время не меняет.
+        var byWaiter = await waiter.PostAsync($"/api/orders/{first.Id}/ready", null);
+        var ready = await cook.PostAsync($"/api/orders/{first.Id}/ready", null);
+        var readyAt = fx.Time.GetUtcNow();
+        fx.Time.Advance(TimeSpan.FromMinutes(1));
+        var again = await cook.PostAsync($"/api/orders/{first.Id}/ready", null);
+        var unknown = await cook.PostAsync($"/api/orders/{Guid.NewGuid()}/ready", null);
+        Assert.Equal((HttpStatusCode.Forbidden, HttpStatusCode.NoContent, HttpStatusCode.NoContent, HttpStatusCode.NotFound),
+            (byWaiter.StatusCode, ready.StatusCode, again.StatusCode, unknown.StatusCode));
+
+        board = await Get<KitchenBoard>(cook, "/api/orders/kitchen");
+        Assert.Equal([second.Id], board.Queue.Select(o => o.Id));
+        Assert.Equal([(first.Id, (DateTimeOffset?)readyAt)], board.Ready.Select(o => (o.Id, o.ReadyAt)));
+        // Официант видит отметку в своих заказах, а сам экран кухни ему закрыт; чужая кухня этих заказов не видит.
+        var mine = await Get<List<OrderResponse>>(waiter, "/api/orders");
+        Assert.Equal([(second.Id, false), (first.Id, true), (old.Id, false)], mine.Where(o => o.Status == OrderStatus.Accepted).Select(o => (o.Id, o.ReadyAt != null)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await waiter.GetAsync("/api/orders/kitchen")).StatusCode);
+        Assert.DoesNotContain((await Get<KitchenBoard>("/api/orders/kitchen")).Queue, o => o.Id == second.Id);
+        Assert.Equal(HttpStatusCode.NotFound, (await Api.PostAsync($"/api/orders/{second.Id}/ready", null)).StatusCode);
+
+        // Стол помечается готовым, когда кухня отдала все его открытые заказы.
+        async Task<bool> TableReady() => (await Get<OrdersSummary>(waiter, "/api/orders/summary")).Tables.Single(t => t.Place == "Стол 3").Ready;
+        Assert.False(await TableReady());
+        await cook.PostAsync($"/api/orders/{second.Id}/ready", null);
+        await cook.PostAsync($"/api/orders/{old.Id}/ready", null);
+        Assert.True(await TableReady());
+    }
+
+    [Fact]
+    public async Task Входящую_поставку_нельзя_одновременно_принять_и_отклонить()
+    {
+        var product = await Product();
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var request = new SupplyRequest(Guid.NewGuid(), $"ВН-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 1, null)]);
+            (await Api.PostAsJsonAsync("/api/supplies/incoming", request)).EnsureSuccessStatusCode();
+
+            var results = await Task.WhenAll(
+                Api.PostAsync($"/api/supplies/incoming/{request.Id}/accept", null),
+                Api.PostAsync($"/api/supplies/incoming/{request.Id}/reject", null));
+
+            // Успешна ровно одна из двух операций; вторая видит, что поставка уже решена.
+            Assert.Single(results, r => r.IsSuccessStatusCode);
+            Assert.Contains(results, r => r.StatusCode == HttpStatusCode.NotFound);
+        }
+    }
+
+    [Fact]
+    public async Task Заготовка_заказ_и_инвентаризация_одновременно_не_блокируют_друг_друга()
+    {
+        var raw = await Product();
+        var created = await Api.PostAsJsonAsync("/api/products", new ProductRequest(
+            $"Соус {Guid.NewGuid():N}", Unit.L, 48, 0, [new RecipeItemDto(raw.Id, 0.01m)]), ApiFixture.Json);
+        var prep = await Read<ProductResponse>(created);
+        var dish = await Dish((raw, 0.01m));
+        await Supply(new SupplyItemRequest(raw.Id, 50, null));
+
+        var calls = Enumerable.Range(0, 12).SelectMany(_ => new[]
+        {
+            Api.PostAsJsonAsync("/api/preps", new PrepRequest(prep.Id, 0.1m)),
+            Order(dish),
+            Api.PostAsJsonAsync("/api/stock/inventory", new InventoryRequest([new InventoryLine(raw.Id, 40)])),
+        });
+        var results = await Task.WhenAll(calls);
+
+        Assert.DoesNotContain(results, r => (int)r.StatusCode >= 500);
+        Assert.DoesNotContain(results, r => r.StatusCode == HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Граничные_значения_не_роняют_сервер()
+    {
+        var product = await Product();
+        using var manager = await fx.SignInAsync("manager");
+
+        var date = await Api.GetAsync("/api/analytics/shift?date=0001-01-01");
+        var digits = await manager.PutAsJsonAsync("/api/restaurant", new RestaurantSettings("Демо", "0\u0669:00", "23:00", 12, true));
+        var cost = await Api.PostAsJsonAsync("/api/supplies",
+            new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 1, null, 0.0004m)]));
+
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.BadRequest, HttpStatusCode.BadRequest), (date.StatusCode, digits.StatusCode, cost.StatusCode));
+    }
+
+    [Fact]
+    public async Task Новая_цена_продукта_не_переоценивает_уже_купленное()
+    {
+        var product = await Product();   // цена в справочнике — 1000 ₽
+        var first = await Supply(new SupplyItemRequest(product.Id, 2, null));
+        (await Api.PostAsJsonAsync($"/api/stock/batches/{(await Batches(product)).Single().Id}/write-off", new WriteOffRequest(WriteOffCause.Spoiled), ApiFixture.Json)).EnsureSuccessStatusCode();
+
+        // Вторая поставка пришла втрое дороже: цена в справочнике обновилась.
+        var second = await Read<SupplyResponse>(await Api.PostAsJsonAsync("/api/supplies",
+            new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 1, null, 3000)])));
+
+        Assert.Equal(3000, (await Get<List<ProductResponse>>("/api/products")).Single(p => p.Id == product.Id).Cost);
+        var supplies = await Get<List<SupplyResponse>>("/api/supplies?take=200");
+        // Первая поставка и её списание по-прежнему оцениваются по 1000 ₽, новая партия — по 3000 ₽.
+        Assert.Equal((2000m, 3000m), (supplies.Single(s => s.Id == first.Id).Total, supplies.Single(s => s.Id == second.Id).Total));
+        Assert.Equal(3000, (await Batches(product)).Single().Value);
+        var losses = await Get<WriteOffReport>("/api/analytics/write-offs?days=1");
+        Assert.Equal(2000, losses.ByProduct.Single(p => p.ProductId == product.Id).Value);
     }
 }

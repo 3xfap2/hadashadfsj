@@ -34,6 +34,8 @@ public sealed class DbErrors : IExceptionHandler
             PostgresErrorCodes.UniqueViolation => (StatusCodes.Status409Conflict, "Такая запись уже есть."),
             PostgresErrorCodes.ForeignKeyViolation => (StatusCodes.Status409Conflict, "Запись связана с другими данными, изменить или удалить её нельзя."),
             PostgresErrorCodes.CheckViolation or PostgresErrorCodes.NumericValueOutOfRange => (StatusCodes.Status400BadRequest, "Значение вне допустимых границ."),
+            // Две операции помешали друг другу: ничего не записано, запрос можно повторить.
+            PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure => (StatusCodes.Status409Conflict, "Одновременно шла другая операция с теми же продуктами. Повторите действие."),
             _ => (0, ""),
         };
         if (status == 0) return false;

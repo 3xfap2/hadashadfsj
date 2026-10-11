@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Ostatok.Api.Data;
 using Ostatok.Api.Domain;
@@ -9,7 +10,8 @@ public sealed record RecipeItemDto(Guid ProductId, decimal Quantity);
 /// <param name="PrepRecipe">Состав на единицу продукта, если это заготовка; цена такой заготовки считается по составу.</param>
 /// <param name="OpenedShelfLifeHours">Срок хранения после вскрытия упаковки; не указан — вскрытие срок не меняет.</param>
 public sealed record ProductRequest(string? Name, Unit Unit, int ShelfLifeHours, decimal Cost, List<RecipeItemDto>? PrepRecipe = null, int? OpenedShelfLifeHours = null);
-public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal Cost, IEnumerable<RecipeItemDto> PrepRecipe, int? OpenedShelfLifeHours);
+/// <param name="Cost">Закупочная цена; пусто для ролей, которым она не видна (см. <see cref="Access.Costs"/>).</param>
+public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal? Cost, IEnumerable<RecipeItemDto> PrepRecipe, int? OpenedShelfLifeHours);
 public sealed record DishRequest(string? Name, decimal Price, List<RecipeItemDto>? Recipe, string? PhotoUrl = null, string? Category = null);
 public sealed record DishResponse(
     Guid Id, string Name, decimal Price, string? PhotoUrl, IEnumerable<RecipeItemDto> Recipe, string? Category, bool ManuallyStopped,
@@ -21,8 +23,8 @@ public static class CatalogEndpoints
     {
         var products = api.MapGroup("/products").WithTags("Справочник продуктов");
 
-        products.MapGet("", async (AppDbContext db, CancellationToken ct) =>
-            (await db.Products.AsNoTracking().Include(p => p.PrepRecipe).OrderBy(p => p.Name).ToListAsync(ct)).Select(ToResponse));
+        products.MapGet("", async (AppDbContext db, ClaimsPrincipal user, CancellationToken ct) =>
+            (await db.Products.AsNoTracking().Include(p => p.PrepRecipe).OrderBy(p => p.Name).ToListAsync(ct)).Select(p => ToResponse(p, user.SeesCosts())));
 
         products.MapPost("", async (ProductRequest req, AppDbContext db, CancellationToken ct) =>
         {
@@ -51,6 +53,8 @@ public static class CatalogEndpoints
 
             (product.Name, product.Unit, product.ShelfLifeHours, product.OpenedShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit, req.ShelfLifeHours, req.OpenedShelfLifeHours, req.Cost);
             await SetPrepRecipeAsync(product, req, db, ct);
+            // Продукт подорожал или подешевел — вместе с ним меняется цена заготовок, в которые он входит.
+            await db.RecalcPrepCostsAsync([id], ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToResponse(product));
         }).RequireRoles(Access.Catalog);
@@ -59,9 +63,10 @@ public static class CatalogEndpoints
         {
             var used = await db.Batches.AnyAsync(b => b.ProductId == id, ct)
                 || await db.Dishes.AnyAsync(d => d.Recipe.Any(r => r.ProductId == id), ct)
-                || await db.Products.AnyAsync(p => p.PrepRecipe.Any(i => i.ProductId == id), ct);
+                || await db.Products.AnyAsync(p => p.PrepRecipe.Any(i => i.ProductId == id), ct)
+                || await db.Inventories.AnyAsync(i => i.Items.Any(r => r.ProductId == id), ct);
             if (used)
-                return Results.Problem("Продукт используется в поставках или техкартах, удалить его нельзя.", statusCode: StatusCodes.Status409Conflict);
+                return Results.Problem("Продукт используется в поставках, техкартах или инвентаризациях, удалить его нельзя.", statusCode: StatusCodes.Status409Conflict);
             var deleted = await db.Products.Where(p => p.Id == id).ExecuteDeleteAsync(ct);
             return deleted == 0 ? Results.NotFound() : Results.NoContent();
         }).RequireRoles(Access.Catalog);
@@ -226,8 +231,8 @@ public static class CatalogEndpoints
     private static List<RecipeItem> ToRecipe(DishRequest req) =>
         req.Recipe!.Select(r => new RecipeItem { ProductId = r.ProductId, Quantity = r.Quantity }).ToList();
 
-    private static ProductResponse ToResponse(Product p) =>
-        new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, p.Cost, p.PrepRecipe.Select(i => new RecipeItemDto(i.ProductId, i.Quantity)), p.OpenedShelfLifeHours);
+    private static ProductResponse ToResponse(Product p, bool costs = true) =>
+        new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, costs ? p.Cost : null, p.PrepRecipe.Select(i => new RecipeItemDto(i.ProductId, i.Quantity)), p.OpenedShelfLifeHours);
 
     private static DishResponse ToResponse(Dish d) =>
         new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)), d.Category, d.ManuallyStopped, d.HotPinned, d.HotHidden);

@@ -20,7 +20,7 @@ export function GuestMenu() {
           if (r.ok) {
             setMenu(await r.json());
             setFailed('none');
-          } else if (r.status === 404 || r.status === 400) setFailed('missing');
+          } else setFailed(r.status === 404 || r.status === 400 ? 'missing' : 'offline');
         })
         .catch(() => setFailed('offline'));
     void load();

@@ -194,3 +194,26 @@ html{scroll-behavior:smooth}
 /* Белая форма на тёмной секции: внутри неё заголовки и подписи возвращают обычные цвета, иначе текст сливается с фоном. */
 .sec--dark .form h3{color:var(--h)}
 .sec--dark .form .muted{color:var(--ink-2)}
+
+/* Строка партии: на узком телефоне этикетка срока уходит под название, иначе подпись наезжает на количество. */
+.frag__batch{grid-template-columns:minmax(0,1fr) auto auto}
+@media (max-width:420px){
+  .frag .g-rows > .frag__batch{grid-template-columns:minmax(0,1fr) auto;row-gap:8px}
+  .frag__batch .g-lbl{grid-column:1 / -1;justify-self:start}
+}
+
+/* Меню разделов на телефоне: тот же список якорей раскрывается под шапкой по кнопке. */
+.lh__menu{display:none}
+@media (max-width:640px){
+  /* Шапка в два ряда: название и кнопка меню, под ними — «Войти» и «Запросить демо». */
+  .lh .w{height:auto;flex-wrap:wrap;padding-block:10px;row-gap:8px}
+  .lh__menu{display:inline-flex;margin-left:auto;width:44px;padding:0}
+  .lh .end{order:2;flex-basis:100%;margin-left:0}
+  .lh .end .g-btn{flex:1}
+  .lh nav.is-open{display:flex;flex-direction:column;gap:0;position:absolute;top:100%;left:0;right:0;padding:4px 16px 16px;background:#fff;border-bottom:1px solid var(--line)}
+  .lh nav.is-open a{padding:14px 0;border-bottom:1px solid var(--line);font-size:17px}
+  /* Примеры в блоках возможностей: метка срока переносится, а не наезжает на сумму. */
+  .frag .g-rows > li{gap:0 12px}
+  .frag .g-tag{height:auto;padding:4px 9px;line-height:1.25;white-space:normal}
+  .chan li{grid-template-columns:minmax(0,1fr)}
+}
