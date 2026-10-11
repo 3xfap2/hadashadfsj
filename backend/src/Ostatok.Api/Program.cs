@@ -102,11 +102,14 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
     .WithOrigins(builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [])
     .AllowAnyHeader()
-    .AllowAnyMethod()));
+    .AllowAnyMethod()
+    // Приложение перед каждым запросом спрашивает разрешение; ответ запоминается на час, а не на секунды.
+    .SetPreflightMaxAge(TimeSpan.FromHours(1))));
 
 builder.Services.ConfigureHttpJsonOptions(options =>
     // Перечисления — только названием: число 0 иначе молча превращалось бы в первую роль или единицу.
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
+builder.Services.AddExceptionHandler<CorsOnErrors>();
 builder.Services.AddExceptionHandler<DbErrors>();
 builder.Services.AddProblemDetails();
 // Запрос, который не удалось разобрать (дробь вместо целого, оборванный JSON), — ошибка клиента (400),

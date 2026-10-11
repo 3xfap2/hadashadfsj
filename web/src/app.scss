@@ -2699,6 +2699,10 @@ body {
 
 // ---------- Вход: роли демо, сотрудники ----------
 
+.login__slow:empty {
+  display: none;
+}
+
 .login__roles button {
   padding: 0;
   border: 0;
@@ -2872,6 +2876,8 @@ body {
 .login {
   display: flex;
   flex-wrap: wrap;
+  // В приложении экран уходит под системную панель с часами.
+  padding-top: env(safe-area-inset-top, 0px);
 
   &__photo-col {
     flex: 1 1 520px;

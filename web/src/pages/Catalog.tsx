@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { NavLink, useSearchParams } from 'react-router-dom';
 import { send, sendFile, useApi, type DishRow, type ProductRow, type StopListRow, type Unit } from '../api';
 import { money, plural, portions, shelfLife, unitName } from '../format';
+import { assetUrl } from '../native';
 import { Photo, PlusIcon } from '../ui';
 
 type Note = { kind: 'ok' | 'err'; text: string } | null;
@@ -398,7 +399,7 @@ export function Dishes() {
           <div className="dish-form">
             <div className="dish-form__photo">
               {photo || current?.photoUrl ? (
-                <img className="dish-drop dish-drop--filled" src={photo?.preview ?? current!.photoUrl!} alt="" />
+                <img className="dish-drop dish-drop--filled" src={photo?.preview ?? assetUrl(current!.photoUrl!)} alt="" />
               ) : (
                 <div className="dish-drop" role="img" aria-label="Место для фото блюда">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3z" /><circle cx="12" cy="13" r="4" /></svg>

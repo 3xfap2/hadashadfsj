@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Остаток</string>
+    <string name="title_activity_main">Остаток</string>
+    <string name="package_name">ru.ostatok.app</string>
+    <string name="custom_url_scheme">ru.ostatok.app</string>
+</resources>

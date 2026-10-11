@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { login, type LoginError } from '../api';
+import { login, takeExpired, type LoginError } from '../api';
 
 // Открытая учётная запись демо-ресторана: по ней жюри и гости смотрят систему без регистрации.
 const DEMO = { login: 'demo', password: 'demo2026' };
@@ -19,13 +19,27 @@ export function Login() {
   const [showHint, setShowHint] = useState(false);
   const [tried, setTried] = useState(false);
   // С лендинга сюда приводит неудачный вход в демо — причина приходит вместе с переходом.
-  const [error, setError] = useState<LoginError | null>((useLocation().state as { error?: LoginError } | null)?.error ?? null);
+  const passed = (useLocation().state as { error?: LoginError } | null)?.error ?? null;
+  const [error, setError] = useState<LoginError | null>(
+    () => passed ?? (takeExpired() ? { title: 'Сессия закончилась', text: 'Войдите снова. Так бывает, если вам сменили роль или пароль, или прошло больше 12 часов.' } : null),
+  );
   const [busy, setBusy] = useState(false);
+
+  // Бесплатный сервер после простоя отвечает не сразу: человек должен понимать, что вход идёт.
+  const [slow, setSlow] = useState(false);
 
   const enter = async (l: string, p: string) => {
     setBusy(true);
-    setError(await login(l, p));
-    setBusy(false);
+    const waiting = setTimeout(() => setSlow(true), 4000);
+    try {
+      setError(await login(l, p));
+    } catch {
+      setError({ title: 'Сервер не отвечает', text: 'Войти сейчас нельзя. Попробуйте ещё раз через минуту.' });
+    } finally {
+      clearTimeout(waiting);
+      setSlow(false);
+      setBusy(false);
+    }
   };
 
   const submit = (e: FormEvent) => {
@@ -108,6 +122,8 @@ export function Login() {
           <button className="g-btn g-btn--primary g-btn--block" disabled={busy}>
             {busy ? 'Входим…' : 'Войти'}
           </button>
+          {/* Область объявлений есть всегда и только меняет текст: иначе экранный диктор её не прочтёт. */}
+          <p className="muted login__slow" role="status">{slow ? 'Сервер просыпается после простоя — это занимает до минуты.' : ''}</p>
           <div className="login__or"><span />или<span /></div>
           <button type="button" className="g-btn g-btn--block" disabled={busy} onClick={() => enter(DEMO.login, DEMO.password)}>
             Открыть демо-ресторан

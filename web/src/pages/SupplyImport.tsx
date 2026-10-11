@@ -1,3 +1,4 @@
+import { isNative } from '../native';
 import { useState, type ChangeEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { post, postFile, type ImportRow, type SupplyRow } from '../api';
@@ -118,7 +119,7 @@ export function SupplyImport() {
         <input id="file" type="file" accept=".xlsx,.csv" className="sr" onChange={choose} />
         <span className="muted small drop__hint">
           Подходит Excel или CSV с колонками: продукт, количество, единица, срок хранения, цена.{' '}
-          <button type="button" className="hd drop__link" onClick={downloadTemplate}>Скачать шаблон</button>
+          {!isNative && <button type="button" className="hd drop__link" onClick={downloadTemplate}>Скачать шаблон</button>}
         </span>
       </div>
 

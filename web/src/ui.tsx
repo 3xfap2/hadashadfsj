@@ -1,3 +1,4 @@
+import { assetUrl } from './native';
 import { createContext, useContext } from 'react';
 import type { BatchRow } from './api';
 import { duration, until, weekday } from './format';
@@ -18,7 +19,7 @@ export function Photo({ url, name }: { url: string | null; name: string }) {
     .join('');
   return (
     <span className="g-photo" role="img" aria-label={`Фото блюда: ${name}`}>
-      {url ? <img src={url} alt="" loading="lazy" /> : <span aria-hidden="true">{initials}</span>}
+      {url ? <img src={assetUrl(url)} alt="" loading="lazy" /> : <span aria-hidden="true">{initials}</span>}
     </span>
   );
 }

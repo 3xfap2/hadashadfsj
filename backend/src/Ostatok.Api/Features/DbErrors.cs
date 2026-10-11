@@ -1,8 +1,24 @@
+using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace Ostatok.Api.Features;
+
+/// <summary>
+/// Обработчик исключений очищает заголовки ответа — вместе с разрешением для приложения, которое ходит с другого адреса.
+/// Без него приложение вместо кода ошибки увидело бы «нет сети». Этот обработчик стоит первым, возвращает заголовки
+/// и передаёт исключение дальше.
+/// </summary>
+public sealed class CorsOnErrors(ICorsService cors, ICorsPolicyProvider policies) : IExceptionHandler
+{
+    public async ValueTask<bool> TryHandleAsync(HttpContext http, Exception exception, CancellationToken ct)
+    {
+        if (await policies.GetPolicyAsync(http, null) is { } policy)
+            cors.ApplyResult(cors.EvaluatePolicy(http, policy), http.Response);
+        return false;
+    }
+}
 
 /// <summary>
 /// Последний рубеж: если запись всё-таки упёрлась в ограничение базы (два одинаковых запроса разом,

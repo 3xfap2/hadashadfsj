@@ -2,6 +2,7 @@ import qrcode from 'qrcode-generator';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useApi, type BatchRow } from '../api';
 import { dayMonthShort, qty, weekday } from '../format';
+import { isNative, PUBLIC_ORIGIN } from '../native';
 
 const dateTime = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
@@ -46,7 +47,8 @@ export function Labels() {
         </div>
         <div className="end stock-tools">
           <Link className="g-btn" to="/app/stock">К складу</Link>
-          <button className="g-btn g-btn--primary" type="button" disabled={shown.length === 0} onClick={() => window.print()}>Печать</button>
+          {/* Печать из приложения не работает: этикетки печатают с компьютера. */}
+          {!isNative && <button className="g-btn g-btn--primary" type="button" disabled={shown.length === 0} onClick={() => window.print()}>Печать</button>}
         </div>
       </div>
 
@@ -64,7 +66,7 @@ export function Labels() {
                 </span>
                 <span className="num">{qty(b.quantity, b.unit)} · {b.supplyNumber} · принято {dayMonthShort(b.receivedAt)}</span>
               </div>
-              <Qr text={`${location.origin}/app/stock?batch=${b.id}`} />
+              <Qr text={`${PUBLIC_ORIGIN}/app/stock?batch=${b.id}`} />
             </li>
           ))}
         </ul>

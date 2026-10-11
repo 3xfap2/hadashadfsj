@@ -56,9 +56,14 @@ export function Menu() {
 
   const toggleStop = async (d: StopListRow) => {
     setBusy(true);
-    await post(`/dishes/${d.dishId}/${d.reason === 'Manual' ? 'resume' : 'stop'}`);
-    await Promise.all([menu.reload(), offers.reload()]);
-    setBusy(false);
+    try {
+      await post(`/dishes/${d.dishId}/${d.reason === 'Manual' ? 'resume' : 'stop'}`);
+      await Promise.all([menu.reload(), offers.reload()]);
+    } catch {
+      // Связь оборвалась: состояние блюда не изменилось, кнопку можно нажать ещё раз.
+    } finally {
+      setBusy(false);
+    }
   };
 
   const recipe = dishes.data.find((d) => d.id === selected?.dishId)?.recipe ?? [];

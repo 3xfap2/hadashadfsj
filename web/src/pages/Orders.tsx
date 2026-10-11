@@ -1,3 +1,5 @@
+import { Haptics, NotificationType } from '@capacitor/haptics';
+import { isNative } from '../native';
 import { useState } from 'react';
 import { post, useApi, type HotOffer, type Me, type OrderRow, type StopListRow } from '../api';
 import { clock, duration, isToday, money, portions, qty } from '../format';
@@ -11,6 +13,11 @@ const STOP_REASON = {
 };
 
 type Result = { kind: 'ok' | 'rejected'; order: OrderRow } | { kind: 'error'; message: string } | null;
+
+/** В приложении телефон вибрирует: официант чувствует, принят заказ или отклонён, не глядя на экран. */
+const buzz = (type: NotificationType) => {
+  if (isNative) void Haptics.notification({ type }).catch(() => {});
+};
 
 export function Orders() {
   const menu = useApi<StopListRow[]>('/stop-list');
@@ -70,10 +77,12 @@ export function Orders() {
         items: Object.entries(cart).map(([dishId, quantity]) => ({ dishId, quantity, discount: Boolean(discountOf(dishId)) })),
       });
       if (response.status === 201) {
+        buzz(NotificationType.Success);
         setResult({ kind: 'ok', order: await response.json() });
         setCart({});
         setDiscounted({});
       } else if (response.status === 409) {
+        buzz(NotificationType.Error);
         setResult({ kind: 'rejected', order: await response.json() });
       } else {
         setResult({ kind: 'error', message: `Сервер ответил ошибкой ${response.status}. Заказ не создан.` });
@@ -88,9 +97,15 @@ export function Orders() {
   const open = served.get(place);
   const closeTable = async () => {
     setBusy(true);
-    await post('/orders/close', { place });
-    await orders.reload();
-    setBusy(false);
+    try {
+      const response = await post('/orders/close', { place });
+      if (!response.ok) setResult({ kind: 'error', message: `Стол не закрыт: сервер ответил ошибкой ${response.status}.` });
+      await orders.reload();
+    } catch (e) {
+      setResult({ kind: 'error', message: `Стол не закрыт. ${(e as Error).message}` });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

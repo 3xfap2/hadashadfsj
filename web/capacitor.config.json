@@ -1,0 +1,9 @@
+{
+  "appId": "ru.ostatok.app",
+  "appName": "Остаток",
+  "webDir": "dist",
+  "backgroundColor": "#ffffff",
+  "plugins": {
+    "SystemBars": { "style": "LIGHT" }
+  }
+}

@@ -4,3 +4,5 @@
 **/dist
 .git
 backend/tests
+web/android
+web/apk

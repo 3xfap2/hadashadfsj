@@ -1,0 +1,2 @@
+# Скрипт сборки Android запускается в Linux: окончания строк Windows его ломают.
+web/android/gradlew text eol=lf

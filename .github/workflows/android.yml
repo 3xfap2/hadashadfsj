@@ -1,0 +1,42 @@
+name: android
+
+# Собирает приложение для Android. По метке android-v* кладёт APK в релиз:
+# https://github.com/3xfap2/hadashadfsj/releases/latest/download/ostatok.apk
+on:
+  workflow_dispatch:
+  push:
+    tags: ['android-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Сайт и синхронизация проекта
+        working-directory: web
+        run: npm ci && npm run build && npx cap sync android
+      - name: Сборка APK
+        working-directory: web/android
+        run: chmod +x gradlew && ./gradlew --no-daemon assembleDebug
+      - run: cp web/android/app/build/outputs/apk/debug/app-debug.apk ostatok.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ostatok-apk
+          path: ostatok.apk
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ostatok.apk

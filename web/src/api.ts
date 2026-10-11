@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { apiUrl } from './native';
 
 export type Unit = 'Kg' | 'L' | 'Pcs';
 export type DishStatus = 'Available' | 'Low' | 'Stop';
@@ -370,7 +371,7 @@ const NO_SERVER: LoginError = { title: 'Сервер не отвечает', tex
 
 /** Возвращает ошибку или null, если вход выполнен. */
 export async function login(name: string, password: string): Promise<LoginError | null> {
-  const response = await fetch('/api/auth/login', {
+  const response = await fetch(apiUrl('/api/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ login: name, password }),
@@ -396,7 +397,7 @@ export async function login(name: string, password: string): Promise<LoginError 
 
 /** Создаёт ресторан и входит под его управляющим. Возвращает текст ошибки или null. */
 export async function register(restaurant: string, name: string, password: string): Promise<string | null> {
-  const response = await fetch('/api/auth/register', {
+  const response = await fetch(apiUrl('/api/auth/register'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ restaurant, login: name, password }),
@@ -410,12 +411,41 @@ export async function register(restaurant: string, name: string, password: strin
   return null;
 }
 
+const EXPIRED_KEY = 'ostatok.expired';
+
+/** true один раз после того, как сервер отозвал сессию: экран входа объясняет, почему человек на нём оказался. */
+export function takeExpired(): boolean {
+  try {
+    const expired = sessionStorage.getItem(EXPIRED_KEY) !== null;
+    sessionStorage.removeItem(EXPIRED_KEY);
+    return expired;
+  } catch {
+    return false;
+  }
+}
+
 async function request(path: string, init?: RequestInit): Promise<Response> {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    headers: { ...init?.headers, Authorization: `Bearer ${getToken()}` },
-  });
+  // Бесплатный сервер после простоя отвечает до минуты; дольше ждать нет смысла.
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), 75_000);
+  let response: Response;
+  try {
+    response = await fetch(apiUrl(`/api${path}`), {
+      ...init,
+      signal: timeout.signal,
+      headers: { ...init?.headers, Authorization: `Bearer ${getToken()}` },
+    });
+  } catch {
+    throw new Error(navigator.onLine === false ? 'Нет подключения к интернету.' : 'Сервер не отвечает. Попробуйте ещё раз через минуту.');
+  } finally {
+    clearTimeout(timer);
+  }
   if (response.status === 401) {
+    try {
+      sessionStorage.setItem(EXPIRED_KEY, '1');
+    } catch {
+      // Без хранилища экран входа просто не покажет пояснение.
+    }
     logout();
     throw new Error('Сессия истекла, войдите заново.');
   }
@@ -459,23 +489,53 @@ export function postFile(path: string, file: File): Promise<Response> {
 // Все открытые на экране запросы: по сигналу сервера «данные изменились» они перечитываются.
 const liveReloads = new Set<() => void>();
 
+/** Перечитывает всё, что сейчас на экране: приложение зовёт это, когда его снова открыли. */
+export const reloadAll = () => liveReloads.forEach((reload) => reload());
+
 /**
  * Подключается к потоку событий сервера (SSE). Сообщение не несёт данных — оно только говорит,
  * что что-то изменилось; экраны перечитывают своё. Возвращает функцию отключения.
  */
 export function connectEvents(): () => void {
-  const token = getToken();
-  if (!token || typeof EventSource === 'undefined') return () => {};
-  const source = new EventSource(`/api/events?access_token=${encodeURIComponent(token)}`);
+  if (typeof EventSource === 'undefined') return () => {};
+  let source: EventSource | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  source.onmessage = () => {
-    // Несколько изменений подряд (заказ списывает сразу много партий) сливаются в одно обновление.
-    clearTimeout(timer);
-    timer = setTimeout(() => liveReloads.forEach((reload) => reload()), 150);
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
+
+  const open = () => {
+    const token = getToken();
+    if (!token || stopped) return;
+    source = new EventSource(apiUrl(`/api/events?access_token=${encodeURIComponent(token)}`));
+    source.onmessage = () => {
+      // Несколько изменений подряд (заказ списывает сразу много партий) сливаются в одно обновление.
+      clearTimeout(timer);
+      timer = setTimeout(reloadAll, 150);
+    };
+    // Если сервер перезапустился или засыпал, браузер закрывает поток насовсем — открываем его заново сами.
+    source.onerror = () => {
+      if (source?.readyState !== EventSource.CLOSED) return;
+      clearTimeout(retry);
+      retry = setTimeout(open, 5000);
+    };
   };
+  // Свёрнутая вкладка или приложение теряют поток незаметно: при возврате он открывается заново, а данные перечитываются.
+  const onReturn = () => {
+    if (document.hidden || stopped) return;
+    source?.close();
+    clearTimeout(retry);
+    open();
+    reloadAll();
+  };
+
+  document.addEventListener('visibilitychange', onReturn);
+  open();
   return () => {
+    stopped = true;
+    document.removeEventListener('visibilitychange', onReturn);
     clearTimeout(timer);
-    source.close();
+    clearTimeout(retry);
+    source?.close();
   };
 }
 
@@ -486,17 +546,27 @@ export function connectEvents(): () => void {
 export function useApi<T>(path: string, refreshMs = 30_000) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const loaded = useRef(false);
 
   const reload = useCallback(
     () =>
       get<T>(path)
         .then((d) => {
+          loaded.current = true;
           setData(d);
           setError(null);
         })
-        .catch((e: Error) => setError(e.message)),
+        // Короткий обрыв связи не должен стирать уже показанные данные: они остаются на экране до следующей удачной попытки.
+        .catch((e: Error) => {
+          if (!loaded.current) setError(e.message);
+        }),
     [path],
   );
+
+  // Другой адрес — другие данные: прежние «уже загружено» к ним не относятся.
+  useEffect(() => {
+    loaded.current = false;
+  }, [path]);
 
   useEffect(() => {
     void reload();

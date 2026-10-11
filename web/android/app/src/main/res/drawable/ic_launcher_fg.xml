@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Знак «Остатка»: этикетка партии. Рисунок держится в центральной зоне, которую не обрезает маска значка. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#9FE870" android:pathData="M35.2,39.9h37.4v28.1h-37.4z" />
+    <path android:fillColor="#163300" android:pathData="M37.1,41.8h8.6v24.3h-8.6z" />
+    <path android:fillColor="#163300" android:pathData="M51.1,46.9h16.8v3.3h-16.8z" />
+    <path android:fillColor="#163300" android:pathData="M51.1,53.7h11.2v3.3h-11.2z" />
+</vector>

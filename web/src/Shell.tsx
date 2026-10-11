@@ -57,7 +57,8 @@ export function Shell() {
   const stopped = stopList.data?.filter((d) => d.status === 'Stop').length ?? 0;
   const time = useClock();
   useEffect(connectEvents, []);
-  const me = useApi<Me>('/me', 300_000).data;
+  const profile = useApi<Me>('/me', 60_000);
+  const me = profile.data;
   const title = me?.title || me?.login || '';
   // Инициалы: первые буквы слов должности («Шеф-повар» → «ШП»).
   const allowed = me?.sections ?? [];
@@ -110,7 +111,16 @@ export function Shell() {
       </header>
 
       <main className="g-page">
-        <Routes>
+        {!me && (profile.error ? (
+          <div className="g-note g-note--err" role="alert">
+            <h3>Кабинет не загрузился</h3>
+            <span>{profile.error}</span>
+            <button className="g-btn" type="button" onClick={() => void profile.reload()}>Повторить</button>
+          </div>
+        ) : (
+          <p className="muted" role="status">Загружаем кабинет… Если сервер давно не открывали, это занимает до минуты.</p>
+        ))}
+        {me && <Routes>
           <Route index element={home} />
           <Route path="staff" element={<Guard section="staff"><Staff /></Guard>} />
           <Route path="orders" element={<Guard section="orders"><Orders /></Guard>} />
@@ -130,7 +140,7 @@ export function Shell() {
           <Route path="catalog/dishes" element={<Guard section="catalog"><Dishes /></Guard>} />
           <Route path="more" element={<More sections={extra} />} />
           <Route path="*" element={<p className="g-empty"><strong>Раздел в работе</strong>Скоро появится.</p>} />
-        </Routes>
+        </Routes>}
       </main>
 
       {allowed.includes('catalog') && (

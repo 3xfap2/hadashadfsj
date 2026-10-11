@@ -59,10 +59,15 @@ export function Stock() {
 
   const writeOff = async (batch: BatchRow, reason?: 'Spoiled' | 'Defective') => {
     setBusy(true);
-    await post(`/stock/batches/${batch.id}/write-off`, reason ? { reason } : undefined);
-    await Promise.all([stock.reload(), batches.reload(), stopList.reload()]);
-    setAsking(null);
-    setBusy(false);
+    try {
+      await post(`/stock/batches/${batch.id}/write-off`, reason ? { reason } : undefined);
+      await Promise.all([stock.reload(), batches.reload(), stopList.reload()]);
+      setAsking(null);
+    } catch {
+      // Связь оборвалась: партия осталась в списке, списание можно повторить.
+    } finally {
+      setBusy(false);
+    }
   };
 
   const error = stock.error ?? batches.error ?? products.error ?? stopList.error;

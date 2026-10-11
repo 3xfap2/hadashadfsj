@@ -39,9 +39,14 @@ export function Today() {
 
   const writeOffExpired = async () => {
     setWritingOff(true);
-    await Promise.all(expired.map((b) => post(`/stock/batches/${b.id}/write-off`)));
-    await Promise.all([batches.reload(), stopList.reload(), offers.reload()]);
-    setWritingOff(false);
+    try {
+      await Promise.all(expired.map((b) => post(`/stock/batches/${b.id}/write-off`)));
+      await Promise.all([batches.reload(), stopList.reload(), offers.reload()]);
+    } catch {
+      // Связь оборвалась: несписанные партии остались в списке, кнопку можно нажать ещё раз.
+    } finally {
+      setWritingOff(false);
+    }
   };
 
   return (

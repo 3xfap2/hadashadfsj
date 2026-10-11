@@ -20,16 +20,21 @@ export function Preps() {
 
   const make = async (prep: PrepRow, quantity: number) => {
     setBusy(true);
-    const response = await post('/preps', { productId: prep.productId, quantity });
-    const outcome: Outcome = response.ok
-      ? { kind: 'ok', result: await response.json() }
-      : response.status === 409
-        ? { kind: 'short', result: await response.json() }
-        : { kind: 'err', text: `Сервер ответил ошибкой ${response.status}.` };
-    setOutcomes((o) => ({ ...o, [prep.productId]: outcome }));
-    if (response.ok) setAmounts((a) => ({ ...a, [prep.productId]: '' }));
-    await preps.reload();
-    setBusy(false);
+    try {
+      const response = await post('/preps', { productId: prep.productId, quantity });
+      const outcome: Outcome = response.ok
+        ? { kind: 'ok', result: await response.json() }
+        : response.status === 409
+          ? { kind: 'short', result: await response.json() }
+          : { kind: 'err', text: `Сервер ответил ошибкой ${response.status}.` };
+      setOutcomes((o) => ({ ...o, [prep.productId]: outcome }));
+      if (response.ok) setAmounts((a) => ({ ...a, [prep.productId]: '' }));
+      await preps.reload();
+    } catch (e) {
+      setOutcomes((o) => ({ ...o, [prep.productId]: { kind: 'err', text: (e as Error).message } }));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

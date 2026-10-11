@@ -1,3 +1,5 @@
+import { Share } from '@capacitor/share';
+import { isNative } from '../native';
 import { useState } from 'react';
 import { useApi, type PurchaseRow, type StockRow } from '../api';
 import { money, plural, qty } from '../format';
@@ -26,10 +28,18 @@ export function Purchasing() {
       .map(([supplier, rows]) => `${supplier}\n${rows.map((r) => `${r.productName} — ${qty(r.quantity, r.unit)}`).join('\n')}`)
       .join('\n\n');
 
+  // В приложении файл не скачать — заявка уходит поставщику через «Поделиться»: в мессенджер или почту.
+  const share = () => Share.share({ title: 'Заявка поставщику', text: text() }).catch(() => {});
+
   const copy = async () => {
-    await navigator.clipboard.writeText(text());
-    setCopied(true);
-    setTimeout(() => setCopied(false), 4000);
+    try {
+      await navigator.clipboard.writeText(text());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 4000);
+    } catch {
+      // Буфер обмена недоступен (нет разрешения или фокуса): в приложении заявку можно отправить через «Поделиться».
+      if (isNative) void share();
+    }
   };
 
   const download = () => {
@@ -93,7 +103,7 @@ export function Purchasing() {
             <button className="g-btn g-btn--primary g-btn--block" type="button" disabled={picked.length === 0} onClick={copy}>
               {copied ? 'Заявка скопирована' : 'Скопировать заявку'}
             </button>
-            <button className="g-btn g-btn--block" type="button" disabled={picked.length === 0} onClick={download}>Скачать заявку</button>
+            <button className="g-btn g-btn--block" type="button" disabled={picked.length === 0} onClick={isNative ? share : download}>{isNative ? 'Отправить заявку' : 'Скачать заявку'}</button>
             <span className="sr" role="status">{copied ? 'Текст заявки скопирован' : ''}</span>
           </section>
         </aside>
