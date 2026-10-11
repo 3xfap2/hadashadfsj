@@ -107,6 +107,30 @@ export interface DeficitRow {
   dishes: string[];
 }
 
+export interface SupplierRow {
+  supplier: string;
+  supplies: number;
+  batches: number;
+  delivered: number;
+  sold: number;
+  expired: number;
+  defective: number;
+  spoiled: number;
+  inStock: number;
+  lossPercent: number;
+  /** Средний срок партии при приёмке в процентах от норматива продукта. */
+  shelfLifePercent: number;
+  worstProduct: string | null;
+  verdict: string;
+}
+
+export interface SupplierReport {
+  days: number;
+  delivered: number;
+  lost: number;
+  suppliers: SupplierRow[];
+}
+
 export interface StopCostReport {
   days: number;
   total: number;

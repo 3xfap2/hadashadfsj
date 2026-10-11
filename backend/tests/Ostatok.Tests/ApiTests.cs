@@ -671,6 +671,30 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task Отчёт_по_поставщикам_считает_брак_порчу_и_просрочку_по_журналу()
+    {
+        var supplier = $"Поставщик {Guid.NewGuid():N}";
+        var product = await Product(shelfLifeHours: 48);
+        var dish = await Dish((product, 1m));
+        var response = await Api.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, $"П-{Guid.NewGuid():N}", null,
+            [new SupplyItemRequest(product.Id, 4, null), new SupplyItemRequest(product.Id, 3, null), new SupplyItemRequest(product.Id, 3, 24)], supplier));
+        var batches = (await Read<SupplyResponse>(response)).Items.Select(i => i.BatchId).ToList();
+
+        // Третья партия (срок короче) продаётся первой; первую бракуют, вторую списывают как порчу.
+        (await Order(dish, 2)).EnsureSuccessStatusCode();
+        await Api.PostAsJsonAsync($"/api/stock/batches/{batches[0]}/write-off", new WriteOffRequest(WriteOffCause.Defective), ApiFixture.Json);
+        await Api.PostAsJsonAsync($"/api/stock/batches/{batches[1]}/write-off", new WriteOffRequest(WriteOffCause.Spoiled), ApiFixture.Json);
+
+        var row = (await Get<SupplierReportResponse>("/api/analytics/suppliers?days=7")).Suppliers.Single(s => s.Supplier == supplier);
+
+        Assert.Equal((1, 3), (row.Supplies, row.Batches));
+        Assert.Equal((10_000m, 2000m, 4000m, 3000m, 1000m), (row.Delivered, row.Sold, row.Defective, row.Spoiled, row.InStock));
+        Assert.Equal((70m, SupplierReport.Problem), (row.LossPercent, row.Verdict));
+        // Отчёт закрыт для ролей без аналитики.
+        Assert.Equal(HttpStatusCode.Forbidden, (await fx.Waiter.GetAsync("/api/analytics/suppliers")).StatusCode);
+    }
+
+    [Fact]
     public async Task Заявка_с_лендинга_принимается_без_входа_и_видна_в_кабинете()
     {
         using var visitor = fx.CreateClient();

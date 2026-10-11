@@ -2811,6 +2811,26 @@ body {
   }
 }
 
+// ---------- Отчёт по поставщикам ----------
+
+.suppliers {
+  min-width: 980px;
+
+  &__sub {
+    display: block;
+  }
+
+  &__ok {
+    background: var(--hl);
+    color: var(--brand);
+  }
+
+  &__note {
+    margin: 0;
+    padding: 12px 20px 16px;
+  }
+}
+
 // ---------- Журнал и генератор ----------
 
 .journal {

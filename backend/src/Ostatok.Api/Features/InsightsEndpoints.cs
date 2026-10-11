@@ -16,6 +16,8 @@ public sealed record WriteOffReport(
 public sealed record DeficitRow(
     Guid ProductId, string ProductName, Unit Unit, int RejectedOrders, decimal MissingQuantity, double StopHours, IEnumerable<string> Dishes);
 
+public sealed record SupplierReportResponse(int Days, decimal Delivered, decimal Lost, IEnumerable<SupplierRow> Suppliers);
+
 public sealed record StopCostReport(int Days, decimal Total, IEnumerable<StopCostRow> Dishes);
 
 public sealed record AnalyticsSummary(int Orders, int RejectedOrders, double StopHours);
@@ -158,6 +160,42 @@ public static class InsightsEndpoints
                 .OrderByDescending(r => r.LostRevenue).ThenByDescending(r => r.StopHours)
                 .ToList();
             return new StopCostReport(days, rows.Sum(r => r.LostRevenue), rows);
+        });
+
+        // Отчёт по поставщикам: что стало с привезённым за период — продано, списано (и почему), лежит на складе.
+        analytics.MapGet("/suppliers", async (AppDbContext db, TimeProvider time, CancellationToken ct, int days = 30) =>
+        {
+            days = Math.Clamp(days, 1, 90);
+            var now = time.GetUtcNow();
+            var since = now.AddDays(-days);
+            // Партии, которые система создаёт сама (заготовки, проверка сроков, генератор), — не от поставщиков.
+            string[] own = [PrepService.Workshop, SimulatorEndpoints.CheckSupplier, Simulator.Supplier];
+            var batches = await db.Batches.AsNoTracking()
+                .Include(b => b.Product).Include(b => b.Supply)
+                .Where(b => b.Supply!.CreatedAt >= since && (b.Supply.Supplier == null || !own.Contains(b.Supply.Supplier)))
+                .ToListAsync(ct);
+            var moves = (await (
+                    from m in db.Movements
+                    join b in db.Batches on m.BatchId equals b.Id
+                    where b.Supply!.CreatedAt >= since && m.Type != MovementType.Supply && m.Type != MovementType.PrepMade
+                    group m by new { m.BatchId, m.Type, m.Note } into g
+                    select new { g.Key.BatchId, g.Key.Type, g.Key.Note, Quantity = g.Sum(m => m.Quantity) }).ToListAsync(ct))
+                .ToLookup(m => m.BatchId);
+
+            var flows = batches.Select(b =>
+            {
+                decimal Sum(Func<MovementType, string?, bool> match) => moves[b.Id].Where(m => match(m.Type, m.Note)).Sum(m => m.Quantity);
+                bool WriteOff(MovementType type) => type == MovementType.WriteOff;
+                return new BatchFlow(b,
+                    Sold: Sum((type, _) => type is MovementType.Order or MovementType.PrepUse),
+                    Defective: Sum((type, note) => WriteOff(type) && note == WriteOffService.DefectiveNote),
+                    Spoiled: Sum((type, note) => WriteOff(type) && note == WriteOffService.SpoiledNote),
+                    // Всё остальное списание — по сроку: вручную или автоматически.
+                    Expired: Sum((type, note) => WriteOff(type) && note != WriteOffService.DefectiveNote && note != WriteOffService.SpoiledNote));
+            }).ToList();
+
+            var rows = SupplierReport.Build(flows, now);
+            return new SupplierReportResponse(days, rows.Sum(r => r.Delivered), rows.Sum(r => r.Expired + r.Defective + r.Spoiled), rows);
         });
 
         analytics.MapGet("/summary", async (AppDbContext db, TimeProvider time, CancellationToken ct, int days = 14) =>

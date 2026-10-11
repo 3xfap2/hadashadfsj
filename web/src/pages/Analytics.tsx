@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi, type AnalyticsSummary, type DeficitRow, type StopCostReport, type WriteOffReport } from '../api';
+import { useApi, type AnalyticsSummary, type DeficitRow, type StopCostReport, type SupplierReport, type WriteOffReport } from '../api';
 import { dayMonthShort, money, plural, portions, qty, weekdayLong } from '../format';
 
 const PERIODS = [7, 14, 30];
@@ -11,11 +11,12 @@ export function Analytics() {
   const deficit = useApi<DeficitRow[]>(`/analytics/deficit?days=${days}`, 60_000);
   const summary = useApi<AnalyticsSummary>(`/analytics/summary?days=${days}`, 60_000);
   const stopCost = useApi<StopCostReport>(`/analytics/stop-cost?days=${days}`, 60_000);
+  const suppliers = useApi<SupplierReport>(`/analytics/suppliers?days=${days}`, 60_000);
 
-  const error = report.error ?? deficit.error ?? summary.error ?? stopCost.error;
+  const error = report.error ?? deficit.error ?? summary.error ?? stopCost.error ?? suppliers.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить аналитику</h3><span>{error}</span></div>;
   // При смене периода старые данные остаются на экране, пока грузятся новые, — без мигания.
-  if (!report.data || !deficit.data || !summary.data || !stopCost.data) return <p className="muted">Считаем аналитику…</p>;
+  if (!report.data || !deficit.data || !summary.data || !stopCost.data || !suppliers.data) return <p className="muted">Считаем аналитику…</p>;
 
   const byDay = report.data.byDay;
   const peak = byDay.reduce((max, d) => (d.value > max.value ? d : max), byDay[0]);
@@ -134,6 +135,59 @@ export function Analytics() {
           )}
         </section>
       </div>
+
+      <section className="g-panel" aria-labelledby="sup-h">
+        <div className="g-panel__head an-wrap">
+          <h2 id="sup-h">Поставщики</h2>
+          <span className="end">
+            что стало с привезённым за {plural(days, 'день', 'дня', 'дней')}
+            {suppliers.data.delivered > 0 && <> · потеряно {money(suppliers.data.lost)} из {money(suppliers.data.delivered)}</>}
+          </span>
+        </div>
+        {suppliers.data.suppliers.length === 0 ? (
+          <p className="g-empty"><strong>Поставок не было</strong>За выбранный период ни одной поставки от поставщиков.</p>
+        ) : (
+          <div className="g-table-wrap">
+            <table className="g-table suppliers">
+              <thead>
+                <tr>
+                  <th>Поставщик</th><th className="r">Привезено</th><th className="r">Продано</th>
+                  <th className="r">Истёк срок</th><th className="r">Брак</th><th className="r">Порча</th>
+                  <th className="r">На складе</th><th className="r">Потери</th><th className="r">Срок при приёмке</th>
+                </tr>
+              </thead>
+              <tbody>
+                {suppliers.data.suppliers.map((s) => (
+                  <tr key={s.supplier}>
+                    <td>
+                      <span className="g-name">{s.supplier}</span>
+                      <span className="muted small suppliers__sub">
+                        {plural(s.supplies, 'поставка', 'поставки', 'поставок')} · {plural(s.batches, 'партия', 'партии', 'партий')}
+                        {s.worstProduct && ` · больше всего теряется: ${s.worstProduct.toLowerCase()}`}
+                      </span>
+                    </td>
+                    <td className="r num">{money(s.delivered)}</td>
+                    <td className="r num">{money(s.sold)}</td>
+                    <td className="r num">{s.expired > 0 ? money(s.expired) : '—'}</td>
+                    <td className="r num">{s.defective > 0 ? money(s.defective) : '—'}</td>
+                    <td className="r num">{s.spoiled > 0 ? money(s.spoiled) : '—'}</td>
+                    <td className="r num">{money(s.inStock)}</td>
+                    <td className="r num">
+                      <span className={`g-tag${s.verdict === 'Проблемный' ? ' g-tag--red' : s.verdict === 'Есть потери' ? ' g-tag--amber' : ' suppliers__ok'}`}>
+                        {s.lossPercent.toLocaleString('ru-RU')}% · {s.verdict.toLowerCase()}
+                      </span>
+                    </td>
+                    <td className="r num" title="Средний срок годности партии при приёмке в процентах от норматива продукта">{s.shelfLifePercent}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="muted small suppliers__note">
+          Суммы — по закупочным ценам. «Срок при приёмке» показывает, с каким запасом срока поставщик привозит товар: 100% — свежий, 50% — половина срока уже прошла.
+        </p>
+      </section>
 
       <section className="g-panel" aria-labelledby="cost-h">
         <div className="g-panel__head an-wrap">

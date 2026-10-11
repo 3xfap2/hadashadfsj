@@ -201,6 +201,39 @@ public class ForecastTests
     }
 
     [Fact]
+    public void Отчёт_по_поставщикам_делит_привезённое_на_проданное_и_потери_по_причинам()
+    {
+        var now = Kitchen.Now;
+        var fish = new Product { Id = Guid.NewGuid(), Name = "Лосось", Unit = Unit.Kg, ShelfLifeHours = 48, Cost = 1000 };
+        var greens = new Product { Id = Guid.NewGuid(), Name = "Салат", Unit = Unit.Kg, ShelfLifeHours = 100, Cost = 200 };
+        Supply Supplied(string supplier, double hoursAgo) => new() { Id = Guid.NewGuid(), Number = Guid.NewGuid().ToString("N"), Supplier = supplier, CreatedAt = now.AddHours(-hoursAgo) };
+        Batch Lot(Supply supply, Product product, decimal quantity, decimal remaining, double lifeHours) => new()
+        {
+            Id = Guid.NewGuid(), SupplyId = supply.Id, Supply = supply, ProductId = product.Id, Product = product,
+            Quantity = quantity, Remaining = remaining, ExpiresAt = supply.CreatedAt.AddHours(lifeHours),
+        };
+        var good = Supplied("Северная рыба", 10);
+        var bad = Supplied("Овощная база", 60);
+
+        var rows = SupplierReport.Build(
+        [
+            // Рыба: 10 кг, всё продано или лежит годным, привезена с полным сроком.
+            new BatchFlow(Lot(good, fish, 10, 4, 48), Sold: 6, Expired: 0, Defective: 0, Spoiled: 0),
+            // Овощи: 10 кг со сроком вдвое короче норматива; 2 кг брак, 1 кг испортился, 1 кг списан по сроку,
+            // ещё 2 кг уже просрочены и ждут списания — это тоже потеря.
+            new BatchFlow(Lot(bad, greens, 10, 2, 50), Sold: 4, Expired: 1, Defective: 2, Spoiled: 1),
+        ], now);
+
+        Assert.Equal(["Овощная база", "Северная рыба"], rows.Select(r => r.Supplier));
+        var worst = rows[0];
+        Assert.Equal((2000m, 800m, 600m, 400m, 200m, 0m), (worst.Delivered, worst.Sold, worst.Expired, worst.Defective, worst.Spoiled, worst.InStock));
+        Assert.Equal((60m, 50, "Салат", SupplierReport.Problem), (worst.LossPercent, worst.ShelfLifePercent, worst.WorstProduct, worst.Verdict));
+        var best = rows[1];
+        Assert.Equal((10_000m, 6000m, 4000m, 0m, 100, SupplierReport.Reliable), (best.Delivered, best.Sold, best.InStock, best.LossPercent, best.ShelfLifePercent, best.Verdict));
+        Assert.Null(best.WorstProduct);
+    }
+
+    [Fact]
     public void Прогноз_расхода_берёт_такие_же_дни_недели()
     {
         var product = Guid.NewGuid();

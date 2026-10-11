@@ -12,6 +12,8 @@ public enum WriteOffCause { Spoiled, Defective }
 public sealed class WriteOffService(AppDbContext db, TimeProvider time)
 {
     public const string System = "система";
+    public const string DefectiveNote = "Брак поставки";
+    public const string SpoiledNote = "Порча при хранении";
 
     public async Task<WriteOffResult> WriteOffAsync(Guid batchId, string actor, WriteOffCause? reason, CancellationToken ct)
     {
@@ -27,7 +29,7 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
 
         var expired = batch.ExpiresAt <= now;
         if (!expired && reason is null) return WriteOffResult.ReasonRequired;
-        var note = expired ? "Истёк срок годности" : reason == WriteOffCause.Defective ? "Брак поставки" : "Порча при хранении";
+        var note = expired ? "Истёк срок годности" : reason == WriteOffCause.Defective ? DefectiveNote : SpoiledNote;
         Apply(batch, now, note, actor);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

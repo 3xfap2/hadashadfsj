@@ -36,6 +36,7 @@ public sealed class SimulatorState
 public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state, TimeProvider time, ILogger<Simulator> log) : BackgroundService
 {
     public const string Actor = "генератор";
+    public const string Supplier = "Генератор событий";
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(5);
     private readonly Random _random = new();
     private readonly Dictionary<Guid, double> _debt = [];   // дробная часть заказов, накопленная между тактами
@@ -101,7 +102,7 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
             .ToList();
         if (needed.Count == 0) return;
 
-        var supply = new Supply { Id = Guid.NewGuid(), Number = $"Г-{now:MMdd-HHmmss}", Supplier = "Генератор событий", CreatedAt = now };
+        var supply = new Supply { Id = Guid.NewGuid(), Number = $"Г-{now:MMdd-HHmmss}", Supplier = Supplier, CreatedAt = now };
         foreach (var item in needed)
         {
             var product = products.First(p => p.Id == item.ProductId);

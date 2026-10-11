@@ -135,6 +135,22 @@ public static class DemoHistory
                         At = morning, Type = MovementType.Supply, ProductId = product.Id, BatchId = batch.Id,
                         Quantity = quantity, Note = $"Поставка {supply.Number}", Actor = "storekeeper",
                     });
+
+                    // Изредка часть партии бракуют при приёмке; у овощной базы это случается заметно чаще.
+                    if (random.Next(100) < (group.Key == "Овощная база №3" ? 16 : 3))
+                    {
+                        var share = (decimal)(0.1 + random.NextDouble() * 0.2);
+                        var bad = product.Unit == Unit.Pcs ? Math.Floor(quantity * share) : Math.Round(quantity * share, 1);
+                        if (bad > 0 && bad < quantity)
+                        {
+                            batch.Remaining -= bad;
+                            movements.Add(new Movement
+                            {
+                                At = morning.AddMinutes(20), Type = MovementType.WriteOff, ProductId = product.Id, BatchId = batch.Id,
+                                Quantity = bad, Note = "Брак поставки", Actor = "storekeeper",
+                            });
+                        }
+                    }
                 }
                 supplies.Add(supply);
             }
