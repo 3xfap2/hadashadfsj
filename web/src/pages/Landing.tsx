@@ -257,7 +257,7 @@ export function Landing() {
             <div className="intg">
               <div className="api">
                 <h3>Открытый API для кассовой системы</h3>
-                <p style={{ margin: 0 }}>Поставки и заказы приходят автоматически. Если готовой связки с вашей кассой нет, подключим через API или настроим ручной ввод.</p>
+                <p style={{ margin: 0 }}>Касса или учётная система может сама отправлять в Остаток заказы и поставки. Готовых связок с кассами пока нет: подключаем под вашу систему или настраиваем ручной ввод.</p>
                 <pre>{`POST /api/orders
 {
   "place": "Стол 3",
@@ -279,7 +279,7 @@ export function Landing() {
                   <span className="muted" style={{ gridColumn: '1 / -1' }}>Приёмка поставки и стоп-лист одной рукой у камеры.</span>
                 </li>
                 <li>
-                  <h3>Telegram-бот</h3><span className="muted small">уведомления и управление</span>
+                  <h3>Telegram-бот</h3><span className="muted small">готовится к запуску</span>
                   <span className="bubble">В стоп: филе миньон. Вырезки 150 г, на порцию нужно 220 г. <b>18:32</b></span>
                 </li>
               </ul>
@@ -332,11 +332,10 @@ export function Landing() {
         <div className="foot-top">
           <div>
             <h2 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-.02em', color: 'var(--h)', margin: 0 }}>Остаток под рукой</h2>
-            <p className="muted" style={{ marginTop: 8 }}>Приложение для повара и кладовщика, бот — для уведомлений о сроках и стоп-листе.</p>
+            <p className="muted" style={{ marginTop: 8 }}>Приложение для Android уже можно скачать. Telegram-бот с уведомлениями о сроках и стоп-листе готовится к запуску.</p>
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <a className="g-btn" href="https://github.com/3xfap2/hadashadfsj/releases/latest/download/ostatok.apk">Скачать приложение для Android</a>
-            <a className="g-btn" href="#">Открыть Telegram-бота</a>
           </div>
         </div>
         <div className="foot-bot">
