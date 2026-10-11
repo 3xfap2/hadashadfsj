@@ -9,3 +9,4 @@ obj
 *.pem
 *.key
 web/apk
+*.tsbuildinfo
