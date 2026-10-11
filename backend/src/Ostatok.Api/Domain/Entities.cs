@@ -40,6 +40,8 @@ public class Product : IOwned
     public Unit Unit { get; set; }
     /// <summary>Нормативный срок хранения; подставляется, если поставка не указала свой.</summary>
     public int ShelfLifeHours { get; set; }
+    /// <summary>Сколько продукт хранится после вскрытия упаковки; пусто, если вскрытие срок не меняет.</summary>
+    public int? OpenedShelfLifeHours { get; set; }
     /// <summary>Закупочная цена за единицу, ₽. У заготовки — стоимость её состава.</summary>
     public decimal Cost { get; set; }
     /// <summary>Состав заготовки на единицу продукта. Пусто у покупных продуктов.</summary>
@@ -106,6 +108,8 @@ public class Batch : IOwned
     public decimal Quantity { get; set; }
     public decimal Remaining { get; set; }
     public DateTimeOffset ExpiresAt { get; set; }
+    /// <summary>Когда упаковку вскрыли; с этого момента срок партии считается по сроку после вскрытия.</summary>
+    public DateTimeOffset? OpenedAt { get; set; }
 }
 
 public class Dish : IOwned
@@ -224,8 +228,11 @@ public class OrderShortage
     public decimal Available { get; set; }
 }
 
-/// <summary>PrepUse — сырьё ушло в заготовку, PrepMade — заготовка поступила на склад.</summary>
-public enum MovementType { Supply, Order, WriteOff, PrepUse, PrepMade }
+/// <summary>
+/// PrepUse — сырьё ушло в заготовку, PrepMade — заготовка поступила на склад.
+/// Shortage и Surplus — недостача и излишек, найденные при инвентаризации.
+/// </summary>
+public enum MovementType { Supply, Order, WriteOff, PrepUse, PrepMade, Shortage, Surplus }
 
 public class Movement : IOwned
 {

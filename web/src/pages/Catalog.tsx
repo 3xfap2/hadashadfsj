@@ -41,17 +41,19 @@ interface ProductForm {
   life: string;
   /** Срок вводится в днях, если он длиннее пяти суток и кратен суткам, иначе в часах. */
   lifeInDays: boolean;
+  /** Срок после вскрытия упаковки, часы; пусто — вскрытие срок не меняет. */
+  opened: string;
   cost: string;
   /** Состав заготовки на единицу продукта; пусто у покупного продукта. */
   prep: RecipeLine[];
 }
 
-const emptyProduct: ProductForm = { id: null, name: '', unit: 'Kg', life: '', lifeInDays: false, cost: '', prep: [] };
+const emptyProduct: ProductForm = { id: null, name: '', unit: 'Kg', life: '', lifeInDays: false, opened: '', cost: '', prep: [] };
 
 function toForm(p: ProductRow, products: ProductRow[]): ProductForm {
   const inDays = p.shelfLifeHours > 120 && p.shelfLifeHours % 24 === 0;
   return {
-    id: p.id, name: p.name, unit: p.unit, life: String(inDays ? p.shelfLifeHours / 24 : p.shelfLifeHours), lifeInDays: inDays, cost: String(p.cost).replace('.', ','),
+    id: p.id, name: p.name, unit: p.unit, life: String(inDays ? p.shelfLifeHours / 24 : p.shelfLifeHours), lifeInDays: inDays, opened: p.openedShelfLifeHours ? String(p.openedShelfLifeHours) : '', cost: String(p.cost).replace('.', ','),
     prep: p.prepRecipe.map((r) => {
       const unit = products.find((x) => x.id === r.productId)!.unit;
       return { productId: r.productId, quantity: String(Math.round(r.quantity * small(unit) * 1000) / 1000).replace('.', ',') };
@@ -95,6 +97,7 @@ export function Products() {
     setBusy(true);
     const body = {
       name: form.name.trim(), unit: form.unit, shelfLifeHours: Math.round(number(form.life) * (form.lifeInDays ? 24 : 1)), cost: isPrep ? 0 : number(form.cost),
+      openedShelfLifeHours: number(form.opened) > 0 ? Math.round(number(form.opened)) : null,
       prepRecipe: form.prep.map((l) => ({ productId: l.productId, quantity: number(l.quantity) / small(byId(l.productId).unit) })),
     };
     const response = await send(form.id ? 'PUT' : 'POST', form.id ? `/products/${form.id}` : '/products', body);
@@ -175,6 +178,14 @@ export function Products() {
                 </div>
                 {bad.life && <span className="g-error-text">Укажите срок больше нуля, например 72</span>}
                 <span className="g-hint">От приёмки партии. По нему в поставке подставится «годен до».</span>
+              </div>
+              <div className="g-field">
+                <label htmlFor="p-opened">Срок после вскрытия</label>
+                <div className="g-unit">
+                  <input className="g-input num" id="p-opened" inputMode="numeric" value={form.opened} onChange={(e) => setForm({ ...form, opened: e.target.value })} />
+                  <span>ч</span>
+                </div>
+                <span className="g-hint">Необязательно. Когда упаковку вскроют на складе, срок партии сократится до этого значения.</span>
               </div>
               {isPrep ? (
                 <div className="g-field">

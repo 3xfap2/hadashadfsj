@@ -44,7 +44,7 @@ public sealed record LoginRequest(string? Login, string? Password);
 public sealed record LoginResponse(string Token, DateTimeOffset ExpiresAt);
 public sealed record ShiftInfo(string Start, string End);
 public sealed record MeResponse(
-    string Login, string Title, Role Role, IEnumerable<string> Sections, ShiftInfo Shift, IEnumerable<string> Places, string Restaurant);
+    string Login, string Title, Role Role, IEnumerable<string> Sections, ShiftInfo Shift, IEnumerable<string> Places, string Restaurant, Guid RestaurantId);
 
 
 /// <summary>Часы смены, с которыми создаётся новый ресторан; дальше каждый ресторан настраивает свои.</summary>
@@ -137,7 +137,7 @@ public static class AuthEndpoints
             var restaurant = await db.CurrentRestaurantAsync(ct);
             return Results.Ok(new MeResponse(
                 user.Login, user.Title, user.Role, Access.Sections(user.Role, Access.IsVendor(user.Login, user.RestaurantId, options)),
-                new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places(), restaurant.Name));
+                new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places(), restaurant.Name, restaurant.Id));
         })
         .WithTags("Вход")
         .RequireAuthorization();

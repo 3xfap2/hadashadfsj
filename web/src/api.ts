@@ -157,6 +157,10 @@ export interface BatchRow {
   expiresAt: string;
   hoursLeft: number;
   status: BatchStatus;
+  /** Когда упаковку вскрыли; null — партия закрыта. */
+  openedAt: string | null;
+  /** Срок после вскрытия у продукта; null — вскрывать партию незачем. */
+  openedShelfLifeHours: number | null;
 }
 
 export interface StockRow {
@@ -173,6 +177,8 @@ export interface ProductRow {
   name: string;
   unit: Unit;
   shelfLifeHours: number;
+  /** Срок хранения после вскрытия упаковки; null — вскрытие срок не меняет. */
+  openedShelfLifeHours: number | null;
   cost: number;
   /** Состав на единицу продукта, если это заготовка; у покупных продуктов пусто. */
   prepRecipe: { productId: string; quantity: number }[];
@@ -234,7 +240,7 @@ export interface ImportRow {
 export interface MovementRow {
   id: number;
   at: string;
-  type: 'Supply' | 'Order' | 'WriteOff' | 'PrepUse' | 'PrepMade';
+  type: 'Supply' | 'Order' | 'WriteOff' | 'PrepUse' | 'PrepMade' | 'Shortage' | 'Surplus';
   productName: string;
   unit: Unit;
   quantity: number;
@@ -325,6 +331,20 @@ export interface Me {
   places: string[];
   /** Название ресторана, в котором работает сотрудник. */
   restaurant: string;
+  restaurantId: string;
+}
+
+/** Итог инвентаризации: только продукты с расхождением. */
+export interface InventoryResult {
+  shortage: number;
+  surplus: number;
+  rows: { productId: string; productName: string; unit: Unit; accounted: number; actual: number; difference: number; value: number }[];
+}
+
+/** Меню для гостя: блюда, которые сейчас можно заказать; offerPrice — цена по предложению дня. */
+export interface GuestMenu {
+  restaurant: string;
+  dishes: { dishId: string; name: string; photoUrl: string | null; category: string | null; price: number; offerPrice: number | null; offerPercent: number | null }[];
 }
 
 export interface RestaurantSettings {

@@ -1228,4 +1228,84 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(3, (await Batches(product)).Sum(b => b.Remaining));
         Assert.DoesNotContain(await Get<List<IncomingResponse>>("/api/supplies/incoming"), s => s.Id == other.Id);
     }
+
+    [Fact]
+    public async Task Вскрытая_часть_партии_получает_короткий_срок_и_уходит_первой()
+    {
+        var created = await Api.PostAsJsonAsync("/api/products",
+            new ProductRequest($"Сливки {Guid.NewGuid():N}", Unit.L, 120, 500, OpenedShelfLifeHours: 24), ApiFixture.Json);
+        var product = await Read<ProductResponse>(created);
+        var dish = await Dish((product, 0.5m));
+        await Supply(new SupplyItemRequest(product.Id, 5, null));
+        var sealedBatch = (await Batches(product)).Single();
+
+        var tooMuch = await Api.PostAsJsonAsync($"/api/stock/batches/{sealedBatch.Id}/open", new OpenBatchRequest(6));
+        var opened = await Api.PostAsJsonAsync($"/api/stock/batches/{sealedBatch.Id}/open", new OpenBatchRequest(1));
+        var byWaiter = await fx.Waiter.PostAsJsonAsync($"/api/stock/batches/{sealedBatch.Id}/open", new OpenBatchRequest(1));
+
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.OK, HttpStatusCode.Forbidden), (tooMuch.StatusCode, opened.StatusCode, byWaiter.StatusCode));
+        var batches = await Batches(product);
+        var open = batches.Single(b => b.OpenedAt is not null);
+        // Литр вскрыт и годен сутки, четыре литра лежат закрытыми с прежним сроком; всего по-прежнему пять.
+        Assert.Equal((1m, 4m), (open.Remaining, batches.Single(b => b.OpenedAt is null).Remaining));
+        Assert.InRange(open.HoursLeft, 23, 24);
+        Assert.Equal(HttpStatusCode.Conflict, (await Api.PostAsJsonAsync($"/api/stock/batches/{open.Id}/open", new OpenBatchRequest(null))).StatusCode);
+
+        // Заказ списывает сначала вскрытое.
+        (await Order(dish)).EnsureSuccessStatusCode();
+        Assert.Equal(0.5m, (await Batches(product)).Single(b => b.OpenedAt is not null).Remaining);
+
+        // Без срока после вскрытия партию вскрыть нельзя.
+        var plain = await Product();
+        await Supply(new SupplyItemRequest(plain.Id, 1, null));
+        Assert.Equal(HttpStatusCode.BadRequest, (await Api.PostAsJsonAsync($"/api/stock/batches/{(await Batches(plain)).Single().Id}/open", new OpenBatchRequest(null))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Инвентаризация_исправляет_остатки_и_пишет_расхождения_в_журнал()
+    {
+        var less = await Product();
+        var more = await Product();
+        var same = await Product();
+        var absent = await Product();
+        // У первого продукта две партии: недостача уходит из той, что истекает раньше.
+        await Supply(new SupplyItemRequest(less.Id, 2, 10), new SupplyItemRequest(more.Id, 3, null), new SupplyItemRequest(same.Id, 1, null));
+        await Supply(new SupplyItemRequest(less.Id, 4, 48));
+
+        var noBatch = await Api.PostAsJsonAsync("/api/stock/inventory", new InventoryRequest([new InventoryLine(absent.Id, 1)]));
+        var counted = await Api.PostAsJsonAsync("/api/stock/inventory",
+            new InventoryRequest([new InventoryLine(less.Id, 3.5m), new InventoryLine(more.Id, 3.4m), new InventoryLine(same.Id, 1)]));
+        var byWaiter = await fx.Waiter.PostAsJsonAsync("/api/stock/inventory", new InventoryRequest([new InventoryLine(same.Id, 0)]));
+
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.OK, HttpStatusCode.Forbidden), (noBatch.StatusCode, counted.StatusCode, byWaiter.StatusCode));
+        var result = await Read<InventoryResponse>(counted);
+        // Цена продукта 1000 ₽: не хватило 2,5 кг, нашлось лишних 0,4 кг; продукт без расхождения в итог не попал.
+        Assert.Equal((2500m, 400m), (result.Shortage, result.Surplus));
+        Assert.Equal([less.Id, more.Id], result.Rows.Select(r => r.ProductId));
+        Assert.Equal([4m - 0.5m], (await Batches(less)).Select(b => b.Remaining));
+        Assert.Equal(3.4m, (await Batches(more)).Single().Remaining);
+        var journal = (await Get<List<MovementRow>>("/api/movements?take=20")).Where(m => m.Note == InventoryEndpoints.Note).ToList();
+        Assert.Equal(2.5m, journal.Where(m => m.Type == MovementType.Shortage && m.ProductId == less.Id).Sum(m => m.Quantity));
+        Assert.Equal(0.4m, journal.Single(m => m.Type == MovementType.Surplus).Quantity);
+    }
+
+    [Fact]
+    public async Task Меню_для_гостя_открыто_без_входа_и_не_показывает_блюда_из_стопа()
+    {
+        var product = await Product();
+        var empty = await Product();
+        var available = await Dish((product, 0.2m));
+        var stopped = await Dish((empty, 0.2m));
+        await Supply(new SupplyItemRequest(product.Id, 2, 4));
+        using var guest = fx.CreateClient();
+
+        var menu = (await guest.GetFromJsonAsync<GuestMenu>($"/api/public/menu/{Restaurant.DemoId}", ApiFixture.Json))!;
+        var missing = await guest.GetAsync($"/api/public/menu/{Guid.NewGuid()}");
+        var (_, _, _) = await fx.NewRestaurantAsync("Соседи");
+
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.DoesNotContain(menu.Dishes, d => d.DishId == stopped.Id);
+        // Продукт истекает через 4 часа: блюдо попало в предложения дня, гость видит цену со скидкой (500 → 325).
+        Assert.Equal((500m, 325m, 35), menu.Dishes.Where(d => d.DishId == available.Id).Select(d => (d.Price, d.OfferPrice!.Value, d.OfferPercent!.Value)).Single());
+    }
 }

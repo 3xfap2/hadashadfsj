@@ -182,6 +182,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescri
 app.MapAuth();
 app.MapLeads();
 app.MapChats();
+app.MapGuestMenu();
 app.MapRealtime();
 
 var api = app.MapGroup("/api").RequireAuthorization();
@@ -190,6 +191,7 @@ api.MapSupplies();
 api.MapOrders();
 api.MapPreps();
 api.MapStock();
+api.MapInventory();
 api.MapInsights();
 api.MapHotSettings();
 api.MapAlerts();

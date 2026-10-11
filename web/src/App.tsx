@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { getToken, onAuthChange } from './api';
 import { isNative } from './native';
+import { GuestMenu } from './pages/GuestMenu';
 import { Landing } from './pages/Landing';
 import { Login } from './pages/Login';
 import { Shell } from './Shell';
@@ -49,6 +50,7 @@ export function App() {
         <Route path="/app/*" element={signedIn ? <Shell /> : <ToLogin />} />
         {/* Приложение открывается сразу на входе: лендинг нужен тем, кто ещё не клиент. */}
         <Route path="/" element={isNative ? <Navigate to="/login" replace /> : <Landing />} />
+        <Route path="/menu/:restaurant" element={<GuestMenu />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

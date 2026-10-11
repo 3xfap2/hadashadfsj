@@ -7,8 +7,9 @@ namespace Ostatok.Api.Features;
 public sealed record RecipeItemDto(Guid ProductId, decimal Quantity);
 
 /// <param name="PrepRecipe">Состав на единицу продукта, если это заготовка; цена такой заготовки считается по составу.</param>
-public sealed record ProductRequest(string? Name, Unit Unit, int ShelfLifeHours, decimal Cost, List<RecipeItemDto>? PrepRecipe = null);
-public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal Cost, IEnumerable<RecipeItemDto> PrepRecipe);
+/// <param name="OpenedShelfLifeHours">Срок хранения после вскрытия упаковки; не указан — вскрытие срок не меняет.</param>
+public sealed record ProductRequest(string? Name, Unit Unit, int ShelfLifeHours, decimal Cost, List<RecipeItemDto>? PrepRecipe = null, int? OpenedShelfLifeHours = null);
+public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal Cost, IEnumerable<RecipeItemDto> PrepRecipe, int? OpenedShelfLifeHours);
 public sealed record DishRequest(string? Name, decimal Price, List<RecipeItemDto>? Recipe, string? PhotoUrl = null, string? Category = null);
 public sealed record DishResponse(
     Guid Id, string Name, decimal Price, string? PhotoUrl, IEnumerable<RecipeItemDto> Recipe, string? Category, bool ManuallyStopped,
@@ -28,7 +29,7 @@ public static class CatalogEndpoints
             if (await ValidateAsync(req, null, db, ct) is { Any: true } errors) return errors.ToResult();
             if (await db.Products.AnyAsync(p => p.Name == req.Name!.Trim(), ct)) return NameTaken("Продукт");
 
-            var product = new Product { Name = req.Name!.Trim(), Unit = req.Unit, ShelfLifeHours = req.ShelfLifeHours, Cost = req.Cost };
+            var product = new Product { Name = req.Name!.Trim(), Unit = req.Unit, ShelfLifeHours = req.ShelfLifeHours, OpenedShelfLifeHours = req.OpenedShelfLifeHours, Cost = req.Cost };
             await SetPrepRecipeAsync(product, req, db, ct);
             db.Products.Add(product);
             await db.SaveChangesAsync(ct);
@@ -48,7 +49,7 @@ public static class CatalogEndpoints
                 || await db.Products.AnyAsync(p => p.PrepRecipe.Any(i => i.ProductId == id), ct)))
                 return Results.Problem("Единицу измерения нельзя сменить: продукт уже есть в поставках или техкартах.", statusCode: StatusCodes.Status409Conflict);
 
-            (product.Name, product.Unit, product.ShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit, req.ShelfLifeHours, req.Cost);
+            (product.Name, product.Unit, product.ShelfLifeHours, product.OpenedShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit, req.ShelfLifeHours, req.OpenedShelfLifeHours, req.Cost);
             await SetPrepRecipeAsync(product, req, db, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToResponse(product));
@@ -166,6 +167,7 @@ public static class CatalogEndpoints
         .Check(!string.IsNullOrWhiteSpace(req.Name) && req.Name.Length <= 120, "name", "Укажите название до 120 символов.")
         .Check(Enum.IsDefined(req.Unit), "unit", "Единица измерения: Kg, L или Pcs.")
         .Check(req.ShelfLifeHours is > 0 and <= 100_000, "shelfLifeHours", "Срок хранения — от 1 до 100 000 часов.")
+        .Check(req.OpenedShelfLifeHours is null || (req.OpenedShelfLifeHours > 0 && req.OpenedShelfLifeHours <= req.ShelfLifeHours), "openedShelfLifeHours", "Срок после вскрытия — от 1 часа и не длиннее срока хранения.")
         .Check(req.Cost is >= 0 and <= 10_000_000, "cost", "Цена — от 0 до 10 000 000 ₽.");
 
     private static async Task<Errors> ValidateAsync(ProductRequest req, Guid? id, AppDbContext db, CancellationToken ct)
@@ -225,7 +227,7 @@ public static class CatalogEndpoints
         req.Recipe!.Select(r => new RecipeItem { ProductId = r.ProductId, Quantity = r.Quantity }).ToList();
 
     private static ProductResponse ToResponse(Product p) =>
-        new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, p.Cost, p.PrepRecipe.Select(i => new RecipeItemDto(i.ProductId, i.Quantity)));
+        new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, p.Cost, p.PrepRecipe.Select(i => new RecipeItemDto(i.ProductId, i.Quantity)), p.OpenedShelfLifeHours);
 
     private static DishResponse ToResponse(Dish d) =>
         new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)), d.Category, d.ManuallyStopped, d.HotPinned, d.HotHidden);

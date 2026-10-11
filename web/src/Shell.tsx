@@ -7,6 +7,7 @@ import { AccessContext, useCan } from './ui';
 import { Analytics } from './pages/Analytics';
 import { Demo } from './pages/Demo';
 import { HotSettings } from './pages/HotSettings';
+import { Inventory } from './pages/Inventory';
 import { Journal } from './pages/Journal';
 import { Labels } from './pages/Labels';
 import { Dishes, Products } from './pages/Catalog';
@@ -128,6 +129,7 @@ export function Shell() {
           <Route path="stock/supplies" element={<Guard section="stock"><Supplies /></Guard>} />
           <Route path="stock/preps" element={<Guard section="kitchen"><Preps /></Guard>} />
           <Route path="stock/journal" element={<Guard section="stock"><Journal /></Guard>} />
+          <Route path="stock/inventory" element={<Guard section="stock"><Inventory /></Guard>} />
           <Route path="labels" element={<Guard section="stock"><Labels /></Guard>} />
           <Route path="support" element={<Guard section="support"><Support /></Guard>} />
           <Route path="hot" element={<Guard section="catalog"><HotSettings /></Guard>} />

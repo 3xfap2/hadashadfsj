@@ -7,7 +7,7 @@ import { isNative, PUBLIC_ORIGIN } from '../native';
 const dateTime = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 /** QR-код как SVG: печатается чётко в любом размере. */
-function Qr({ text }: { text: string }) {
+export function Qr({ text, label = 'QR-код партии' }: { text: string; label?: string }) {
   const code = qrcode(0, 'M');
   code.addData(text);
   code.make();
@@ -15,7 +15,7 @@ function Qr({ text }: { text: string }) {
   let path = '';
   for (let row = 0; row < size; row++) for (let col = 0; col < size; col++) if (code.isDark(row, col)) path += `M${col} ${row}h1v1h-1z`;
   return (
-    <svg className="label__qr" viewBox={`-2 -2 ${size + 4} ${size + 4}`} shapeRendering="crispEdges" role="img" aria-label="QR-код партии">
+    <svg className="label__qr" viewBox={`-2 -2 ${size + 4} ${size + 4}`} shapeRendering="crispEdges" role="img" aria-label={label}>
       <path d={path} />
     </svg>
   );

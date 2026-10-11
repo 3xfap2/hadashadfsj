@@ -12,7 +12,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'WriteOff', label: 'Списания' },
   { id: 'Prep', label: 'Заготовки' },
 ];
-const TYPES = { Supply: 'Поставка', Order: 'Заказ', WriteOff: 'Списание', PrepUse: 'В заготовку', PrepMade: 'Заготовка' };
+const TYPES = { Supply: 'Поставка', Order: 'Заказ', WriteOff: 'Списание', PrepUse: 'В заготовку', PrepMade: 'Заготовка', Shortage: 'Недостача', Surplus: 'Излишек' };
 
 export function Journal() {
   const movements = useApi<MovementRow[]>('/movements?take=100');
@@ -56,9 +56,9 @@ export function Journal() {
                 {shown.map((m) => (
                   <tr key={m.id}>
                     <td className="num muted">{dueLong(m.at)}</td>
-                    <td>{m.type === 'WriteOff' ? <span className="g-tag g-tag--amber">{TYPES[m.type]}</span> : TYPES[m.type]}</td>
+                    <td>{m.type === 'WriteOff' || m.type === 'Shortage' ? <span className="g-tag g-tag--amber">{TYPES[m.type]}</span> : TYPES[m.type]}</td>
                     <td className="g-name">{m.productName}</td>
-                    <td className="r hd journal__qty">{m.type === 'Supply' || m.type === 'PrepMade' ? '+' : '−'}{qty(m.quantity, m.unit)}</td>
+                    <td className="r hd journal__qty">{m.type === 'Supply' || m.type === 'PrepMade' || m.type === 'Surplus' ? '+' : '−'}{qty(m.quantity, m.unit)}</td>
                     <td>{m.note ?? (m.type === 'Order' ? 'Продажа блюда' : '—')}</td>
                     <td className="muted">{m.actor || '—'}</td>
                   </tr>

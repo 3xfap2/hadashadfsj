@@ -14,7 +14,8 @@ public sealed record StockRow(
 
 public sealed record BatchRow(
     Guid Id, Guid ProductId, string ProductName, Unit Unit, string SupplyNumber,
-    decimal Quantity, decimal Remaining, decimal Value, DateTimeOffset ReceivedAt, DateTimeOffset ExpiresAt, double HoursLeft, BatchStatus Status);
+    decimal Quantity, decimal Remaining, decimal Value, DateTimeOffset ReceivedAt, DateTimeOffset ExpiresAt, double HoursLeft, BatchStatus Status,
+    DateTimeOffset? OpenedAt, int? OpenedShelfLifeHours);
 
 public sealed record StopListRow(
     Guid DishId, string DishName, string? PhotoUrl, decimal Price, DishStatus Status, int Portions,
@@ -86,13 +87,14 @@ public static class StockEndpoints
             var batches = await db.Batches
                 .Where(b => b.Remaining > 0 && (productId == null || b.ProductId == productId))
                 .OrderBy(b => b.ExpiresAt)
-                .Select(b => new { b.Id, b.ProductId, ProductName = b.Product!.Name, b.Product.Unit, SupplyNumber = b.Supply!.Number, ReceivedAt = b.Supply.CreatedAt, b.Quantity, b.Remaining, b.Product.Cost, b.ExpiresAt })
+                .Select(b => new { b.Id, b.ProductId, ProductName = b.Product!.Name, b.Product.Unit, SupplyNumber = b.Supply!.Number, ReceivedAt = b.Supply.CreatedAt, b.Quantity, b.Remaining, b.Product.Cost, b.ExpiresAt, b.OpenedAt, b.Product.OpenedShelfLifeHours })
                 .ToListAsync(ct);
 
             return batches.Select(b => new BatchRow(
                 b.Id, b.ProductId, b.ProductName, b.Unit, b.SupplyNumber, b.Quantity, b.Remaining, b.Remaining * b.Cost, b.ReceivedAt, b.ExpiresAt,
                 Math.Round((b.ExpiresAt - now).TotalHours, 1),
-                b.ExpiresAt <= now ? BatchStatus.Expired : b.ExpiresAt <= soon ? BatchStatus.ExpiringSoon : BatchStatus.Fresh));
+                b.ExpiresAt <= now ? BatchStatus.Expired : b.ExpiresAt <= soon ? BatchStatus.ExpiringSoon : BatchStatus.Fresh,
+                b.OpenedAt, b.OpenedShelfLifeHours));
         });
 
         stock.MapPost("/batches/{id:guid}/write-off", async (Guid id, WriteOffRequest? req, WriteOffService service, ClaimsPrincipal user, CancellationToken ct) =>

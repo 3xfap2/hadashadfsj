@@ -83,6 +83,9 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("OpenedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -551,6 +554,9 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
+
+                    b.Property<int?>("OpenedShelfLifeHours")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uuid");

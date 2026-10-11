@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { send, useApi, type Me, type StaffRow } from '../api';
+import { PUBLIC_ORIGIN } from '../native';
+import { Qr } from './Labels';
 import { RestaurantSettings } from './RestaurantSettings';
 
 const ROLES: { id: StaffRow['role']; title: string; can: string }[] = [
@@ -141,6 +143,16 @@ export function Staff() {
             </div>
           </form>
           <RestaurantSettings onSaved={profile.reload} />
+          {profile.data && (
+            <section className="g-panel guest-link" aria-labelledby="guest-h">
+              <div className="g-panel__head"><h2 id="guest-h">Меню для гостей</h2><span className="end">без входа</span></div>
+              <div className="form-body">
+                <Qr text={`${PUBLIC_ORIGIN}/menu/${profile.data.restaurantId}`} label="QR-код меню для гостей" />
+                <span className="muted">Распечатайте код и поставьте на стол. Гость увидит блюда, которые сейчас можно заказать, и предложения дня со скидкой. Блюд из стоп-листа, остатков и сроков в меню нет.</span>
+                <a className="g-btn" href={`/menu/${profile.data.restaurantId}`} target="_blank" rel="noreferrer">Открыть меню</a>
+              </div>
+            </section>
+          )}
         </aside>
       </div>
     </>

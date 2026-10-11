@@ -34,6 +34,7 @@ export function StockTabs() {
       <NavLink to="/app/stock" end>Остатки</NavLink>
       <NavLink to="/app/stock/supplies">Поставки</NavLink>
       {kitchen && <NavLink to="/app/stock/preps">Заготовки</NavLink>}
+      <NavLink to="/app/stock/inventory">Инвентаризация</NavLink>
       <NavLink to="/app/stock/journal">Журнал</NavLink>
     </nav>
   );
@@ -49,6 +50,8 @@ export function Stock() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   // Партия, для которой сейчас спрашивается причина списания.
   const [asking, setAsking] = useState<string | null>(null);
+  // Партия, которую вскрывают: сколько из неё вскрыто и что ответил сервер.
+  const [opening, setOpening] = useState<{ id: string; quantity: string; error: string } | null>(null);
   const [busy, setBusy] = useState(false);
   // Партия, открытая по QR-коду с этикетки: её продукт раскрыт, строка выделена.
   const [params, setParams] = useSearchParams();
@@ -76,6 +79,26 @@ export function Stock() {
   useEffect(() => {
     if (loaded) targetRow.current?.scrollIntoView({ block: 'center' });
   }, [loaded, target]);
+
+  const openBatch = async () => {
+    if (!opening) return;
+    setBusy(true);
+    try {
+      const response = await post(`/stock/batches/${opening.id}/open`, { quantity: Number(opening.quantity.replace(',', '.')) });
+      if (response.ok) {
+        setOpening(null);
+        await Promise.all([stock.reload(), batches.reload(), stopList.reload()]);
+      } else {
+        const problem = await response.json().catch(() => ({}));
+        const messages = Object.values((problem.errors ?? {}) as Record<string, string[]>).flat();
+        setOpening({ ...opening, error: messages.join(' ') || problem.detail || `Сервер ответил ошибкой ${response.status}.` });
+      }
+    } catch (e) {
+      setOpening({ ...opening, error: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const writeOff = async (batch: BatchRow, reason?: 'Spoiled' | 'Defective') => {
     setBusy(true);
@@ -196,7 +219,7 @@ export function Stock() {
                           <span className="batch-row__main">
                             <strong className="num hd">{qty(b.remaining, b.unit)} из {qty(b.quantity, b.unit)}</strong>
                             <span className="muted small">
-                              Поставка {b.supplyNumber} · принята {dayMonthShort(b.receivedAt)} · <Link to={`/app/labels?batch=${b.id}`}>этикетка</Link>
+                              Поставка {b.supplyNumber} · принята {dayMonthShort(b.receivedAt)}{b.openedAt && ` · вскрыта ${dayMonthShort(b.openedAt)}`} · <Link to={`/app/labels?batch=${b.id}`}>этикетка</Link>
                             </span>
                           </span>
                           <span className="batch-row__until">
@@ -204,7 +227,18 @@ export function Stock() {
                             <strong className="num hd">{dueLong(b.expiresAt)}</strong>
                           </span>
                           <span className="num r batch-row__left" style={{ color: KINDS[kind].color }}>{leftPrecise(b.hoursLeft)}</span>
-                          {asking === b.id ? (
+                          {opening?.id === b.id ? (
+                            <span className="batch-row__ask" role="group" aria-label="Вскрыть упаковку">
+                              <span className="muted small">Сколько вскрыли? Срок станет {b.openedShelfLifeHours} ч</span>
+                              <span className="g-unit batch-row__qty">
+                                <input className="g-input num" inputMode="decimal" aria-label="Количество" value={opening.quantity} onChange={(e) => setOpening({ ...opening, quantity: e.target.value, error: '' })} />
+                                <span>{unitName(b.unit)}</span>
+                              </span>
+                              <button className="g-btn g-btn--sm g-btn--primary" type="button" disabled={busy} onClick={openBatch}>Вскрыть</button>
+                              <button className="g-btn g-btn--sm batch-row__cancel" type="button" onClick={() => setOpening(null)}>Отмена</button>
+                              {opening.error && <span className="g-error-text" role="alert">{opening.error}</span>}
+                            </span>
+                          ) : asking === b.id ? (
                             <span className="batch-row__ask" role="group" aria-label="Причина списания">
                               <span className="muted small">Почему списываем?</span>
                               <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => writeOff(b, 'Spoiled')}>Порча при хранении</button>
@@ -213,9 +247,16 @@ export function Stock() {
                             </span>
                           ) : (
                             // Просроченная партия списывается сразу: причина известна. Для годной спрашиваем.
-                            <button className="g-btn g-btn--sm batch-row__off" type="button" disabled={busy} onClick={() => (b.status === 'Expired' ? writeOff(b) : setAsking(b.id))}>
+                            <span className="batch-row__off batch-row__acts">
+                            {b.openedShelfLifeHours && !b.openedAt && b.status !== 'Expired' && (
+                              <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => { setAsking(null); setOpening({ id: b.id, quantity: String(b.remaining).replace('.', ','), error: '' }); }}>
+                                Вскрыть
+                              </button>
+                            )}
+                            <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => (b.status === 'Expired' ? writeOff(b) : setAsking(b.id))}>
                               Списать
                             </button>
+                            </span>
                           )}
                         </li>
                       );

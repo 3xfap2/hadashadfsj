@@ -177,7 +177,7 @@ public static class InsightsEndpoints
             var moves = (await (
                     from m in db.Movements
                     join b in db.Batches on m.BatchId equals b.Id
-                    where b.Supply!.CreatedAt >= since && m.Type != MovementType.Supply && m.Type != MovementType.PrepMade
+                    where b.Supply!.CreatedAt >= since && m.Type != MovementType.Supply && m.Type != MovementType.PrepMade && m.Type != MovementType.Surplus
                     group m by new { m.BatchId, m.Type, m.Note } into g
                     select new { g.Key.BatchId, g.Key.Type, g.Key.Note, Quantity = g.Sum(m => m.Quantity) }).ToListAsync(ct))
                 .ToLookup(m => m.BatchId);
