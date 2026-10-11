@@ -263,6 +263,79 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("HotSettings");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.IncomingItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("IncomingSupplyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
+                    b.Property<int?>("ShelfLifeHours")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncomingSupplyId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("IncomingItem", t =>
+                        {
+                            t.HasCheckConstraint("CK_IncomingItems_Quantity", "\"Quantity\" >= 0.001");
+                        });
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.IncomingSupply", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DecidedBy")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Supplier")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId", "Status");
+
+                    b.ToTable("IncomingSupplies");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Lead", b =>
                 {
                     b.Property<long>("Id")
@@ -761,6 +834,32 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.IncomingItem", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.IncomingSupply", null)
+                        .WithMany("Items")
+                        .HasForeignKey("IncomingSupplyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.IncomingSupply", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Movement", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Batch", null)
@@ -916,6 +1015,11 @@ namespace Ostatok.Api.Data.Migrations
             modelBuilder.Entity("Ostatok.Api.Domain.Dish", b =>
                 {
                     b.Navigation("Recipe");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.IncomingSupply", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Order", b =>

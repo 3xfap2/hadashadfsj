@@ -17,6 +17,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
     public DbSet<Restaurant> Restaurants => Set<Restaurant>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Supply> Supplies => Set<Supply>();
+    public DbSet<IncomingSupply> IncomingSupplies => Set<IncomingSupply>();
     public DbSet<Batch> Batches => Set<Batch>();
     public DbSet<Dish> Dishes => Set<Dish>();
     public DbSet<Order> Orders => Set<Order>();
@@ -50,6 +51,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(s => s.Number).HasMaxLength(40);
             e.Property(s => s.Supplier).HasMaxLength(120);
             e.HasIndex(s => new { s.RestaurantId, s.Number }).IsUnique();
+        });
+
+        model.Entity<IncomingSupply>(e =>
+        {
+            e.Property(s => s.Number).HasMaxLength(40);
+            e.Property(s => s.Supplier).HasMaxLength(120);
+            e.Property(s => s.DecidedBy).HasMaxLength(60);
+            e.HasIndex(s => new { s.RestaurantId, s.Status });
+            e.HasMany(s => s.Items).WithOne().HasForeignKey(i => i.IncomingSupplyId);
+        });
+        model.Entity<IncomingItem>(e =>
+        {
+            e.HasOne(i => i.Product).WithMany().HasForeignKey(i => i.ProductId).OnDelete(DeleteBehavior.Restrict);
+            e.ToTable(t => t.HasCheckConstraint("CK_IncomingItems_Quantity", "\"Quantity\" >= 0.001"));
         });
 
         model.Entity<Batch>(e =>

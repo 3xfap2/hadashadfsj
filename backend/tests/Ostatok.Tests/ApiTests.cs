@@ -1193,4 +1193,39 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.BadRequest, tooFast.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, byCook.StatusCode);
     }
+
+    [Fact]
+    public async Task Поставка_извне_попадает_на_склад_только_после_подтверждения()
+    {
+        var product = await Product(shelfLifeHours: 48);
+        var request = new SupplyRequest(Guid.NewGuid(), $"ВН-{Guid.NewGuid():N}", null, [new SupplyItemRequest(product.Id, 3, null)], "Поставщик");
+
+        var sent = await Api.PostAsJsonAsync("/api/supplies/incoming", request);
+        var twice = await Api.PostAsJsonAsync("/api/supplies/incoming", request);
+
+        Assert.Equal((HttpStatusCode.Accepted, HttpStatusCode.Conflict), (sent.StatusCode, twice.StatusCode));
+        // Пока поставку не подтвердили, на складе её нет, а в кабинете есть сигнал.
+        Assert.Empty(await Batches(product));
+        Assert.Contains(await Get<List<IncomingResponse>>("/api/supplies/incoming"), s => s.Id == request.Id && s.Total == 3000);
+        Assert.Contains((await Get<AlertsResponse>("/api/alerts?take=100")).Items, a => a.Kind == AlertKind.SupplyWaiting && a.Title.Contains(request.Number!));
+        // Чужой ресторан эту поставку не видит и принять не может.
+        var (stranger, _, _) = await fx.NewRestaurantAsync("Чужой склад");
+        Assert.Empty((await stranger.GetFromJsonAsync<List<IncomingResponse>>("/api/supplies/incoming", ApiFixture.Json))!);
+        Assert.Equal(HttpStatusCode.NotFound, (await stranger.PostAsync($"/api/supplies/incoming/{request.Id}/accept", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await fx.Waiter.PostAsync($"/api/supplies/incoming/{request.Id}/accept", null)).StatusCode);
+
+        var accepted = await Api.PostAsync($"/api/supplies/incoming/{request.Id}/accept", null);
+        var again = await Api.PostAsync($"/api/supplies/incoming/{request.Id}/accept", null);
+
+        Assert.Equal((HttpStatusCode.OK, HttpStatusCode.NotFound), (accepted.StatusCode, again.StatusCode));
+        Assert.Equal(3, (await Batches(product)).Single().Remaining);
+        Assert.DoesNotContain(await Get<List<IncomingResponse>>("/api/supplies/incoming"), s => s.Id == request.Id);
+
+        // Отклонённая поставка на склад не попадает.
+        var other = request with { Id = Guid.NewGuid(), Number = $"ВН-{Guid.NewGuid():N}" };
+        await Api.PostAsJsonAsync("/api/supplies/incoming", other);
+        Assert.Equal(HttpStatusCode.NoContent, (await Api.PostAsync($"/api/supplies/incoming/{other.Id}/reject", null)).StatusCode);
+        Assert.Equal(3, (await Batches(product)).Sum(b => b.Remaining));
+        Assert.DoesNotContain(await Get<List<IncomingResponse>>("/api/supplies/incoming"), s => s.Id == other.Id);
+    }
 }

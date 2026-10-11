@@ -64,6 +64,36 @@ public class Supply : IOwned
     public List<Batch> Batches { get; set; } = [];
 }
 
+public enum IncomingStatus { Pending, Accepted, Rejected }
+
+/// <summary>
+/// Поставка, которую прислала внешняя система. На склад она не попадает, пока сотрудник не подтвердит её в кабинете:
+/// партии и сроки годности появляются в момент приёмки.
+/// </summary>
+public class IncomingSupply : IOwned
+{
+    public Guid RestaurantId { get; set; }
+    public Guid Id { get; set; }
+    public required string Number { get; set; }
+    public string? Supplier { get; set; }
+    public DateTimeOffset ReceivedAt { get; set; }
+    public IncomingStatus Status { get; set; }
+    public DateTimeOffset? DecidedAt { get; set; }
+    /// <summary>Логин сотрудника, который принял или отклонил поставку.</summary>
+    public string? DecidedBy { get; set; }
+    public List<IncomingItem> Items { get; set; } = [];
+}
+
+public class IncomingItem
+{
+    public long Id { get; set; }
+    public Guid IncomingSupplyId { get; set; }
+    public Guid ProductId { get; set; }
+    public Product? Product { get; set; }
+    public decimal Quantity { get; set; }
+    public int? ShelfLifeHours { get; set; }
+}
+
 /// <summary>Партия: один продукт из одной поставки со своим сроком годности.</summary>
 public class Batch : IOwned
 {
@@ -127,7 +157,7 @@ public class HotSettings : IOwned
     public int MaxDiscountPercent { get; set; }
 }
 
-public enum AlertKind { BatchExpiring, BatchExpired, DishStopped, DishBack }
+public enum AlertKind { BatchExpiring, BatchExpired, DishStopped, DishBack, SupplyWaiting }
 
 /// <summary>Сигнал для сотрудников; ReadAt пуст, пока сигнал не прочитан.</summary>
 public class Alert : IOwned

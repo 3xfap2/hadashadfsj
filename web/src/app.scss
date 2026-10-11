@@ -738,6 +738,16 @@ body {
   }
 }
 
+.sup--waiting {
+  border-color: var(--amber);
+}
+
+.sup__decide {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 // ---------- Загрузка поставки из файла ----------
 
 .g-title.imp-title {

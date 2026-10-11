@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { post, useApi, type ProductRow, type SupplyRow } from '../api';
+import { post, useApi, type IncomingRow, type ProductRow, type SupplyRow } from '../api';
 import { dueLong, money, plural, qty, toLocalInput, unitName, weekdayLong } from '../format';
 import { PlusIcon } from '../ui';
 import { clearDraft, loadDraft, saveDraft, type DraftLine, type SupplyDraft } from '../supplyDraft';
@@ -13,6 +13,8 @@ const number = (text: string) => Number(text.replace(',', '.'));
 export function Supplies() {
   const products = useApi<ProductRow[]>('/products', 300_000);
   const supplies = useApi<SupplyRow[]>('/supplies?take=50');
+  const incoming = useApi<IncomingRow[]>('/supplies/incoming');
+  const [deciding, setDeciding] = useState({ id: '', busy: false, error: '' });
   const [draft, setDraft] = useState<SupplyDraft | null>(null);
   const [savedDraft, setSavedDraft] = useState(() => loadDraft());
   const [tried, setTried] = useState(false);
@@ -43,6 +45,21 @@ export function Supplies() {
   if (!draft || !products.data || !supplies.data) return <p className="muted">Загружаем поставки…</p>;
 
   const byId = (id: string) => products.data!.find((p) => p.id === id)!;
+  const decide = async (id: string, action: 'accept' | 'reject') => {
+    setDeciding({ id, busy: true, error: '' });
+    let error = '';
+    try {
+      const response = await post(`/supplies/incoming/${id}/${action}`);
+      if (!response.ok) {
+        const problem = await response.json().catch(() => ({}));
+        error = problem.detail || `Сервер ответил ошибкой ${response.status}.`;
+      }
+      await Promise.all([incoming.reload(), supplies.reload()]);
+    } catch (e) {
+      error = (e as Error).message;
+    }
+    setDeciding({ id, busy: false, error });
+  };
   const received = draft.date ? new Date(draft.date) : new Date();
   const update = (patch: Partial<SupplyDraft>) => setDraft({ ...draft, ...patch });
   const updateLine = (index: number, patch: Partial<DraftLine>) =>
@@ -212,6 +229,20 @@ export function Supplies() {
             <span className="muted small">за неделю · {supplies.data.filter((s) => new Date(s.createdAt).getTime() >= weekAgo).length}</span>
           </div>
           <ul className="sup-list">
+            {incoming.data?.map((s) => (
+              <li key={s.id} className="g-panel sup sup--waiting">
+                <div className="sup__top"><span className="g-name num">{s.number}</span><span className="num muted small">{dueLong(s.receivedAt)}</span></div>
+                {s.supplier && <span className="muted small">{s.supplier}</span>}
+                <span className="sup__items">{s.items.map((i) => `${i.productName} ${qty(i.quantity, i.unit)}`).join(' · ')}</span>
+                <div className="sup__bottom"><strong className="num hd">{money(s.total)}</strong><span className="g-tag g-tag--amber">Ждёт подтверждения</span></div>
+                <span className="muted small">Пришла из внешней системы. На склад попадёт после приёмки, срок годности считается с этого момента.</span>
+                {deciding.error && deciding.id === s.id && <span className="g-error-text" role="alert">{deciding.error}</span>}
+                <div className="sup__decide">
+                  <button className="g-btn g-btn--sm" type="button" disabled={deciding.busy} onClick={() => decide(s.id, 'reject')}>Отклонить</button>
+                  <button className="g-btn g-btn--sm g-btn--primary" type="button" disabled={deciding.busy} onClick={() => decide(s.id, 'accept')}>Принять</button>
+                </div>
+              </li>
+            ))}
             {savedDraft && (
               <li className="g-panel sup">
                 <div className="sup__top"><span className="g-name num">{savedDraft.number || 'Без номера'}</span><span className="num muted small">на этом устройстве</span></div>
@@ -223,7 +254,7 @@ export function Supplies() {
                 </div>
               </li>
             )}
-            {supplies.data.length === 0 && !savedDraft && <li className="g-empty"><strong>Поставок пока нет</strong>Первая появится здесь после приёмки.</li>}
+            {supplies.data.length === 0 && !savedDraft && !incoming.data?.length && <li className="g-empty"><strong>Поставок пока нет</strong>Первая появится здесь после приёмки.</li>}
             {supplies.data.map((s) => (
               <li key={s.id} className="g-panel sup">
                 <div className="sup__top"><span className="g-name num">{s.number}</span><span className="num muted small">{dueLong(s.createdAt)}</span></div>

@@ -209,6 +209,16 @@ export interface SupplyRow {
   items: { productName: string; unit: Unit; quantity: number }[];
 }
 
+/** Поставка от внешней системы: ждёт, пока её примут или отклонят. */
+export interface IncomingRow {
+  id: string;
+  number: string;
+  supplier: string | null;
+  receivedAt: string;
+  total: number;
+  items: { productId: string; productName: string; unit: Unit; quantity: number; shelfLifeHours: number }[];
+}
+
 export interface ImportRow {
   line: number;
   productText: string;
@@ -235,7 +245,7 @@ export interface MovementRow {
 export interface AlertRow {
   id: number;
   at: string;
-  kind: 'BatchExpiring' | 'BatchExpired' | 'DishStopped' | 'DishBack';
+  kind: 'BatchExpiring' | 'BatchExpired' | 'DishStopped' | 'DishBack' | 'SupplyWaiting';
   title: string;
   detail: string;
   expiresAt: string | null;
