@@ -7,6 +7,9 @@
 **Развёрнутая версия:** https://ostatok.onrender.com — кнопка «Открыть демо-ресторан» или вход под одной из демо-записей (см. «Запуск»).
 Сервис на бесплатном тарифе: после простоя первое открытие занимает до минуты.
 
+**Приложение для Android:** [ostatok.apk](https://github.com/3xfap2/hadashadfsj/releases/latest/download/ostatok.apk) — Android 8 и новее. Перед установкой разрешите установку из браузера;
+если стояла предыдущая сборка, сначала удалите её.
+
 ## Что умеет
 
 | Требование кейса | Как сделано | Где в коде |
@@ -104,6 +107,24 @@ npm run dev                                           # сайт на http://loc
 | `Seed__Demo` | `true`, чтобы наполнить демо-ресторан |
 
 Проверка работоспособности: `GET /health`.
+
+## Приложение для Android
+
+Сайт упакован в приложение через Capacitor (`web/android`, настройки — `web/capacitor.config.json`). Экраны лежат внутри приложения
+и открываются сразу, данные приходят с развёрнутого API; адрес API задан в `web/src/native.ts`.
+
+Что есть только в приложении: вход сразу с экрана входа, системная кнопка «Назад», вибрация при приёме и отказе заказа,
+отправка заявки поставщику через «Поделиться», сканер QR-кода этикетки партии на складе. Чего нет: уведомлений при закрытом
+приложении и печати этикеток (их печатают с компьютера).
+
+Сборка без Android Studio — в контейнере с Android SDK:
+
+```bash
+cd web && npm run build && npx cap sync android
+docker run --rm -v "$PWD:/src:ro" -v "$PWD/apk:/out" -v ostatok-gradle:/root/.gradle ghcr.io/cirruslabs/android-sdk:36 bash -c   "mkdir -p /w/node_modules && cp -r /src/android /w/android && cp -r /src/node_modules/@capacitor /w/node_modules/ && cd /w/android    && sed -i 's/$//' gradlew && chmod +x gradlew && ./gradlew --no-daemon assembleDebug && cp app/build/outputs/apk/debug/app-debug.apk /out/ostatok-debug.apk"
+```
+
+На GitHub приложение собирает `.github/workflows/android.yml`: метка `android-v*` кладёт APK в релиз.
 
 ## Тесты
 

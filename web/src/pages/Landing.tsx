@@ -330,7 +330,7 @@ export function Landing() {
             <p className="muted" style={{ marginTop: 8 }}>Приложение для повара и кладовщика, бот — для уведомлений о сроках и стоп-листе.</p>
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <a className="g-btn" href="#">Скачать приложение для Android</a>
+            <a className="g-btn" href="https://github.com/3xfap2/hadashadfsj/releases/latest/download/ostatok.apk">Скачать приложение для Android</a>
             <a className="g-btn" href="#">Открыть Telegram-бота</a>
           </div>
         </div>

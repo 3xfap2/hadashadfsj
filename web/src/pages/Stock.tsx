@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useSearchParams } from 'react-router-dom';
 import { post, useApi, type BatchRow, type ProductRow, type StockRow, type StopListRow } from '../api';
 import { dayMonthShort, dueLong, leftPrecise, money, qty, shelfLife, unitName } from '../format';
+import { isNative } from '../native';
 import { URGENT_HOURS, useCan } from '../ui';
 
 type Kind = 'hot' | 'soon' | 'ok' | 'expired' | 'low';
@@ -50,7 +51,26 @@ export function Stock() {
   const [asking, setAsking] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Партия, открытая по QR-коду с этикетки: её продукт раскрыт, строка выделена.
-  const target = useSearchParams()[0].get('batch');
+  const [params, setParams] = useSearchParams();
+  const target = params.get('batch');
+  const [scanNote, setScanNote] = useState('');
+
+  // В приложении этикетку можно отсканировать камерой: откроется та же партия, что и по ссылке из QR-кода.
+  const scan = async () => {
+    setScanNote('');
+    try {
+      const { CapacitorBarcodeScanner, CapacitorBarcodeScannerTypeHint } = await import('@capacitor/barcode-scanner');
+      const result = await CapacitorBarcodeScanner.scanBarcode({
+        hint: CapacitorBarcodeScannerTypeHint.QR_CODE,
+        scanInstructions: 'Наведите камеру на QR-код этикетки',
+      });
+      const id = batchFromLabel(result.ScanResult);
+      if (id && batches.data?.some((b) => b.id === id)) setParams({ batch: id });
+      else setScanNote('Партия не найдена: это не этикетка вашего склада, либо партия уже израсходована или списана.');
+    } catch {
+      // Сканер закрыли, не отсканировав, или камера недоступна — остаёмся на складе.
+    }
+  };
   const targetRow = useRef<HTMLLIElement>(null);
   const loaded = Boolean(batches.data);
   useEffect(() => {
@@ -121,9 +141,11 @@ export function Stock() {
         <div className="end stock-tools">
           <label className="sr" htmlFor="product-search">Найти продукт</label>
           <input className="g-input" id="product-search" type="search" placeholder="Найти продукт" value={search} onChange={(e) => setSearch(e.target.value)} />
+          {isNative && <button className="g-btn" type="button" onClick={scan}>Сканировать этикетку</button>}
           <Link className="g-btn g-btn--primary" to="/app/stock/supplies">Принять поставку</Link>
         </div>
       </div>
+      {scanNote && <div className="g-note g-note--err" role="alert"><span>{scanNote}</span></div>}
 
       <div className="g-seg stock-filters" role="group" aria-label="Срочность">
         {FILTERS.map((f) => (
@@ -205,6 +227,15 @@ export function Stock() {
       </section>
     </>
   );
+}
+
+/** Достаёт идентификатор партии из текста QR-кода этикетки: это ссылка вида …/app/stock?batch=<id>. */
+function batchFromLabel(text: string): string | null {
+  try {
+    return new URL(text).searchParams.get('batch');
+  } catch {
+    return null;
+  }
 }
 
 /** Две буквы для плашки без фото: первые буквы двух слов или начало единственного слова. */
