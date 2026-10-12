@@ -3,6 +3,7 @@ import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 're
 import { connectEvents, getToken, logout, onAuthChange, useApi, type Me, type Summary } from './api';
 import { Wait } from './ui';
 import { Chats } from './pages/Chats';
+import { Help } from './pages/Help';
 import { Lead, Leads } from './pages/Leads';
 import { Login } from './pages/Login';
 import { Overview } from './pages/Overview';
@@ -72,6 +73,7 @@ function Workspace({ me }: { me: Me }) {
           {SECTIONS.map((s) => <NavLink key={s.path} to={s.path} end={s.path === '/'}>{s.title}{count(s.path)}</NavLink>)}
         </nav>
         <div className="g-end">
+          <NavLink className="muted" to="/help">Справка</NavLink>
           <a className="muted" href="/app">Кабинет</a>
           <span className="hd shell__user">{me.title || me.login}</span>
           <button className="shell__exit" type="button" onClick={logout}>Выйти</button>
@@ -89,6 +91,7 @@ function Workspace({ me }: { me: Me }) {
             <Route path="restaurants" element={<Restaurants />} />
             <Route path="restaurants/:id" element={<Restaurant />} />
             <Route path="tasks" element={<TasksPage />} />
+            <Route path="help" element={<Help />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Fence>

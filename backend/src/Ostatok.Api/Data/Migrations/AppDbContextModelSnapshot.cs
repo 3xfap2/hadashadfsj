@@ -809,6 +809,10 @@ namespace Ostatok.Api.Data.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<string>("OwnerLogin")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
                     b.Property<string>("ShiftEnd")
                         .IsRequired()
                         .HasMaxLength(5)
@@ -823,6 +827,8 @@ namespace Ostatok.Api.Data.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("OwnerLogin");
 
                     b.ToTable("Restaurants");
                 });

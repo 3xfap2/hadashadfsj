@@ -201,6 +201,7 @@ api.MapAlerts();
 api.MapSimulator();
 api.MapStaff();
 api.MapRestaurant();
+api.MapOwner();
 api.MapSupportDesk();
 api.MapCrm();
 

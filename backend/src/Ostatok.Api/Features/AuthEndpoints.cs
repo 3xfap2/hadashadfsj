@@ -135,11 +135,12 @@ public static class AuthEndpoints
 
         app.MapGet("/api/me", async (ClaimsPrincipal principal, AppDbContext db, AuthOptions options, CancellationToken ct) =>
         {
-            var user = await db.Users.FirstOrDefaultAsync(u => u.Login == principal.Identity!.Name, ct);
+            // Владелец может работать в ресторане, который добавил сам: его учётная запись заведена в другом, поэтому ищем её среди всех.
+            var user = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Login == principal.Identity!.Name, ct);
             if (user is null) return Results.Unauthorized();
             var restaurant = await db.CurrentRestaurantAsync(ct);
             return Results.Ok(new MeResponse(
-                user.Login, user.Title, user.Role, Access.Sections(user.Role, Access.IsVendor(user.Login, user.RestaurantId, options)),
+                user.Login, user.Title, user.Role, Access.Sections(user.Role, Access.IsVendor(user.Login, restaurant.Id, options)),
                 new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places(), restaurant.Name, restaurant.Id));
         })
         .WithTags("Вход")
@@ -160,13 +161,16 @@ public static class AuthEndpoints
             || !int.TryParse(principal.FindFirst(VersionClaim)?.Value, out var version)
             || !Enum.TryParse<Role>(principal.FindFirst(ClaimTypes.Role)?.Value, out var role)) return Task.FromResult(false);
         // Роль тоже сверяется с базой: токену с подправленной ролью сервер не верит.
+        // Ресторан в токене — либо тот, где заведён сотрудник, либо тот, что управляющий добавил себе сам.
         return db.Users.IgnoreQueryFilters().AnyAsync(
-            u => u.Login == login && u.RestaurantId == restaurant && u.TokenVersion == version && u.Role == role
+            u => u.Login == login && u.TokenVersion == version && u.Role == role
+                && (u.RestaurantId == restaurant || (u.Role == Role.Manager && db.Restaurants.Any(r => r.Id == restaurant && r.OwnerLogin == login)))
                 && !db.Restaurants.Any(r => r.Id == restaurant && r.DisabledAt != null), ct);
     }
 
     /// <summary>Токен несёт логин, роль и ресторан: по ресторану сервер отбирает данные для каждого запроса.</summary>
-    private static LoginResponse Issue(User user, AuthOptions options, TimeProvider time)
+    /// <param name="restaurant">Ресторан, в который входит владелец; по умолчанию — тот, где заведена учётная запись.</param>
+    public static LoginResponse Issue(User user, AuthOptions options, TimeProvider time, Guid? restaurant = null)
     {
         var now = time.GetUtcNow();
         var expiresAt = now.AddHours(options.TokenHours);
@@ -177,7 +181,7 @@ public static class AuthEndpoints
             Subject = new ClaimsIdentity([
                 new Claim(ClaimTypes.Name, user.Login),
                 new Claim(ClaimTypes.Role, user.Role.ToString()),
-                new Claim(RestaurantClaim, user.RestaurantId.ToString()),
+                new Claim(RestaurantClaim, (restaurant ?? user.RestaurantId).ToString()),
                 new Claim(VersionClaim, user.TokenVersion.ToString()),
             ]),
             IssuedAt = now.UtcDateTime,

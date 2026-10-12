@@ -343,7 +343,7 @@ public static class CrmEndpoints
             r.Id, r.Name, r.CreatedAt, r.Id == Restaurant.DemoId, r.DisabledAt,
             db.Users.Count(u => u.RestaurantId == r.Id),
             // «Первый управляющий» — первый по алфавиту: порядок, в котором заводили сотрудников, база не хранит.
-            db.Users.Where(u => u.RestaurantId == r.Id && u.Role == Role.Manager).OrderBy(u => u.Login).Select(u => u.Login).FirstOrDefault(),
+            db.Users.Where(u => u.RestaurantId == r.Id && u.Role == Role.Manager).OrderBy(u => u.Login).Select(u => u.Login).FirstOrDefault() ?? r.OwnerLogin,
             db.Products.Count(p => p.RestaurantId == r.Id),
             db.Orders.Count(o => o.RestaurantId == r.Id && o.CreatedAt >= since),
             db.Movements.Where(m => m.RestaurantId == r.Id && m.Actor != WriteOffService.System).Max(m => (DateTimeOffset?)m.At),

@@ -137,6 +137,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(r => r.Name).HasMaxLength(120);
             e.Property(r => r.ShiftStart).HasMaxLength(5);
             e.Property(r => r.ShiftEnd).HasMaxLength(5);
+            e.Property(r => r.OwnerLogin).HasMaxLength(60);
+            e.HasIndex(r => r.OwnerLogin);
         });
 
         model.Entity<PrepItem>(e =>

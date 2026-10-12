@@ -2037,4 +2037,49 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.Created, (await support.PostAsJsonAsync($"/api/support/chats/{chat.Id}/messages", new ChatTextRequest("Да, две недели."))).StatusCode);
         Assert.Equal(0, (await Row()).Unread);
     }
+
+    [Fact]
+    public async Task Владелец_добавляет_себе_ресторан_и_переходит_в_него_а_данные_не_смешиваются()
+    {
+        var (owner, _, _) = await fx.NewRestaurantAsync("Первая точка");
+        var (stranger, _, _) = await fx.NewRestaurantAsync("Чужой ресторан");
+        using var demoManager = await fx.SignInAsync("manager");
+        Task<HttpResponseMessage> Product(HttpClient client, string name) =>
+            client.PostAsJsonAsync("/api/products", new ProductRequest(name, Unit.Kg, 48, 100), ApiFixture.Json);
+        (await Product(owner, "Только в первой")).EnsureSuccessStatusCode();
+
+        var added = await owner.PostAsJsonAsync("/api/my/restaurants", new MyRestaurantRequest("Вторая точка"));
+        var fromDemo = await demoManager.PostAsJsonAsync("/api/my/restaurants", new MyRestaurantRequest("Самозванец"));
+        var byWaiter = await fx.Waiter.PostAsJsonAsync("/api/my/restaurants", new MyRestaurantRequest("Самозванец"));
+
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.Forbidden, HttpStatusCode.Forbidden), (added.StatusCode, fromDemo.StatusCode, byWaiter.StatusCode));
+        var second = await Read<MyRestaurant>(added);
+        var mine = (await owner.GetFromJsonAsync<List<MyRestaurant>>("/api/my/restaurants", ApiFixture.Json))!;
+        Assert.Equal([("Первая точка", true), ("Вторая точка", false)], mine.Select(r => (r.Name, r.Current)));
+        // Чужой управляющий в этот ресторан не попадёт, даже зная его идентификатор.
+        Assert.Equal(HttpStatusCode.NotFound, (await stranger.PostAsync($"/api/my/restaurants/{second.Id}/enter", null)).StatusCode);
+
+        var entered = await owner.PostAsync($"/api/my/restaurants/{second.Id}/enter", null);
+        using var inSecond = fx.CreateClient();
+        inSecond.DefaultRequestHeaders.Authorization = new("Bearer", (await Read<LoginResponse>(entered)).Token);
+
+        // Во втором ресторане пусто: продукты первого сюда не попали, а заведённое здесь не видно в первом.
+        var me = (await inSecond.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!;
+        Assert.Equal(("Вторая точка", second.Id), (me.Restaurant, me.RestaurantId));
+        Assert.Empty((await inSecond.GetFromJsonAsync<List<ProductResponse>>("/api/products", ApiFixture.Json))!);
+        (await Product(inSecond, "Только во второй")).EnsureSuccessStatusCode();
+        Assert.Equal(["Только в первой"], (await owner.GetFromJsonAsync<List<ProductResponse>>("/api/products", ApiFixture.Json))!.Select(p => p.Name));
+        Assert.Equal(["Только во второй"], (await inSecond.GetFromJsonAsync<List<ProductResponse>>("/api/products", ApiFixture.Json))!.Select(p => p.Name));
+        // Во втором ресторане владелец заводит своих сотрудников, сигналы у него работают.
+        Assert.Equal(HttpStatusCode.OK, (await inSecond.GetAsync("/api/alerts")).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await inSecond.PostAsJsonAsync("/api/users",
+            new StaffRequest($"w{Guid.NewGuid():N}"[..20], "password-2026", "Официант", Role.Waiter), ApiFixture.Json)).StatusCode);
+
+        // Команда продукта отключила второй ресторан: токен владельца для него перестал работать, первый ресторан жив.
+        using var support = await fx.SignInAsSupportAsync();
+        (await support.PostAsync($"/api/crm/restaurants/{second.Id}/disable", null)).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await inSecond.GetAsync("/api/products")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync("/api/products")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.PostAsync($"/api/my/restaurants/{second.Id}/enter", null)).StatusCode);
+    }
 }

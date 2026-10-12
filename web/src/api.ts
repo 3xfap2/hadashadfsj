@@ -399,6 +399,15 @@ export interface GuestMenu {
   dishes: { dishId: string; name: string; photoUrl: string | null; category: string | null; price: number; offerPrice: number | null; offerPercent: number | null }[];
 }
 
+/** Ресторан владельца со сводкой: блюд в стопе и на сколько рублей истекает продуктов. */
+export interface MyRestaurant {
+  id: string;
+  name: string;
+  current: boolean;
+  stopped: number;
+  atRiskValue: number;
+}
+
 export interface RestaurantSettings {
   name: string;
   shiftStart: string;
@@ -503,6 +512,15 @@ export async function login(name: string, password: string): Promise<LoginError 
   }
   if (!response.ok) return NO_SERVER;
   setSession((await response.json()).token, name);
+  return null;
+}
+
+/** Перейти в другой свой ресторан: сервер выдаёт новый токен, кабинет открывается заново уже в нём. Возвращает текст ошибки. */
+export async function enterRestaurant(id: string): Promise<string | null> {
+  const response = await post(`/my/restaurants/${id}/enter`);
+  if (!response.ok) return `Перейти не удалось: сервер ответил ошибкой ${response.status}.`;
+  setSession((await response.json()).token, getLogin());
+  location.assign('/app');
   return null;
 }
 

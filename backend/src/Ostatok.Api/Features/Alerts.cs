@@ -58,7 +58,7 @@ public static class AlertEndpoints
         alerts.MapGet("", async (AppDbContext db, ClaimsPrincipal user, CancellationToken ct, int take = 30) =>
         {
             var login = user.Identity?.Name;
-            var read = await db.Users.Where(u => u.Login == login).Select(u => u.LastReadAlertId).FirstOrDefaultAsync(ct);
+            var read = await db.Users.IgnoreQueryFilters().Where(u => u.Login == login).Select(u => u.LastReadAlertId).FirstOrDefaultAsync(ct);
             var items = await db.Alerts.OrderByDescending(a => a.Id).Take(Math.Clamp(take, 1, 100)).ToListAsync(ct);
             return new AlertsResponse(
                 await db.Alerts.CountAsync(a => a.Id > read, ct),
@@ -70,7 +70,7 @@ public static class AlertEndpoints
         {
             var login = user.Identity?.Name;
             var last = await db.Alerts.Where(a => upTo == null || a.Id <= upTo).MaxAsync(a => (long?)a.Id, ct) ?? 0;
-            await db.Users.Where(u => u.Login == login && u.LastReadAlertId < last).ExecuteUpdateAsync(s => s.SetProperty(u => u.LastReadAlertId, last), ct);
+            await db.Users.IgnoreQueryFilters().Where(u => u.Login == login && u.LastReadAlertId < last).ExecuteUpdateAsync(s => s.SetProperty(u => u.LastReadAlertId, last), ct);
             bus.Publish(db.TenantId);
             return Results.NoContent();
         });

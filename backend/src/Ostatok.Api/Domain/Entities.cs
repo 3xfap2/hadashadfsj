@@ -28,6 +28,11 @@ public class Restaurant
     public int LastCheckNumber { get; set; }
     /// <summary>Номер последней инвентаризации.</summary>
     public int LastInventoryNumber { get; set; }
+    /// <summary>
+    /// Логин управляющего, который добавил этот ресторан себе сам. Пусто у ресторанов, открытых командой продукта:
+    /// там владелец — управляющий из сотрудников ресторана.
+    /// </summary>
+    public string? OwnerLogin { get; set; }
     /// <summary>Когда команда продукта отключила ресторан; пусто — ресторан работает.</summary>
     public DateTimeOffset? DisabledAt { get; set; }
 

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { send, useApi, type Me, type StaffRow } from '../api';
 import { PUBLIC_ORIGIN } from '../native';
 import { Qr } from './Labels';
+import { MyRestaurants } from './MyRestaurants';
 import { RestaurantSettings } from './RestaurantSettings';
 
 const ROLES: { id: StaffRow['role']; title: string; can: string }[] = [
@@ -143,6 +144,7 @@ export function Staff() {
             </div>
           </form>
           <RestaurantSettings onSaved={profile.reload} />
+          <MyRestaurants />
           {profile.data && (
             <section className="g-panel guest-link" aria-labelledby="guest-h">
               <div className="g-panel__head"><h2 id="guest-h">Меню для гостей</h2><span className="end">без входа</span></div>
