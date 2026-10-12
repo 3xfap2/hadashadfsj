@@ -67,12 +67,21 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     /// <summary>Закрытая учётная запись команды продукта: только она видит заявки и вопросы с лендинга.</summary>
     public Task<HttpClient> SignInAsSupportAsync() => SignInAsync("support", SupportPassword);
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _tokens = new();
+
     public async Task<HttpClient> SignInAsync(string login, string password = "demo2026")
     {
         var client = CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(login, password));
-        response.EnsureSuccessStatusCode();
-        var token = (await response.Content.ReadFromJsonAsync<LoginResponse>(Json))!.Token;
+        // Сервер принимает не больше 60 входов в минуту с адреса. Демо-записи и support в тестах не меняются,
+        // поэтому их токен берётся один раз: иначе сотня тестов упирается в этот предел.
+        var known = password is "demo2026" or SupportPassword;
+        if (!known || !_tokens.TryGetValue(login, out var token))
+        {
+            var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(login, password));
+            response.EnsureSuccessStatusCode();
+            token = (await response.Content.ReadFromJsonAsync<LoginResponse>(Json))!.Token;
+            if (known) _tokens[login] = token;
+        }
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }

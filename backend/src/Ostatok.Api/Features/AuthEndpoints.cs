@@ -124,6 +124,9 @@ public static class AuthEndpoints
             }
 
             attempts.Reset(login, address);
+            // Об отключении узнаёт только тот, кто ввёл верный пароль: посторонний по ответу не поймёт, чей это логин.
+            if (await db.Restaurants.AnyAsync(r => r.Id == user.RestaurantId && r.DisabledAt != null, ct))
+                return Results.Problem("Кабинет ресторана отключён. Напишите в поддержку «Остатка».", statusCode: StatusCodes.Status403Forbidden);
             return Results.Ok(Issue(user, options, time));
         })
         .WithTags("Вход")
@@ -148,7 +151,7 @@ public static class AuthEndpoints
 
     /// <summary>
     /// Токен действует, пока учётная запись существует и не менялась: после удаления сотрудника,
-    /// смены роли или пароля старый токен перестаёт работать сразу, а не через часы.
+    /// смены роли или пароля старый токен перестаёт работать сразу, а не через часы. Так же — после отключения ресторана.
     /// </summary>
     public static Task<bool> IsCurrentAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
@@ -158,7 +161,8 @@ public static class AuthEndpoints
             || !Enum.TryParse<Role>(principal.FindFirst(ClaimTypes.Role)?.Value, out var role)) return Task.FromResult(false);
         // Роль тоже сверяется с базой: токену с подправленной ролью сервер не верит.
         return db.Users.IgnoreQueryFilters().AnyAsync(
-            u => u.Login == login && u.RestaurantId == restaurant && u.TokenVersion == version && u.Role == role, ct);
+            u => u.Login == login && u.RestaurantId == restaurant && u.TokenVersion == version && u.Role == role
+                && !db.Restaurants.Any(r => r.Id == restaurant && r.DisabledAt != null), ct);
     }
 
     /// <summary>Токен несёт логин, роль и ресторан: по ресторану сервер отбирает данные для каждого запроса.</summary>

@@ -299,14 +299,6 @@ export interface ChatRow {
   lastFromStaff: boolean;
 }
 
-export interface ChatDetails {
-  id: string;
-  name: string;
-  contact: string;
-  createdAt: string;
-  messages: ChatMessage[];
-}
-
 export interface SimulatorSettings {
   running: boolean;
   ordersPerMinute: number;
@@ -415,23 +407,6 @@ export interface RestaurantSettings {
   hasBar: boolean;
 }
 
-export interface LeadRow {
-  id: number;
-  createdAt: string;
-  name: string;
-  organization: string;
-  contact: string;
-  points: string;
-  comment: string | null;
-}
-
-/** Ответ на создание ресторана: логин и пароль управляющего показываются один раз. */
-export interface NewRestaurant {
-  name: string;
-  login: string;
-  password: string;
-}
-
 export interface StaffRow {
   id: string;
   login: string;
@@ -521,6 +496,10 @@ export async function login(name: string, password: string): Promise<LoginError 
     return response.status === 401
       ? { title: 'Неверный логин или пароль', text: 'Проверьте раскладку и Caps Lock.' }
       : { title: 'Слишком много попыток', text: 'Подождите минуту и попробуйте снова.' };
+  }
+  if (response.status === 403) {
+    const problem = await response.json().catch(() => ({}));
+    return { title: 'Вход закрыт', text: problem.detail || 'Напишите в поддержку «Остатка».' };
   }
   if (!response.ok) return NO_SERVER;
   setSession((await response.json()).token, name);
@@ -664,11 +643,24 @@ export function connectEvents(): () => void {
     reloadAll();
   };
 
+  // Страница, ушедшая в историю браузера, не должна держать соединение: их у браузера всего шесть на адрес.
+  const onLeave = () => {
+    clearTimeout(retry);
+    source?.close();
+  };
+  const onBack = (e: PageTransitionEvent) => {
+    if (e.persisted) onReturn();
+  };
+
   document.addEventListener('visibilitychange', onReturn);
+  window.addEventListener('pagehide', onLeave);
+  window.addEventListener('pageshow', onBack);
   open();
   return () => {
     stopped = true;
     document.removeEventListener('visibilitychange', onReturn);
+    window.removeEventListener('pagehide', onLeave);
+    window.removeEventListener('pageshow', onBack);
     clearTimeout(timer);
     clearTimeout(retry);
     source?.close();

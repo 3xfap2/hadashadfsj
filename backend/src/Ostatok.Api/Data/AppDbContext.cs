@@ -32,6 +32,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
     public DbSet<StopLog> StopLogs => Set<StopLog>();
     public DbSet<Alert> Alerts => Set<Alert>();
     public DbSet<Inventory> Inventories => Set<Inventory>();
+    public DbSet<CrmNote> CrmNotes => Set<CrmNote>();
+    public DbSet<CrmTask> CrmTasks => Set<CrmTask>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
     {
@@ -193,6 +195,26 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(l => l.Contact).HasConversion(PersonalData.Converter);
             e.Property(l => l.Points).HasMaxLength(20);
             e.Property(l => l.Comment).HasConversion(PersonalData.NullableConverter);
+            e.Property(l => l.Assignee).HasMaxLength(60);
+            e.HasOne<Restaurant>().WithMany().HasForeignKey(l => l.RestaurantId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        model.Entity<CrmNote>(e =>
+        {
+            e.Property(n => n.Author).HasMaxLength(60);
+            // В заметках — пересказ разговоров с клиентом: те же личные данные, что и в заявке.
+            e.Property(n => n.Text).HasConversion(PersonalData.Converter);
+            e.HasOne<Lead>().WithMany().HasForeignKey(n => n.LeadId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Restaurant>().WithMany().HasForeignKey(n => n.RestaurantId).OnDelete(DeleteBehavior.Cascade);
+            e.ToTable(t => t.HasCheckConstraint("CK_CrmNotes_Target", "(\"LeadId\" IS NULL) <> (\"RestaurantId\" IS NULL)"));
+        });
+
+        model.Entity<CrmTask>(e =>
+        {
+            e.Property(t => t.Title).HasMaxLength(200);
+            e.HasOne<Lead>().WithMany().HasForeignKey(t => t.LeadId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Restaurant>().WithMany().HasForeignKey(t => t.RestaurantId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(t => t.DueAt);
         });
 
         model.Entity<Chat>(e =>
@@ -200,6 +222,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(c => c.Name).HasConversion(PersonalData.Converter);
             e.Property(c => c.Contact).HasConversion(PersonalData.Converter);
             e.HasMany(c => c.Messages).WithOne().HasForeignKey(m => m.ChatId);
+            e.HasOne<Lead>().WithMany().HasForeignKey(c => c.LeadId).OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(c => c.LastMessageAt);
         });
 

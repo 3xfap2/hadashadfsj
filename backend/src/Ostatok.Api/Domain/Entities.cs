@@ -28,6 +28,8 @@ public class Restaurant
     public int LastCheckNumber { get; set; }
     /// <summary>Номер последней инвентаризации.</summary>
     public int LastInventoryNumber { get; set; }
+    /// <summary>Когда команда продукта отключила ресторан; пусто — ресторан работает.</summary>
+    public DateTimeOffset? DisabledAt { get; set; }
 
     /// <summary>Места, откуда приходят заказы: столы и бар.</summary>
     public IEnumerable<string> Places() =>
@@ -287,15 +289,47 @@ public class InventoryItem
     public decimal Value { get; set; }
 }
 
+public enum LeadStatus { New, Contacted, Demo, Won, Lost }
+
 public class Lead
 {
     public long Id { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    /// <summary>Когда заявку последний раз меняли в CRM.</summary>
+    public DateTimeOffset UpdatedAt { get; set; }
+    public LeadStatus Status { get; set; }
+    /// <summary>Кто из команды ведёт заявку.</summary>
+    public string? Assignee { get; set; }
+    /// <summary>Ресторан, открытый по заявке.</summary>
+    public Guid? RestaurantId { get; set; }
     public required string Name { get; set; }
     public required string Organization { get; set; }
     public required string Contact { get; set; }
     public string Points { get; set; } = "";
     public string? Comment { get; set; }
+}
+
+/// <summary>Заметка команды продукта о заявке или о ресторане — ровно об одном из двух.</summary>
+public class CrmNote
+{
+    public long Id { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public required string Author { get; set; }
+    public required string Text { get; set; }
+    public long? LeadId { get; set; }
+    public Guid? RestaurantId { get; set; }
+}
+
+/// <summary>Задача-напоминание команды продукта; может относиться к заявке или к ресторану.</summary>
+public class CrmTask
+{
+    public long Id { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public required string Title { get; set; }
+    public DateTimeOffset DueAt { get; set; }
+    public DateTimeOffset? DoneAt { get; set; }
+    public long? LeadId { get; set; }
+    public Guid? RestaurantId { get; set; }
 }
 
 /// <summary>Диалог посетителя лендинга с командой продукта.</summary>
@@ -309,6 +343,8 @@ public class Chat
     public required string Contact { get; set; }
     /// <summary>Сколько сообщений посетителя ещё не прочитано сотрудником.</summary>
     public int Unread { get; set; }
+    /// <summary>Заявка, к которой относится диалог.</summary>
+    public long? LeadId { get; set; }
     public List<ChatMessage> Messages { get; set; } = [];
 }
 

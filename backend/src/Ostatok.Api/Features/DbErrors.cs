@@ -28,11 +28,20 @@ public sealed class DbErrors : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext http, Exception exception, CancellationToken ct)
     {
+        // Запись, которую меняли, уже удалил параллельный запрос (двойной щелчок по «Удалить»).
+        if (exception is DbUpdateConcurrencyException)
+        {
+            await Results.Problem("Запись уже изменена или удалена. Обновите страницу.", statusCode: StatusCodes.Status404NotFound).ExecuteAsync(http);
+            return true;
+        }
+
         var error = exception as PostgresException ?? (exception as DbUpdateException)?.InnerException as PostgresException;
         var (status, text) = error?.SqlState switch
         {
             PostgresErrorCodes.UniqueViolation => (StatusCodes.Status409Conflict, "Такая запись уже есть."),
             PostgresErrorCodes.ForeignKeyViolation => (StatusCodes.Status409Conflict, "Запись связана с другими данными, изменить или удалить её нельзя."),
+            // Нулевой байт и другие символы, которые база не хранит в тексте.
+            PostgresErrorCodes.CharacterNotInRepertoire => (StatusCodes.Status400BadRequest, "В тексте есть недопустимые символы."),
             PostgresErrorCodes.CheckViolation or PostgresErrorCodes.NumericValueOutOfRange => (StatusCodes.Status400BadRequest, "Значение вне допустимых границ."),
             // Две операции помешали друг другу: ничего не записано, запрос можно повторить.
             PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure => (StatusCodes.Status409Conflict, "Одновременно шла другая операция с теми же продуктами. Повторите действие."),

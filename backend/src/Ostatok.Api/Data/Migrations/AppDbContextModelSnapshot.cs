@@ -136,6 +136,9 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<DateTimeOffset>("LastMessageAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long?>("LeadId")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
@@ -146,6 +149,8 @@ namespace Ostatok.Api.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("LastMessageAt");
+
+                    b.HasIndex("LeadId");
 
                     b.ToTable("Chats");
                 });
@@ -181,6 +186,83 @@ namespace Ostatok.Api.Data.Migrations
                     b.HasIndex("ChatId");
 
                     b.ToTable("ChatMessages");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.CrmNote", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Author")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("LeadId")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LeadId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.ToTable("CrmNotes", t =>
+                        {
+                            t.HasCheckConstraint("CK_CrmNotes_Target", "(\"LeadId\" IS NULL) <> (\"RestaurantId\" IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.CrmTask", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DoneAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("DueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("LeadId")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DueAt");
+
+                    b.HasIndex("LeadId");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.ToTable("CrmTasks");
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Dish", b =>
@@ -423,6 +505,10 @@ namespace Ostatok.Api.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("Assignee")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
                     b.Property<string>("Comment")
                         .HasColumnType("text");
 
@@ -446,7 +532,20 @@ namespace Ostatok.Api.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<Guid?>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId");
 
                     b.ToTable("Leads");
                 });
@@ -687,6 +786,9 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("DisabledAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("HasBar")
                         .HasColumnType("boolean");
 
@@ -889,6 +991,14 @@ namespace Ostatok.Api.Data.Migrations
                     b.Navigation("Supply");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.Chat", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Lead", null)
+                        .WithMany()
+                        .HasForeignKey("LeadId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.ChatMessage", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Chat", null)
@@ -896,6 +1006,32 @@ namespace Ostatok.Api.Data.Migrations
                         .HasForeignKey("ChatId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.CrmNote", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Lead", null)
+                        .WithMany()
+                        .HasForeignKey("LeadId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.CrmTask", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Lead", null)
+                        .WithMany()
+                        .HasForeignKey("LeadId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Dish", b =>
@@ -975,6 +1111,14 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Lead", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Movement", b =>

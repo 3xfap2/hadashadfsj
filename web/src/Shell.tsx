@@ -1,6 +1,6 @@
 import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { connectEvents, logout, useApi, type Me, type StopListRow } from './api';
+import { connectEvents, logout, useApi, type ChatRow, type Me, type StopListRow } from './api';
 import { Alerts } from './Alerts';
 import { clock } from './format';
 import { AccessContext, useCan } from './ui';
@@ -10,7 +10,6 @@ import { Orders } from './pages/Orders';
 import { Preps } from './pages/Preps';
 import { Stock } from './pages/Stock';
 import { Supplies } from './pages/Supplies';
-import { Support, SupportLink } from './pages/Support';
 import { Today } from './pages/Today';
 
 // Экраны, которые открывают редко, подгружаются при первом заходе: вход и «Сегодня» открываются быстрее.
@@ -139,7 +138,6 @@ export function Shell() {
           <Route path="stock/journal" element={<Guard section="stock"><Journal /></Guard>} />
           <Route path="stock/inventory" element={<Guard section="stock"><Inventory /></Guard>} />
           <Route path="labels" element={<Guard section="stock"><Labels /></Guard>} />
-          <Route path="support" element={<Guard section="support"><Support /></Guard>} />
           <Route path="hot" element={<Guard section="catalog"><HotSettings /></Guard>} />
           <Route path="demo" element={<Guard section="catalog"><Demo /></Guard>} />
           <Route path="stock/import" element={<Guard section="stock"><SupplyImport /></Guard>} />
@@ -150,6 +148,7 @@ export function Shell() {
           <Route path="catalog" element={<Guard section="catalog"><Products /></Guard>} />
           <Route path="catalog/dishes" element={<Guard section="catalog"><Dishes /></Guard>} />
           <Route path="more" element={<More sections={extra} />} />
+          <Route path="support" element={<ToCrm />} />
           <Route path="*" element={<p className="g-empty"><strong>Раздел в работе</strong>Скоро появится.</p>} />
         </Routes>}
       </main>
@@ -171,6 +170,18 @@ export function Shell() {
       </nav>
     </div>
     </AccessContext.Provider>
+  );
+}
+
+/** Значок в шапке у команды продукта: ведёт в CRM (отдельное приложение на том же адресе) и показывает, сколько вопросов ждут ответа. */
+function SupportLink() {
+  const chats = useApi<ChatRow[]>('/support/chats');
+  const waiting = chats.data?.reduce((sum, c) => sum + c.unread, 0) ?? 0;
+  return (
+    <a className="alerts__bell" href="/crm/" aria-label={waiting > 0 ? `Обращения, без ответа: ${waiting}` : 'Обращения'}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>
+      {waiting > 0 && <span className="alerts__count num">{waiting > 99 ? '99+' : waiting}</span>}
+    </a>
   );
 }
 
@@ -223,3 +234,9 @@ function More({ sections }: { sections: typeof SECTIONS }) {
 }
 
 export const toCabinet = <Navigate to="/app" replace />;
+
+/** Раздел «Обращения» переехал в CRM — отдельное приложение на том же адресе. */
+function ToCrm() {
+  useEffect(() => location.replace('/crm/'), []);
+  return null;
+}

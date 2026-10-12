@@ -17,7 +17,7 @@ public static class GuestMenuEndpoints
     public static void MapGuestMenu(this IEndpointRouteBuilder app) =>
         app.MapGet("/api/public/menu/{restaurant:guid}", async (Guid restaurant, AppDbContext db, Tenant tenant, TimeProvider time, StockOptions options, CancellationToken ct) =>
         {
-            var name = await db.Restaurants.Where(r => r.Id == restaurant).Select(r => r.Name).FirstOrDefaultAsync(ct);
+            var name = await db.Restaurants.Where(r => r.Id == restaurant && r.DisabledAt == null).Select(r => r.Name).FirstOrDefaultAsync(ct);
             if (name is null) return Results.NotFound();
             // Входа нет, поэтому ресторан берётся из адреса: дальше все запросы видят только его данные.
             tenant.Id = restaurant;

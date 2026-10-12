@@ -89,7 +89,7 @@ public static partial class StaffEndpoints
     }
 
     /// <summary>Открытые учётные записи демо-ресторана: по ним систему смотрят без регистрации, поэтому менять их нельзя.</summary>
-    private static bool IsDemoAccount(User user, AuthOptions options) =>
+    public static bool IsDemoAccount(User user, AuthOptions options) =>
         user.RestaurantId == Restaurant.DemoId && (options.Users.Any(u => u.Login == user.Login) || user.Login == options.SupportLogin);
 
     private static IResult DemoAccount() =>
