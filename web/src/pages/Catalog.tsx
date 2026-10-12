@@ -104,9 +104,10 @@ export function Products() {
     if (response.ok) {
       const saved: ProductRow = await response.json();
       await products.reload();
-      setForm(toForm(saved, products.data!));
+      // Новый продукт заведён — форма готова к следующему: иначе его ввели бы поверх только что сохранённого.
+      setForm(form.id ? toForm(saved, products.data!) : emptyProduct);
       setTried(false);
-      setNote({ kind: 'ok', text: 'Продукт сохранён.' });
+      setNote({ kind: 'ok', text: form.id ? 'Продукт сохранён.' : `Продукт «${saved.name}» добавлен. Можно вводить следующий.` });
     } else {
       setNote({ kind: 'err', text: await problemText(response) });
     }

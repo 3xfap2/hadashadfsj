@@ -2,7 +2,7 @@ import { Haptics, NotificationType } from '@capacitor/haptics';
 import { isNative } from '../native';
 import { useEffect, useRef, useState } from 'react';
 import { post, useApi, type HotOffer, type Me, type OrderRow, type OrderSummary, type StopListRow } from '../api';
-import { clock, dayStart, duration, money, portions, qty } from '../format';
+import { clock, dayStart, duration, money, plural, portions, qty } from '../format';
 import { Photo, URGENT_HOURS } from '../ui';
 
 const STOP_REASON = {
@@ -32,6 +32,9 @@ export function Orders() {
   const [search, setSearch] = useState('');
   const [result, setResult] = useState<Result>(null);
   const [busy, setBusy] = useState(false);
+  // Идентификатор попытки заказа. Если связь оборвалась и официант нажал «Оформить» ещё раз,
+  // уходит тот же идентификатор, и сервер возвращает уже созданный заказ, а не списывает продукты второй раз.
+  const attempt = useRef<string | null>(null);
 
   const error = menu.error ?? offers.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить меню</h3><span>{error}</span></div>;
@@ -63,10 +66,6 @@ export function Orders() {
 
   // Открытые заказы за каждым столом: сумма и время последнего. После «Закрыть стол» он снова свободен.
   const served = new Map((orders.data?.tables ?? []).map((t) => [t.place, t]));
-
-  // Идентификатор попытки заказа. Если связь оборвалась и официант нажал «Оформить» ещё раз,
-  // уходит тот же идентификатор, и сервер возвращает уже созданный заказ, а не списывает продукты второй раз.
-  const attempt = useRef<string | null>(null);
 
   const submit = async () => {
     setBusy(true);
@@ -158,7 +157,7 @@ export function Orders() {
           <div className="g-panel__head orders__menu-head">
             <h2 id="menu-h">Меню</h2>
             <span className="muted num small">
-              {dishes.length} блюд{stopped > 0 && ` · ${stopped} в стопе`}
+              {plural(dishes.length, 'блюдо', 'блюда', 'блюд')}{stopped > 0 && ` · ${stopped} в стопе`}
             </span>
             <div className="search">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></svg>

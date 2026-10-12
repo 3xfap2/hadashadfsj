@@ -92,6 +92,7 @@ export function Shell() {
     <div className="g shell">
       <header className="g-top shell__top">
         <NavLink className="g-brand" to="/app" title={me?.restaurant}>Остаток</NavLink>
+        {me && <span className="shell__place muted small" title="Ресторан, в котором вы работаете">{me.restaurant}</span>}
         <nav className="g-nav" aria-label="Разделы">
           {sections.map((s) => (
             <NavLink key={s.path} to={s.path} end={s.path === '/app'}>
