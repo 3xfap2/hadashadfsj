@@ -1,7 +1,8 @@
 import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { connectEvents, logout, useApi, type ChatRow, type Me, type StopListRow } from './api';
+import { connectEvents, logout, takeFreshLogin, useApi, type ChatRow, type Me, type StopListRow } from './api';
 import { Alerts } from './Alerts';
+import { isNative } from './native';
 import { clock } from './format';
 import { AccessContext, useCan } from './ui';
 import { KitchenBoard } from './pages/KitchenBoard';
@@ -66,6 +67,11 @@ export function Shell() {
   useEffect(connectEvents, []);
   const profile = useApi<Me>('/me', 60_000);
   const me = profile.data;
+  // Команда продукта работает в CRM: после входа открываем её. В кабинет демо-ресторана можно вернуться по ссылке из CRM.
+  const vendor = me?.sections.includes('support') ?? false;
+  useEffect(() => {
+    if (me && takeFreshLogin() && vendor && !isNative) location.replace('/crm/');
+  }, [me, vendor]);
   const title = me?.title || me?.login || '';
   // Инициалы: первые буквы слов должности («Шеф-повар» → «ШП»).
   const allowed = me?.sections ?? [];

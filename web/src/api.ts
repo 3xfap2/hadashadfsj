@@ -512,7 +512,25 @@ export async function login(name: string, password: string): Promise<LoginError 
   }
   if (!response.ok) return NO_SERVER;
   setSession((await response.json()).token, name);
+  try {
+    sessionStorage.setItem(FRESH_KEY, '1');
+  } catch {
+    // Без хранилища вход работает как раньше, просто без перехода в CRM.
+  }
   return null;
+}
+
+const FRESH_KEY = 'ostatok.fresh';
+
+/** true один раз сразу после входа: по нему команда продукта попадает в CRM, а не в кабинет демо-ресторана. */
+export function takeFreshLogin(): boolean {
+  try {
+    const fresh = sessionStorage.getItem(FRESH_KEY) === '1';
+    sessionStorage.removeItem(FRESH_KEY);
+    return fresh;
+  } catch {
+    return false;
+  }
 }
 
 /** Перейти в другой свой ресторан: сервер выдаёт новый токен, кабинет открывается заново уже в нём. Возвращает текст ошибки. */
