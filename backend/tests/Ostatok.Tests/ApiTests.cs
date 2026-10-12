@@ -1714,4 +1714,28 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         await Supply(new SupplyItemRequest(product.Id, 50, null));
         Assert.Equal(HttpStatusCode.Conflict, (await fx.Waiter.PostAsJsonAsync("/api/orders", big)).StatusCode);
     }
+
+    [Fact]
+    public async Task Фото_накладной_превращается_в_строки_поставки_но_на_склад_само_не_попадает()
+    {
+        var product = await Product();
+        fx.Invoices.Table = [["продукт", "количество", "единица", "срок хранения", "цена"], [product.Name, "2.5", "кг", "36 ч", "3000"], ["Неизвестный товар", "1", "шт", "", ""]];
+        ByteArrayContent Photo() => new([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]);
+
+        var preview = await Api.PostAsync("/api/supplies/import/preview", Photo());
+        var byWaiter = await fx.Waiter.PostAsync("/api/supplies/import/preview", Photo());
+
+        Assert.Equal((HttpStatusCode.OK, HttpStatusCode.Forbidden), (preview.StatusCode, byWaiter.StatusCode));
+        var rows = await Read<List<ImportRow>>(preview);
+        // Строки прошли ту же проверку, что и файл: продукт найден, цена за единицу посчитана, неизвестный товар — ошибка.
+        Assert.Equal((product.Id, 2.5m, 36, 1200m, ImportRowStatus.Ok), (rows[0].ProductId!.Value, rows[0].Quantity!.Value, rows[0].ShelfLifeHours!.Value, rows[0].Cost!.Value, rows[0].Status));
+        Assert.Equal(ImportRowStatus.Error, rows[1].Status);
+        // Предпросмотр ничего не сохраняет: партии появятся только после подтверждения человеком.
+        Assert.Empty(await Batches(product));
+
+        fx.Invoices.Enabled = false;
+        var off = await Api.PostAsync("/api/supplies/import/preview", Photo());
+        fx.Invoices.Enabled = true;
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, off.StatusCode);
+    }
 }

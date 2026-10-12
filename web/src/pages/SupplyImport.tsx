@@ -13,6 +13,16 @@ const CHIPS = { Ok: ['muted', 'Готово', ''], Warning: ['g-tag g-tag--amber
 type Result = { kind: 'ok' | 'err'; title: string; text: string } | null;
 
 /** Цена за единицу — с копейками: по ней видно даже небольшое изменение. */
+/** Уменьшает фото до 1600 px по длинной стороне и сохраняет как JPEG. */
+async function shrink(photo: File): Promise<File> {
+  const image = await createImageBitmap(photo);
+  const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(image.width * scale), height: Math.round(image.height * scale) });
+  canvas.getContext('2d')!.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, 'image/jpeg', 0.85));
+  return blob ? new File([blob], 'nakladnaya.jpg', { type: 'image/jpeg' }) : photo;
+}
+
 const price = (value: number) => `${value.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`;
 
 export function SupplyImport() {
@@ -25,17 +35,23 @@ export function SupplyImport() {
   const [onlyBad, setOnlyBad] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result>(null);
+  // Строки прочитаны с фото: их нужно сверить с бумагой до приёмки.
+  const [fromPhoto, setFromPhoto] = useState(false);
 
   const choose = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const picked = e.target.files?.[0];
     e.target.value = '';
-    if (!file) return;
+    if (!picked) return;
+    const photo = picked.type.startsWith('image/');
     setBusy(true);
+    setFromPhoto(photo);
     setResult(null);
     setRows(null);
-    setFileName(file.name);
+    setFileName(photo ? 'Фото накладной' : picked.name);
+    // Фото с телефона весит несколько мегабайт: уменьшаем его перед отправкой, текст при этом остаётся читаемым.
+    const file = photo ? await shrink(picked).catch(() => picked) : picked;
     // Номер поставки часто стоит в имени файла: postavka_P-0422.xlsx → П-0422.
-    const inName = /[PП]-?(\d{2,})/i.exec(file.name);
+    const inName = /[PП]-?(\d{2,})/i.exec(picked.name);
     setNumber(inName ? `П-${inName[1]}` : '');
     try {
       const response = await postFile('/supplies/import/preview', file);
@@ -119,12 +135,14 @@ export function SupplyImport() {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 13h6M9 17h6" /></svg>
         <div className="drop__text">
           <strong className="hd">{fileName || 'Файл не выбран'}</strong>
-          <span className="muted">{busy && !rows ? 'Читаем файл…' : rows ? `${plural(rows.length, 'строка', 'строки', 'строк')}${supplier.trim() ? ` · поставщик ${supplier.trim()}` : ''}` : 'Выберите файл поставки от поставщика'}</span>
+          <span className="muted">{busy && !rows ? (fromPhoto ? 'Распознаём фото — до полминуты…' : 'Читаем файл…') : rows ? `${plural(rows.length, 'строка', 'строки', 'строк')}${supplier.trim() ? ` · поставщик ${supplier.trim()}` : ''}` : 'Выберите файл поставки от поставщика'}</span>
         </div>
         <label className="g-btn" htmlFor="file">{fileName ? 'Выбрать другой файл' : 'Выбрать файл'}</label>
-        <input id="file" type="file" accept=".xlsx,.csv" className="sr" onChange={choose} />
+        <input id="file" type="file" accept=".xlsx,.csv,image/*" className="sr" onChange={choose} />
+        <label className="g-btn" htmlFor="photo">Сфотографировать накладную</label>
+        <input id="photo" type="file" accept="image/*" capture="environment" className="sr" onChange={choose} />
         <span className="muted small drop__hint">
-          Подходит Excel или CSV с колонками: продукт, количество, единица, срок хранения, цена (сумма по строке).{' '}
+          Подходит Excel или CSV с колонками: продукт, количество, единица, срок хранения, цена (сумма по строке) — или фото накладной и этикетки: строки распознаются сами.{' '}
           {!isNative && <button type="button" className="hd drop__link" onClick={downloadTemplate}>Скачать шаблон</button>}
         </span>
       </div>

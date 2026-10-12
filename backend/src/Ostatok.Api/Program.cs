@@ -26,6 +26,8 @@ builder.Services.AddScoped<PrepService>();
 builder.Services.AddScoped<SupportDesk>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("Telegram").Get<TelegramOptions>() ?? new TelegramOptions());
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("Ai").Get<AiOptions>() ?? new AiOptions());
+builder.Services.AddSingleton<IInvoiceReader, OpenAiInvoiceReader>();
 builder.Services.AddSingleton<ITelegramApi, TelegramApi>();
 builder.Services.AddHostedService<TelegramBot>();
 builder.Services.AddScoped<WriteOffService>();

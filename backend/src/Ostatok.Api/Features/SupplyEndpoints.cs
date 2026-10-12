@@ -43,7 +43,7 @@ public static class SupplyEndpoints
 
         // Предпросмотр файла поставки: тело запроса — сам файл CSV. Ничего не сохраняет;
         // после подтверждения строки без ошибок отправляются обычным POST /api/supplies вместе с ценой из файла.
-        supplies.MapPost("/import/preview", async (HttpRequest request, AppDbContext db, CancellationToken ct) =>
+        supplies.MapPost("/import/preview", async (HttpRequest request, AppDbContext db, IInvoiceReader reader, TimeProvider time, ILoggerFactory logs, CancellationToken ct) =>
         {
             if (request.ContentLength > MaxImportBytes)
                 return Results.Problem("Файл больше 1 МБ.", statusCode: StatusCodes.Status413PayloadTooLarge);
@@ -55,6 +55,24 @@ public static class SupplyEndpoints
             var bytes = buffer.ToArray();
             var products = await db.Products.AsNoTracking().Include(p => p.PrepRecipe).ToListAsync(ct);
             IReadOnlyList<ImportRow> rows;
+            // Фото накладной или этикетки: модель переписывает его в ту же таблицу, что и файл, дальше — обычная проверка по справочнику.
+            if (ImageType(bytes) is { } mime)
+            {
+                if (!reader.Enabled)
+                    return Results.Problem("Распознавание по фото на этом сервере не настроено. Загрузите файл Excel или CSV.", statusCode: StatusCodes.Status503ServiceUnavailable);
+                try
+                {
+                    rows = SupplyImport.ParseRows(await reader.ReadAsync(bytes, mime, products, time.GetUtcNow(), ct), products);
+                }
+                catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    logs.CreateLogger("Ostatok.InvoiceReader").LogWarning(e, "Фото поставки не распознано");
+                    return Results.Problem("Фото не удалось распознать. Попробуйте ещё раз или загрузите файл.", statusCode: StatusCodes.Status502BadGateway);
+                }
+                return rows.Count == 0
+                    ? Results.Problem("На фото не нашлось строк с продуктами. Снимите накладную ближе и ровнее.", statusCode: StatusCodes.Status400BadRequest)
+                    : Results.Ok(rows);
+            }
             try
             {
                 // Файл Excel — это архив, он начинается с букв «PK»; всё остальное читается как CSV.
@@ -227,6 +245,15 @@ public static class SupplyEndpoints
             Actor = actor,
         }));
     }
+
+    /// <summary>Тип картинки по первым байтам файла; null — это не фото.</summary>
+    private static string? ImageType(byte[] bytes) => bytes switch
+    {
+        [0xFF, 0xD8, 0xFF, ..] => "image/jpeg",
+        [0x89, (byte)'P', (byte)'N', (byte)'G', ..] => "image/png",
+        [(byte)'R', (byte)'I', (byte)'F', (byte)'F', _, _, _, _, (byte)'W', (byte)'E', (byte)'B', (byte)'P', ..] => "image/webp",
+        _ => null,
+    };
 
     /// <summary>Первый лист книги Excel: каждая строка — массив значений ячеек.</summary>
     private static List<string[]> ReadExcel(byte[] bytes)

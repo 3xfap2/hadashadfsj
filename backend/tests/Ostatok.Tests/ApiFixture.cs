@@ -25,6 +25,7 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
     public FakeTimeProvider Time { get; } = new(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
 
     public FakeTelegram Telegram { get; } = new();
+    public FakeInvoiceReader Invoices { get; } = new();
 
     public HttpClient Api { get; private set; } = null!;
     /// <summary>Клиент официанта: заказы оформляет только он.</summary>
@@ -48,6 +49,8 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
             // Настоящий Telegram в тестах заменён записывающей заглушкой.
             services.RemoveAll<ITelegramApi>();
             services.AddSingleton<ITelegramApi>(Telegram);
+            services.RemoveAll<IInvoiceReader>();
+            services.AddSingleton<IInvoiceReader>(Invoices);
         });
     }
 
@@ -101,6 +104,16 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
 }
 
 /// <summary>Заглушка Telegram: запоминает, что бот отправил бы операторам.</summary>
+/// <summary>Вместо модели: возвращает заранее заданную таблицу, как будто её прочитали с фото.</summary>
+public sealed class FakeInvoiceReader : IInvoiceReader
+{
+    public bool Enabled { get; set; } = true;
+    public List<string[]> Table { get; set; } = [];
+
+    public Task<List<string[]>> ReadAsync(byte[] image, string mime, IReadOnlyCollection<Ostatok.Api.Domain.Product> products, DateTimeOffset now, CancellationToken ct) =>
+        Task.FromResult(Table);
+}
+
 public sealed class FakeTelegram : ITelegramApi
 {
     public List<(long ChatId, string Text)> Sent { get; } = [];
