@@ -25,6 +25,29 @@ public interface IInvoiceReader
     Task<List<string[]>> ReadAsync(byte[] image, string mime, IReadOnlyCollection<Product> products, DateTimeOffset now, CancellationToken ct);
 }
 
+/// <summary>
+/// Распознавание платное, а вход в демо-ресторан открыт всем: без предела ключ можно было бы израсходовать за вечер.
+/// Не больше <see cref="PerHour"/> снимков в час на ресторан.
+/// </summary>
+public sealed class PhotoQuota(TimeProvider time)
+{
+    public const int PerHour = 20;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Queue<DateTimeOffset>> _used = new();
+
+    public bool TryTake(Guid restaurant)
+    {
+        var now = time.GetUtcNow();
+        var used = _used.GetOrAdd(restaurant, _ => new Queue<DateTimeOffset>());
+        lock (used)
+        {
+            while (used.Count > 0 && used.Peek() <= now.AddHours(-1)) used.Dequeue();
+            if (used.Count >= PerHour) return false;
+            used.Enqueue(now);
+            return true;
+        }
+    }
+}
+
 public sealed class OpenAiInvoiceReader(IHttpClientFactory clients, AiOptions options) : IInvoiceReader
 {
     private const string Instructions = """

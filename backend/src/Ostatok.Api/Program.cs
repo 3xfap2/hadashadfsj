@@ -28,6 +28,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("Telegram").Get<TelegramOptions>() ?? new TelegramOptions());
 builder.Services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection("Ai").Get<AiOptions>() ?? new AiOptions());
 builder.Services.AddSingleton<IInvoiceReader, OpenAiInvoiceReader>();
+builder.Services.AddSingleton<PhotoQuota>();
 builder.Services.AddSingleton<ITelegramApi, TelegramApi>();
 builder.Services.AddHostedService<TelegramBot>();
 builder.Services.AddScoped<WriteOffService>();

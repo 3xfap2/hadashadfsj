@@ -1733,6 +1733,12 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         // Предпросмотр ничего не сохраняет: партии появятся только после подтверждения человеком.
         Assert.Empty(await Batches(product));
 
+        // Распознавание платное: больше двадцати снимков в час ресторан не отправит.
+        var codes = new List<HttpStatusCode>();
+        for (var i = 0; i < PhotoQuota.PerHour; i++) codes.Add((await Api.PostAsync("/api/supplies/import/preview", Photo())).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, codes[^1]);
+        fx.Time.Advance(TimeSpan.FromHours(1));
+
         fx.Invoices.Enabled = false;
         var off = await Api.PostAsync("/api/supplies/import/preview", Photo());
         fx.Invoices.Enabled = true;
