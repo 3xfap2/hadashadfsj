@@ -3873,3 +3873,18 @@ html {
     overflow-x: auto;
   }
 }
+
+// План спасения над списком горячих предложений.
+.sell-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: #fafbf9;
+
+  &__left {
+    color: var(--amber);
+  }
+}

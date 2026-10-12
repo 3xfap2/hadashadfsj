@@ -16,6 +16,14 @@ export interface HotIngredient {
   alternativeDishes: number;
 }
 
+/** План спасения: сколько истекающих продуктов уйдёт в блюда и что пристроить некуда. Суммы — null для тех, кому не видны закупочные цены. */
+export interface HotPlan {
+  atRiskValue: number | null;
+  plannedValue: number | null;
+  portions: number;
+  leftovers: { productId: string; productName: string; unit: Unit; quantity: number; hoursLeft: number; value: number | null }[];
+}
+
 export interface HotOffer {
   dishId: string;
   dishName: string;

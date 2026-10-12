@@ -46,6 +46,9 @@ public sealed record ShiftReport(
     decimal StopCost, IEnumerable<StopCostRow> Stops,
     IEnumerable<ShiftExpiring>? Expiring, IEnumerable<PurchaseRow>? ToOrder);
 
+/// <summary>Итог плана спасения: блюда плана — в /hot-offers, здесь суммы и то, что не пристроено ни в одно блюдо.</summary>
+public sealed record HotPlanSummary(decimal? AtRiskValue, decimal? PlannedValue, int Portions, IEnumerable<HotLeftover> Leftovers);
+
 public static class InsightsEndpoints
 {
     public const string ShortageReason = "Недостача по инвентаризации";
@@ -62,6 +65,20 @@ public static class InsightsEndpoints
                 now, await db.LoadHotRulesAsync(options, ct),
                 await db.LoadConsumptionPerHourAsync(now, options, ct),
                 user.SeesCosts());
+        })
+        .WithTags("Горячие предложения");
+
+        // План спасения: сколько рублей истекающих продуктов уйдёт в блюда и что пристроить некуда.
+        api.MapGet("/hot-offers/plan", async (AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct) =>
+        {
+            var now = time.GetUtcNow();
+            var plan = HotOffers.Plan(
+                await db.LoadDishesAsync(ct),
+                await db.LoadFreshBatchesAsync(now, ct),
+                await db.LoadTotalsAsync(now, ct),
+                now, await db.LoadHotRulesAsync(options, ct),
+                await db.LoadConsumptionPerHourAsync(now, options, ct), user.SeesCosts());
+            return new HotPlanSummary(plan.AtRiskValue, plan.PlannedValue, plan.Offers.Sum(o => o.Portions), plan.Leftovers);
         })
         .WithTags("Горячие предложения");
 

@@ -52,6 +52,49 @@ internal sealed class Kitchen
 public class HotOffersTests
 {
     [Fact]
+    public void Истекающий_продукт_делится_между_блюдами_и_не_считается_дважды()
+    {
+        var k = new Kitchen();
+        var (chicken, greens, cheese) = (k.Product("Курица", cost: 400), k.Product("Салат", cost: 500), k.Product("Сыр", cost: 800));
+        // 2 кг курицы истекают через 6 часов. Салата хватает только на 4 цезаря, остальное — долгого хранения.
+        k.Stock(chicken, 2, 6).Stock(greens, 0.4m, 200).Stock(cheese, 0.5m, 6);
+        k.Dish("Цезарь", (chicken, 0.2m), (greens, 0.1m));
+        k.Dish("Суп", (chicken, 0.25m));
+        k.Dish("Сэндвич", (chicken, 0.1m));
+
+        var plan = HotOffers.Plan(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules());
+
+        // Каждому блюду — своя доля: в сумме ровно 2 кг курицы, а не по 2 кг на каждое.
+        var chickenShares = plan.Offers.SelectMany(o => o.Ingredients).Where(i => i.ProductId == chicken.Id).Sum(i => i.UsableQuantity);
+        Assert.Equal(2m, chickenShares);
+        Assert.All(plan.Offers, o => Assert.True(o.Portions > 0));
+        Assert.Equal(plan.PlannedValue, plan.Offers.Sum(o => o.ValueAtRisk));
+        // Суп идёт первым и забирает всю курицу: остальным блюдам спасать нечего, в списке их нет.
+        Assert.Equal(["Суп"], plan.Offers.Select(o => o.DishName));
+        Assert.Equal(8, plan.Offers[0].Portions);
+        // Сыр истекает, но блюд с ним нет: он не пропадает из виду, а остаётся в плане отдельной строкой.
+        Assert.Equal((2 * 400 + 0.5m * 800, 800m), (plan.AtRiskValue, plan.PlannedValue));
+        Assert.Equal(("Сыр", 0.5m, 400m), plan.Leftovers.Select(l => (l.ProductName, l.Quantity, l.Value!.Value)).Single());
+    }
+
+    [Fact]
+    public void Блюдо_которому_не_хватает_других_продуктов_оставляет_остаток_следующему()
+    {
+        var k = new Kitchen();
+        var (chicken, greens) = (k.Product("Курица", cost: 400), k.Product("Салат", cost: 500));
+        k.Stock(chicken, 2, 6).Stock(greens, 0.4m, 200);
+        // Цезарь закреплён первым, но салата хватит только на 4 порции — это 0,8 кг курицы из двух.
+        k.Dish("Цезарь", (chicken, 0.2m), (greens, 0.1m)).HotPinned = true;
+        k.Dish("Суп", (chicken, 0.25m));
+
+        var plan = HotOffers.Plan(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules());
+
+        Assert.Equal([("Цезарь", 4, 0.8m), ("Суп", 5, 1.2m)], plan.Offers.Select(o => (o.DishName, o.Portions, o.Ingredients.Single().UsableQuantity)));
+        Assert.Empty(plan.Leftovers);
+        Assert.Equal(plan.AtRiskValue, plan.PlannedValue);
+    }
+
+    [Fact]
     public void Чем_ближе_срок_продукта_тем_выше_блюдо()
     {
         var k = new Kitchen();
@@ -316,11 +359,12 @@ public class ForecastTests
     {
         var kitchen = new Kitchen();
         var salmon = kitchen.Product("Лосось", cost: 1900);
+        var shrimp = kitchen.Product("Креветки", cost: 1900);
         var beef = kitchen.Product("Вырезка", cost: 2400);
-        kitchen.Stock(salmon, 2, expiresInHours: 4).Stock(beef, 5, expiresInHours: 200);
+        kitchen.Stock(salmon, 2, expiresInHours: 4).Stock(shrimp, 2, expiresInHours: 4).Stock(beef, 5, expiresInHours: 200);
         kitchen.Dish("Стейк из лосося", (salmon, 0.2m));
         // В этом блюде вырезка стоит 432 ₽ при цене 500 ₽: скидка больше 13% съела бы её стоимость.
-        kitchen.Dish("Сёрф-энд-тёрф", (salmon, 0.1m), (beef, 0.18m));
+        kitchen.Dish("Сёрф-энд-тёрф", (shrimp, 0.1m), (beef, 0.18m));
 
         var offers = kitchen.HotOffers();
         var steak = offers.Single(o => o.DishName == "Стейк из лосося").Discount!;
@@ -333,7 +377,7 @@ public class ForecastTests
         Assert.True(surf.Price >= surf.FloorPrice);
 
         // Если партия и так продастся до конца срока, скидка не нужна.
-        var selling = kitchen.HotOffers(perHour: new() { [salmon.Id] = 1 });
+        var selling = kitchen.HotOffers(perHour: new() { [salmon.Id] = 1, [shrimp.Id] = 1 });
         Assert.All(selling, o => Assert.Null(o.Discount));
     }
 

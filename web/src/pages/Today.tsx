@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { post, useApi, type BatchRow, type HotOffer, type OrderRow, type OrderSummary, type ProductRow, type StopListRow, type SupplyRow } from '../api';
+import { post, useApi, type BatchRow, type HotOffer, type HotPlan, type OrderRow, type OrderSummary, type ProductRow, type StopListRow, type SupplyRow } from '../api';
 import { clock, dayStart, duration, money, plural, portions, qty, today, until } from '../format';
 import { BatchLabel, Photo, PlusIcon, URGENT_HOURS, useCan } from '../ui';
 
@@ -13,6 +13,7 @@ const STOP_REASON = {
 
 export function Today() {
   const offers = useApi<HotOffer[]>('/hot-offers');
+  const plan = useApi<HotPlan>('/hot-offers/plan');
   const stopList = useApi<StopListRow[]>('/stop-list');
   const batches = useApi<BatchRow[]>('/stock/batches');
   const orders = useApi<OrderRow[]>('/orders?take=4');
@@ -119,6 +120,22 @@ export function Today() {
               <h2 id="sell-h">Продать в первую очередь</h2>
               <span className="end">по сроку и сумме списания{canTune && <> · <Link to="/app/hot">настроить</Link></>}</span>
             </div>
+            {plan.data && (plan.data.portions > 0 || plan.data.leftovers.length > 0) && (
+              <p className="sell-plan">
+                {plan.data.portions > 0 && (
+                  <span>
+                    <strong className="hd">План спасения:</strong> продать {portions(plan.data.portions)}
+                    {plan.data.plannedValue !== null && <> — это <span className="num hd">{money(plan.data.plannedValue)}</span> из <span className="num">{money(plan.data.atRiskValue ?? 0)}</span> истекающих продуктов</>}
+                    . Каждый продукт посчитан один раз.
+                  </span>
+                )}
+                {plan.data.leftovers.length > 0 && (
+                  <span className="sell-plan__left">
+                    Некуда продать: {plan.data.leftovers.map((l) => `${l.productName.toLowerCase()} ${qty(l.quantity, l.unit)}${l.value !== null ? ` (${money(l.value)})` : ''}`).join(', ')} — в заготовку или в списание.
+                  </span>
+                )}
+              </p>
+            )}
             {offers.data.length === 0 ? (
               <p className="g-empty"><strong>Продвигать нечего</strong>В ближайшие двое суток ничего не истекает.</p>
             ) : (

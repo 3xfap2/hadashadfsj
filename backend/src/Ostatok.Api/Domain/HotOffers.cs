@@ -2,9 +2,9 @@ namespace Ostatok.Api.Domain;
 
 /// <param name="AtRiskQuantity">Сколько продукта истекает в пределах горизонта.</param>
 /// <param name="NearestQuantity">Сколько в партии с самым ранним сроком; HoursLeft — её срок.</param>
-/// <param name="UsableQuantity">Сколько из этого блюдо успеет израсходовать при доступном числе порций.</param>
+/// <param name="UsableQuantity">Сколько из этого план отдаёт этому блюду: то, что не забрали блюда выше по списку.</param>
 /// <param name="AlternativeDishes">Сколько блюд в продаже используют этот продукт, включая это.</param>
-/// <param name="ValueAtRisk">Стоимость истекающего продукта по закупочной цене; пусто, если цены показывать нельзя.</param>
+/// <param name="ValueAtRisk">Стоимость доли этого блюда по закупочной цене; пусто, если цены показывать нельзя.</param>
 public sealed record HotIngredient(
     Guid ProductId, string ProductName, Unit Unit,
     decimal AtRiskQuantity, decimal NearestQuantity, double HoursLeft, decimal UsableQuantity, decimal? ValueAtRisk,
@@ -32,6 +32,13 @@ public sealed record HotOffer(
     int Portions, int AvailablePortions, decimal? ValueAtRisk,
     IReadOnlyList<HotIngredient> Ingredients, string Reason, HotDiscount? Discount, bool Pinned);
 
+/// <summary>Истекающий продукт, который план не смог пристроить: блюд с ним в продаже нет или на них не хватает остальных продуктов.</summary>
+public sealed record HotLeftover(Guid ProductId, string ProductName, Unit Unit, decimal Quantity, double HoursLeft, decimal? Value);
+
+/// <param name="AtRiskValue">Сколько рублей продуктов истекает в пределах горизонта.</param>
+/// <param name="PlannedValue">Сколько из них уйдёт в блюда, если продать порции из плана.</param>
+public sealed record HotPlan(IReadOnlyList<HotOffer> Offers, decimal? AtRiskValue, decimal? PlannedValue, IReadOnlyList<HotLeftover> Leftovers);
+
 /// <summary>
 /// Горячие предложения: какие блюда продавать активнее, чтобы продукты не ушли в списание.
 ///
@@ -40,6 +47,11 @@ public sealed record HotOffer(
 /// где срочность = 1 − (часов до конца срока ÷ горизонт): чем ближе срок, тем ближе к единице;
 /// N — число блюд в продаже с этим продуктом: если блюдо единственное, его вклад не делится.
 /// Количество ограничено и остатком партии, и числом порций, на которое хватает остальных ингредиентов.
+///
+/// Приоритет задаёт порядок, а порции — план. Истекающий продукт делится между блюдами по порядку списка:
+/// первое блюдо берёт, сколько успеет израсходовать, следующему достаётся остаток. Поэтому порции и рубли
+/// разных блюд не пересекаются и в сумме не превышают того, что лежит на складе. Блюдо, которому ничего
+/// не досталось, не предлагается; продукт, который не пристроен ни в одно блюдо, остаётся в плане отдельной строкой.
 /// Горизонт, вес срочности, деление на √N и потолок скидки задаёт менеджер (<see cref="HotRules"/>);
 /// он же может закрепить блюдо первым или убрать его из списка.
 /// Официанту и повару закупочные цены не показываются (costs = false): список и порядок те же, но без сумм в рублях.
@@ -52,6 +64,15 @@ public sealed record HotOffer(
 public static class HotOffers
 {
     public static IReadOnlyList<HotOffer> Rank(
+        IReadOnlyCollection<Dish> dishes,
+        IReadOnlyCollection<Batch> batches,
+        StockTotals stock,
+        DateTimeOffset now,
+        HotRules rules,
+        IReadOnlyDictionary<Guid, decimal>? perHour = null,
+        bool costs = true) => Plan(dishes, batches, stock, now, rules, perHour, costs).Offers;
+
+    public static HotPlan Plan(
         IReadOnlyCollection<Dish> dishes,
         IReadOnlyCollection<Batch> batches,
         StockTotals stock,
@@ -78,11 +99,11 @@ public static class HotOffers
             .GroupBy(id => id)
             .ToDictionary(g => g.Key, g => g.Count());
 
-        var offers = new List<HotOffer>();
+        // Шаг 1 — приоритет: сколько каждое блюдо могло бы спасти, если бы истекающий продукт достался только ему.
+        var candidates = new List<(Dish Dish, int Portions, List<HotIngredient> Ingredients, decimal Score)>();
         foreach (var (dish, portions) in onSale.Where(x => !x.Dish.HotHidden))
         {
             var ingredients = new List<HotIngredient>();
-            var recommended = 0;
             foreach (var item in dish.Recipe)
             {
                 var expiring = atRisk[item.ProductId].ToList();
@@ -108,31 +129,58 @@ public static class HotOffers
                     product.Id, product.Name, product.Unit,
                     atRiskQuantity, expiring[0].Remaining, (expiring[0].ExpiresAt - now).TotalHours, usable, usable * product.Cost,
                     alternatives, rules.ShareAcrossDishes ? weighted / (decimal)Math.Sqrt(alternatives) : weighted));
-                recommended = Math.Max(recommended, (int)Math.Ceiling(usable / item.Quantity));
             }
 
-            if (ingredients.Count == 0) continue;
-            ingredients = ingredients.OrderByDescending(i => i.Score).ToList();
+            if (ingredients.Count > 0) candidates.Add((dish, portions, ingredients, Math.Round(ingredients.Sum(i => i.Score), 2)));
+        }
+
+        // Шаг 2 — план: истекающий продукт раздаётся блюдам по порядку приоритета, каждому — из того, что осталось.
+        var cost = atRisk.ToDictionary(g => g.Key, g => g.First().Product!.Cost);
+        var free = atRisk.ToDictionary(g => g.Key, g => g.Sum(b => b.Remaining));
+        var offers = new List<HotOffer>();
+        foreach (var (dish, portions, potential, score) in candidates
+            .OrderByDescending(c => c.Dish.HotPinned).ThenByDescending(c => c.Score).ThenBy(c => c.Dish.Name))
+        {
+            var perPortion = dish.Recipe.ToDictionary(r => r.ProductId, r => r.Quantity);
+            // Порций нужно столько, чтобы израсходовать нераспределённый остаток самого «долгого» из истекающих продуктов блюда.
+            var planned = Math.Min(portions, potential.Max(i => (int)Math.Ceiling(Math.Min(free[i.ProductId], perPortion[i.ProductId] * portions) / perPortion[i.ProductId])));
+            if (planned == 0) continue;
+
+            var ingredients = new List<HotIngredient>();
+            foreach (var ingredient in potential.OrderByDescending(i => i.Score))
+            {
+                var share = Math.Min(free[ingredient.ProductId], perPortion[ingredient.ProductId] * planned);
+                if (share == 0) continue;
+                free[ingredient.ProductId] -= share;
+                ingredients.Add(ingredient with { UsableQuantity = share, ValueAtRisk = share * cost[ingredient.ProductId] });
+            }
+
             offers.Add(new HotOffer(
-                dish.Id, dish.Name, dish.PhotoUrl, dish.Price,
-                Math.Round(ingredients.Sum(i => i.Score), 2),
-                Math.Min(recommended, portions), portions,
+                dish.Id, dish.Name, dish.PhotoUrl, dish.Price, score,
+                planned, portions,
                 ingredients.Sum(i => i.ValueAtRisk),
                 ingredients,
-                Explain(ingredients, Math.Min(recommended, portions), horizonHours, costs),
+                Explain(ingredients, planned, horizonHours, costs),
                 Discount(dish, ingredients, perHour, rules, costs),
                 dish.HotPinned));
         }
 
-        var ranked = offers.OrderByDescending(o => o.Pinned).ThenByDescending(o => o.Score).ThenBy(o => o.DishName).ToList();
-        if (costs) return ranked;
+        var leftovers = atRisk
+            .Where(g => free[g.Key] > 0)
+            .Select(g => new HotLeftover(g.Key, g.First().Product!.Name, g.First().Product!.Unit, free[g.Key],
+                (g.First().ExpiresAt - now).TotalHours, costs ? Math.Round(free[g.Key] * cost[g.Key], 2) : null))
+            .OrderBy(l => l.HoursLeft)
+            .ToList();
+        var atRiskValue = atRisk.Sum(g => g.Sum(b => b.Remaining) * cost[g.Key]);
+        var plannedValue = offers.Sum(o => o.ValueAtRisk) ?? 0;
+        if (costs) return new HotPlan(offers, Math.Round(atRiskValue, 2), Math.Round(plannedValue, 2), leftovers);
         // Приоритет — это рубли с весом срочности, поэтому вместе с суммами скрывается и он; порядок списка остаётся.
-        return ranked.Select(o => o with
+        return new HotPlan(offers.Select(o => o with
         {
             Score = 0, ValueAtRisk = null,
             Ingredients = o.Ingredients.Select(i => i with { Score = 0, ValueAtRisk = null }).ToList(),
             Discount = o.Discount is null ? null : o.Discount with { FloorPrice = null },
-        }).ToList();
+        }).ToList(), null, null, leftovers);
     }
 
     private static HotDiscount? Discount(
@@ -169,6 +217,7 @@ public static class HotOffers
             ? $". Продайте {Ru.Portions(portions)} — это {Ru.Money(ingredients.Sum(i => i.ValueAtRisk) ?? 0)} продуктов, которые иначе уйдут в списание."
             : $". Продайте {Ru.Portions(portions)}, иначе продукты уйдут в списание.";
         if (main.AlternativeDishes == 1) text += " Других блюд с этим продуктом в продаже нет.";
+        else if (main.UsableQuantity < main.AtRiskQuantity) text += $" На это блюдо приходится {Ru.Qty(main.UsableQuantity, main.Unit)}, остальное — в других блюдах плана.";
         if (ingredients.Count > 1) text += $" Также истекает: {string.Join(", ", ingredients.Skip(1).Select(i => i.ProductName.ToLowerInvariant()))}.";
         return text;
     }
