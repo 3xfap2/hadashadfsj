@@ -1687,4 +1687,31 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var losses = await Get<WriteOffReport>("/api/analytics/write-offs?days=1");
         Assert.Equal(2000, losses.ByProduct.Single(p => p.ProductId == product.Id).Value);
     }
+
+    [Fact]
+    public async Task Повтор_заказа_с_тем_же_идентификатором_ничего_не_списывает_второй_раз()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.2m));
+        await Supply(new SupplyItemRequest(product.Id, 2, null));
+        var request = new OrderRequest([new OrderLine(dish.Id, 1)], Id: Guid.NewGuid());
+
+        // Официант нажал «Оформить» несколько раз подряд, пока сервер просыпался: все запросы приходят разом.
+        var burst = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => fx.Waiter.PostAsJsonAsync("/api/orders", request)));
+        var later = await fx.Waiter.PostAsJsonAsync("/api/orders", request);
+
+        Assert.All(burst.Append(later), r => Assert.Equal(HttpStatusCode.Created, r.StatusCode));
+        var numbers = new HashSet<int>();
+        foreach (var r in burst.Append(later)) numbers.Add((await Read<OrderResponse>(r)).Number);
+        // Заказ один, списана одна порция, номера следующих заказов идут подряд.
+        Assert.Single(numbers);
+        Assert.Equal(1.8m, (await Batches(product)).Single().Remaining);
+        Assert.Equal(numbers.Single() + 1, (await Read<OrderResponse>(await Order(dish))).Number);
+
+        // Отклонённый заказ при повторе тоже возвращает прежний отказ, даже если продукт уже привезли.
+        var big = new OrderRequest([new OrderLine(dish.Id, 100)], Id: Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.Conflict, (await fx.Waiter.PostAsJsonAsync("/api/orders", big)).StatusCode);
+        await Supply(new SupplyItemRequest(product.Id, 50, null));
+        Assert.Equal(HttpStatusCode.Conflict, (await fx.Waiter.PostAsJsonAsync("/api/orders", big)).StatusCode);
+    }
 }

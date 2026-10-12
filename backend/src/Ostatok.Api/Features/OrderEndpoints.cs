@@ -6,7 +6,8 @@ using Ostatok.Api.Domain;
 namespace Ostatok.Api.Features;
 
 /// <param name="Place">Стол или бар из списка мест ресторана; можно не указывать.</param>
-public sealed record OrderRequest(List<OrderLine>? Items, string? Place = null);
+/// <param name="Id">Идентификатор заказа, который придумал клиент; повтор с тем же Id вернёт прежний заказ и ничего не спишет.</param>
+public sealed record OrderRequest(List<OrderLine>? Items, string? Place = null, Guid? Id = null);
 
 /// <param name="DiscountQuantity">На сколько порций из Quantity действует скидка.</param>
 public sealed record OrderItemResponse(Guid DishId, string DishName, int Quantity, int DiscountPercent, int DiscountQuantity, decimal Price);
@@ -95,6 +96,9 @@ public static class OrderEndpoints
         orders.MapPost("", async (OrderRequest req, OrderService service, AppDbContext db, ClaimsPrincipal user,
             TimeProvider time, StockOptions options, CancellationToken ct) =>
         {
+            // Повтор уже выполненного запроса: отвечаем тем же, что и в первый раз, не проверяя заказ заново.
+            if (req.Id is not null && await db.Orders.AnyAsync(o => o.Id == req.Id, ct)) return await AnswerAsync(req.Id.Value);
+
             var items = req.Items ?? [];
             var place = req.Place?.Trim() ?? "";
             var places = (await db.CurrentRestaurantAsync(ct)).Places();
@@ -129,19 +133,25 @@ public static class OrderEndpoints
                     .ToDictionary(o => o.DishId, o => (o.Discount!.Percent, Math.Min(asked[o.DishId], o.Portions)));
             }
 
-            var placed = await service.PlaceAsync(items, place, user.Identity?.Name ?? "", ct, discounts);
-            var writeOffs = await (
-                from m in db.Movements
-                where m.OrderId == placed.Id
-                join b in db.Batches on m.BatchId equals b.Id
-                orderby m.Id
-                select new OrderWriteOff(m.Product!.Name, m.Product.Unit, b.Supply!.Number, m.Quantity)).ToListAsync(ct);
-            var response = ToResponse(await Detailed(db).AsNoTracking().FirstAsync(o => o.Id == placed.Id, ct), writeOffs);
+            var placed = await service.PlaceAsync(items, place, user.Identity?.Name ?? "", ct, discounts, req.Id);
+            return await AnswerAsync(placed.Id);
 
-            // Заказ с нехваткой не создан: 409 и перечень того, чего не хватило.
-            return placed.Status == OrderStatus.Accepted
-                ? Results.Created($"/api/orders/{placed.Id}", response)
-                : Results.Json(response, statusCode: StatusCodes.Status409Conflict);
+            async Task<IResult> AnswerAsync(Guid id)
+            {
+                var writeOffs = await (
+                    from m in db.Movements
+                    where m.OrderId == id
+                    join b in db.Batches on m.BatchId equals b.Id
+                    orderby m.Id
+                    select new OrderWriteOff(m.Product!.Name, m.Product.Unit, b.Supply!.Number, m.Quantity)).ToListAsync(ct);
+                var order = await Detailed(db).AsNoTracking().FirstAsync(o => o.Id == id, ct);
+                var response = ToResponse(order, writeOffs);
+
+                // Заказ с нехваткой не принят: 409 и перечень того, чего не хватило.
+                return order.Status == OrderStatus.Accepted
+                    ? Results.Created($"/api/orders/{id}", response)
+                    : Results.Json(response, statusCode: StatusCodes.Status409Conflict);
+            }
         })
         .Produces<OrderResponse>(StatusCodes.Status201Created)
         .Produces<OrderResponse>(StatusCodes.Status409Conflict)

@@ -13,10 +13,12 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
     /// Проверяет ингредиенты и списывает их одной транзакцией. Годные партии нужных продуктов
     /// блокируются на время заказа, поэтому два одновременных заказа не спишут один и тот же остаток.
     /// Заказ с нехваткой сохраняется как отклонённый — по ним считается статистика дефицита.
+    /// Если клиент прислал идентификатор заказа и такой заказ уже есть, возвращается он: повтор запроса
+    /// (двойное нажатие, обрыв связи) ничего не списывает второй раз.
     /// </summary>
     public async Task<Order> PlaceAsync(
         IReadOnlyCollection<OrderLine> lines, string place, string actor, CancellationToken ct,
-        IReadOnlyDictionary<Guid, (int Percent, int Portions)>? discounts = null)
+        IReadOnlyDictionary<Guid, (int Percent, int Portions)>? discounts = null, Guid? id = null)
     {
         var quantities = lines.GroupBy(l => l.DishId).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
         var dishes = await db.Dishes
@@ -32,7 +34,7 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
         var now = time.GetUtcNow();
         var order = new Order
         {
-            Id = Guid.NewGuid(),
+            Id = id ?? Guid.NewGuid(),
             CreatedAt = now,
             Place = place,
             Items = quantities.Select(q =>
@@ -53,6 +55,11 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
         order.Number = (await db.Database
             .SqlQuery<int>($"""UPDATE "Restaurants" SET "LastOrderNumber" = "LastOrderNumber" + 1 WHERE "Id" = {db.TenantId} RETURNING "LastOrderNumber" """)
             .ToListAsync(ct)).Single();
+
+        // Проверка повтора идёт после блокировки счётчика: два одновременных запроса с одним идентификатором
+        // выстраиваются в очередь, и второй видит заказ первого. Транзакция откатывается, номер не тратится.
+        if (id is not null && await db.Orders.AsNoTracking().FirstOrDefaultAsync(o => o.Id == id, ct) is { } repeated)
+            return repeated;
 
         var productIds = required.Keys.ToArray();
         // Единый порядок блокировки во всех заказах исключает взаимные блокировки.

@@ -64,13 +64,21 @@ export function Orders() {
   // Открытые заказы за каждым столом: сумма и время последнего. После «Закрыть стол» он снова свободен.
   const served = new Map((orders.data?.tables ?? []).map((t) => [t.place, t]));
 
+  // Идентификатор попытки заказа. Если связь оборвалась и официант нажал «Оформить» ещё раз,
+  // уходит тот же идентификатор, и сервер возвращает уже созданный заказ, а не списывает продукты второй раз.
+  const attempt = useRef<string | null>(null);
+
   const submit = async () => {
     setBusy(true);
     try {
+      attempt.current ??= crypto.randomUUID();
       const response = await post('/orders', {
+        id: attempt.current,
         place,
         items: Object.entries(cart).map(([dishId, quantity]) => ({ dishId, quantity, discount: Boolean(discountOf(dishId)) })),
       });
+      // Сервер ответил — попытка закончена, следующий заказ получит новый идентификатор.
+      attempt.current = null;
       if (response.status === 201) {
         buzz(NotificationType.Success);
         setResult({ kind: 'ok', order: await response.json() });
