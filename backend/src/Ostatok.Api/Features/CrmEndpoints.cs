@@ -171,7 +171,9 @@ public static class CrmEndpoints
 
             // Запись блокируется: из двух одновременных сбросов второй дождётся первого, и рабочим останется последний выданный пароль.
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
-            var user = (await db.Users.FromSql($"""SELECT * FROM "Users" WHERE "Id" = {found} FOR UPDATE""").IgnoreQueryFilters().ToListAsync(ct)).First();
+            var user = (await db.Users.FromSql($"""SELECT * FROM "Users" WHERE "Id" = {found} FOR UPDATE""").IgnoreQueryFilters().ToListAsync(ct)).FirstOrDefault();
+            // Запись могли удалить в кабинете, пока шёл поиск.
+            if (user is null) return Results.NotFound();
             if (StaffEndpoints.IsDemoAccount(user, options))
                 return Results.Problem("Пароль открытой записи демо-ресторана и записи поддержки сбросить нельзя.", statusCode: StatusCodes.Status409Conflict);
 
@@ -190,29 +192,32 @@ public static class CrmEndpoints
             // В демо-ресторане работает сама команда продукта: отключив его, она закрыла бы вход и себе.
             if (id == Restaurant.DemoId)
                 return Results.Problem("Демо-ресторан отключить нельзя.", statusCode: StatusCodes.Status409Conflict);
-            var restaurant = await db.Restaurants.FirstOrDefaultAsync(r => r.Id == id, ct);
-            if (restaurant is null) return Results.NotFound();
-            if (restaurant.DisabledAt is null)
+            if (!await db.Restaurants.AnyAsync(r => r.Id == id, ct)) return Results.NotFound();
+            var now = time.GetUtcNow();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            // Условие в самой команде: из одновременных запросов ресторан отключает только один, остальные ничего не меняют.
+            if (await db.Restaurants.Where(r => r.Id == id && r.DisabledAt == null).ExecuteUpdateAsync(s => s.SetProperty(r => r.DisabledAt, now), ct) == 1)
             {
-                restaurant.DisabledAt = time.GetUtcNow();
-                Log(db, staff, time, id, "Кабинет отключён.");
                 // Выданные токены отменяются насовсем: после включения сотрудники входят заново.
-                await using var transaction = await db.Database.BeginTransactionAsync(ct);
                 await db.Users.IgnoreQueryFilters().Where(u => u.RestaurantId == id)
                     .ExecuteUpdateAsync(s => s.SetProperty(u => u.TokenVersion, u => u.TokenVersion + 1), ct);
+                Log(db, staff, time, id, "Кабинет отключён.");
                 await db.SaveChangesAsync(ct);
-                await transaction.CommitAsync(ct);
             }
+            await transaction.CommitAsync(ct);
             return Results.NoContent();
         });
 
         crm.MapPost("/restaurants/{id:guid}/enable", async (Guid id, ClaimsPrincipal staff, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
-            var restaurant = await db.Restaurants.FirstOrDefaultAsync(r => r.Id == id, ct);
-            if (restaurant is null) return Results.NotFound();
-            if (restaurant.DisabledAt is not null) Log(db, staff, time, id, "Кабинет включён.");
-            restaurant.DisabledAt = null;
-            await db.SaveChangesAsync(ct);
+            if (!await db.Restaurants.AnyAsync(r => r.Id == id, ct)) return Results.NotFound();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            if (await db.Restaurants.Where(r => r.Id == id && r.DisabledAt != null).ExecuteUpdateAsync(s => s.SetProperty(r => r.DisabledAt, (DateTimeOffset?)null), ct) == 1)
+            {
+                Log(db, staff, time, id, "Кабинет включён.");
+                await db.SaveChangesAsync(ct);
+            }
+            await transaction.CommitAsync(ct);
             return Results.NoContent();
         });
 
