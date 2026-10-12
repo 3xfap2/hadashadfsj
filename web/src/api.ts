@@ -635,11 +635,24 @@ export function connectEvents(): () => void {
     reloadAll();
   };
 
+  // Страница, ушедшая в историю браузера, не должна держать соединение: их у браузера всего шесть на адрес.
+  const onLeave = () => {
+    clearTimeout(retry);
+    source?.close();
+  };
+  const onBack = (e: PageTransitionEvent) => {
+    if (e.persisted) onReturn();
+  };
+
   document.addEventListener('visibilitychange', onReturn);
+  window.addEventListener('pagehide', onLeave);
+  window.addEventListener('pageshow', onBack);
   open();
   return () => {
     stopped = true;
     document.removeEventListener('visibilitychange', onReturn);
+    window.removeEventListener('pagehide', onLeave);
+    window.removeEventListener('pageshow', onBack);
     clearTimeout(timer);
     clearTimeout(retry);
     source?.close();
