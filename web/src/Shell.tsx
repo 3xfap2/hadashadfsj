@@ -148,6 +148,7 @@ export function Shell() {
           <Route path="catalog" element={<Guard section="catalog"><Products /></Guard>} />
           <Route path="catalog/dishes" element={<Guard section="catalog"><Dishes /></Guard>} />
           <Route path="more" element={<More sections={extra} />} />
+          <Route path="support" element={<ToCrm />} />
           <Route path="*" element={<p className="g-empty"><strong>Раздел в работе</strong>Скоро появится.</p>} />
         </Routes>}
       </main>
@@ -233,3 +234,9 @@ function More({ sections }: { sections: typeof SECTIONS }) {
 }
 
 export const toCabinet = <Navigate to="/app" replace />;
+
+/** Раздел «Обращения» переехал в CRM — отдельное приложение на том же адресе. */
+function ToCrm() {
+  useEffect(() => location.replace('/crm/'), []);
+  return null;
+}

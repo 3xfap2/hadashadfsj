@@ -16,7 +16,8 @@ const DAY_WORDS: Record<number, string> = { [-1]: 'вчера', 0: 'сегодн
 export function dueLong(iso: string): string {
   const d = new Date(iso);
   const days = Math.round((startOfDay(d) - startOfDay(new Date())) / 86_400_000);
-  return `${DAY_WORDS[days] ?? dayMonthDigits.format(d)} ${time.format(d)}`;
+  const date = d.getFullYear() === new Date().getFullYear() ? dayMonthDigits.format(d) : `${dayMonthDigits.format(d)}.${d.getFullYear()}`;
+  return `${DAY_WORDS[days] ?? date} ${time.format(d)}`;
 }
 
 /** Значение для поля «дата и время» в местном времени. */

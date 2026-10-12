@@ -25,7 +25,7 @@ export function Restaurants() {
 
   return (
     <>
-      <div className="g-title"><h1>Рестораны</h1><span className="sub num">{list.data.length}</span></div>
+      <div className="g-title"><h1>Рестораны</h1><span className="sub num">{list.data.filter((r) => !r.isDemo).length}</span></div>
       <section className="g-panel" aria-label="Рестораны">
           {list.data.length === 0 ? (
             <p className="g-empty"><strong>Ресторанов пока нет</strong>Создайте кабинет в форме «Новый ресторан» или из карточки заявки.</p>

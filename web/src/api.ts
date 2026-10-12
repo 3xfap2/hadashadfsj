@@ -489,6 +489,10 @@ export async function login(name: string, password: string): Promise<LoginError 
       ? { title: 'Неверный логин или пароль', text: 'Проверьте раскладку и Caps Lock.' }
       : { title: 'Слишком много попыток', text: 'Подождите минуту и попробуйте снова.' };
   }
+  if (response.status === 403) {
+    const problem = await response.json().catch(() => ({}));
+    return { title: 'Вход закрыт', text: problem.detail || 'Напишите в поддержку «Остатка».' };
+  }
   if (!response.ok) return NO_SERVER;
   setSession((await response.json()).token, name);
   return null;
