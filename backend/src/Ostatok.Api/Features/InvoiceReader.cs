@@ -55,7 +55,9 @@ public sealed class OpenAiInvoiceReader(IHttpClientFactory clients, AiOptions op
         product — название. Если в справочнике ниже есть этот же продукт, верни название ТОЧНО как в справочнике; если нет — как написано на фото.
         quantity — количество числом в единицах справочника: граммы переведи в килограммы, миллилитры — в литры.
         unit — «кг», «л» или «шт».
-        expires — дата «годен до» в виде ГГГГ-ММ-ДД, если она указана; иначе null.
+        expires — дата «годен до» в виде ГГГГ-ММ-ДД, только если у этой строки прямо написано «годен до», «срок годности до», «употребить до» или стоит отдельная колонка с такой датой; иначе null.
+        Дата самой накладной, дата отгрузки и дата изготовления — это НЕ срок годности: в expires их не ставь.
+        documentDate — дата самой накладной (документа) в виде ГГГГ-ММ-ДД, если она есть; иначе null.
         shelfLifeHours — срок хранения в часах, если указан именно срок, а не дата; иначе null.
         sum — сумма по строке в рублях; если указана только цена за единицу, умножь её на количество; если денег нет — null.
         Ничего не выдумывай: чего нет на фото — null. Строки не о продуктах (итоги, подписи, реквизиты) пропускай.
@@ -82,8 +84,8 @@ public sealed class OpenAiInvoiceReader(IHttpClientFactory clients, AiOptions op
                     }),
                 }),
             ["response_format"] = JsonNode.Parse("""
-                {"type":"json_schema","json_schema":{"name":"supply","strict":true,"schema":{"type":"object","additionalProperties":false,"required":["rows"],
-                "properties":{"rows":{"type":"array","items":{"type":"object","additionalProperties":false,
+                {"type":"json_schema","json_schema":{"name":"supply","strict":true,"schema":{"type":"object","additionalProperties":false,"required":["documentDate","rows"],
+                "properties":{"documentDate":{"type":["string","null"]},"rows":{"type":"array","items":{"type":"object","additionalProperties":false,
                 "required":["product","quantity","unit","expires","shelfLifeHours","sum"],
                 "properties":{"product":{"type":"string"},"quantity":{"type":["number","null"]},"unit":{"type":["string","null"]},
                 "expires":{"type":["string","null"]},"shelfLifeHours":{"type":["number","null"]},"sum":{"type":["number","null"]}}}}}}}}
@@ -101,6 +103,8 @@ public sealed class OpenAiInvoiceReader(IHttpClientFactory clients, AiOptions op
         var text = answer.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "{}";
         using var parsed = JsonDocument.Parse(text);
 
+        // Модель иногда принимает дату накладной за срок годности: такой «срок» отбрасывается, и строка получит норматив продукта.
+        var documentDate = parsed.RootElement.GetProperty("documentDate").GetString();
         // Первая строка — заголовки, как в файле: разбор таблицы её пропускает.
         var table = new List<string[]> { new[] { "продукт", "количество", "единица", "срок хранения", "цена" } };
         foreach (var row in parsed.RootElement.GetProperty("rows").EnumerateArray().Take(SupplyImport.MaxRows))
@@ -110,7 +114,7 @@ public sealed class OpenAiInvoiceReader(IHttpClientFactory clients, AiOptions op
                 row.GetProperty("product").GetString() ?? "",
                 Number("quantity"),
                 row.GetProperty("unit").GetString() ?? "",
-                Life(row, now),
+                Life(row, now, documentDate),
                 Number("sum"),
             ]);
         }
@@ -118,9 +122,9 @@ public sealed class OpenAiInvoiceReader(IHttpClientFactory clients, AiOptions op
     }
 
     /// <summary>Срок хранения текстом, как в файле. Дата «годен до» пересчитывается в часы от сейчас: годен до конца указанного дня в часовом поясе ресторана.</summary>
-    private static string Life(JsonElement row, DateTimeOffset now)
+    private static string Life(JsonElement row, DateTimeOffset now, string? documentDate)
     {
-        if (row.GetProperty("expires").GetString() is { } date && DateOnly.TryParseExact(date, "yyyy-MM-dd", out var day))
+        if (row.GetProperty("expires").GetString() is { } date && date != documentDate && DateOnly.TryParseExact(date, "yyyy-MM-dd", out var day))
         {
             // «Годен до 15.10» — до конца этого дня по часам ресторана: now приходит уже в его часовом поясе.
             var hours = (int)Math.Floor((new DateTimeOffset(day.AddDays(1).ToDateTime(TimeOnly.MinValue), now.Offset) - now).TotalHours);
