@@ -117,12 +117,13 @@ public sealed class OpenAiInvoiceReader(IHttpClientFactory clients, AiOptions op
         return table;
     }
 
-    /// <summary>Срок хранения текстом, как в файле. Дата «годен до» пересчитывается в часы от сейчас: годен до конца указанного дня.</summary>
+    /// <summary>Срок хранения текстом, как в файле. Дата «годен до» пересчитывается в часы от сейчас: годен до конца указанного дня в часовом поясе ресторана.</summary>
     private static string Life(JsonElement row, DateTimeOffset now)
     {
         if (row.GetProperty("expires").GetString() is { } date && DateOnly.TryParseExact(date, "yyyy-MM-dd", out var day))
         {
-            var hours = (int)Math.Floor((day.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) - now.UtcDateTime).TotalHours);
+            // «Годен до 15.10» — до конца этого дня по часам ресторана: now приходит уже в его часовом поясе.
+            var hours = (int)Math.Floor((new DateTimeOffset(day.AddDays(1).ToDateTime(TimeOnly.MinValue), now.Offset) - now).TotalHours);
             return hours > 0 ? $"{hours} ч" : $"истёк {day:dd.MM.yyyy}";
         }
         return row.GetProperty("shelfLifeHours") is { ValueKind: JsonValueKind.Number } life ? $"{Math.Round(life.GetDecimal())} ч" : "";

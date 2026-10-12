@@ -43,7 +43,7 @@ public static class SupplyEndpoints
 
         // Предпросмотр файла поставки: тело запроса — сам файл CSV. Ничего не сохраняет;
         // после подтверждения строки без ошибок отправляются обычным POST /api/supplies вместе с ценой из файла.
-        supplies.MapPost("/import/preview", async (HttpRequest request, AppDbContext db, IInvoiceReader reader, PhotoQuota quota, TimeProvider time, ILoggerFactory logs, CancellationToken ct) =>
+        supplies.MapPost("/import/preview", async (HttpRequest request, AppDbContext db, IInvoiceReader reader, PhotoQuota quota, TimeProvider time, StockOptions options, ILoggerFactory logs, CancellationToken ct) =>
         {
             if (request.ContentLength > MaxImportBytes)
                 return Results.Problem("Файл больше 1 МБ.", statusCode: StatusCodes.Status413PayloadTooLarge);
@@ -64,7 +64,7 @@ public static class SupplyEndpoints
                     return Results.Problem($"Распознано уже {PhotoQuota.PerHour} снимков за час. Подождите или загрузите файл.", statusCode: StatusCodes.Status429TooManyRequests);
                 try
                 {
-                    rows = SupplyImport.ParseRows(await reader.ReadAsync(bytes, mime, products, time.GetUtcNow(), ct), products);
+                    rows = SupplyImport.ParseRows(await reader.ReadAsync(bytes, mime, products, time.GetUtcNow().ToOffset(TimeSpan.FromHours(options.UtcOffsetHours)), ct), products);
                 }
                 catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
                 {

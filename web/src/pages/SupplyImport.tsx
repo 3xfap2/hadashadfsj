@@ -155,6 +155,13 @@ export function SupplyImport() {
         </div>
       )}
 
+      {rows && fromPhoto && result?.kind !== 'ok' && (
+        <div className="g-note" role="status">
+          <h3>Строки прочитаны с фото</h3>
+          <span>Сверьте количество, сроки и суммы с бумагой: система могла ошибиться в цифре или названии. На склад попадёт только то, что вы подтвердите.</span>
+        </div>
+      )}
+
       {rows && result?.kind !== 'ok' && (
         <div className="sup-row">
           <section className="sup-main g-panel" aria-labelledby="pv-h">
@@ -215,7 +222,7 @@ export function SupplyImport() {
                   <div className="g-note g-note--err">
                     <h3>{plural(bad.length, 'строка', 'строки', 'строк')} не {bad.length === 1 ? 'загрузится' : 'загрузятся'}</h3>
                     <span>
-                      Исправьте их в файле и загрузите снова, или пропустите — {good.length > 0 ? `остальные ${plural(good.length, 'строка попадёт', 'строки попадут', 'строк попадут')} на склад` : 'но тогда загружать будет нечего'}.
+                      {fromPhoto ? 'Заведите продукт в справочнике и снимите накладную ещё раз' : 'Исправьте их в файле и загрузите снова'}, или пропустите — {good.length > 0 ? `остальные ${plural(good.length, 'строка попадёт', 'строки попадут', 'строк попадут')} на склад` : 'но тогда загружать будет нечего'}.
                     </span>
                   </div>
                 )}
