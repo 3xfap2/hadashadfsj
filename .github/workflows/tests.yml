@@ -1,0 +1,31 @@
+name: tests
+
+# Тесты сервера на настоящем PostgreSQL (Testcontainers) и сборка обоих сайтов.
+# Запускается на любой ветке: так работу можно проверить до слияния в main, откуда идёт выкладка.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test
+        working-directory: backend
+
+  sites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+        working-directory: web
+      - run: npm ci && npm run build
+        working-directory: crm

@@ -1923,7 +1923,7 @@ body {
   }
 }
 
-// ---------- Чат на лендинге и обращения ----------
+// ---------- Чат на лендинге ----------
 
 .msgs {
   display: flex;
@@ -2092,110 +2092,9 @@ body {
   }
 }
 
-.support {
-  display: grid;
-  grid-template-columns: 380px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-
-  &__list ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    max-height: 560px;
-    overflow-y: auto;
-  }
-
-  &__dialog {
-    display: flex;
-    flex-direction: column;
-    height: 620px;
-    max-height: calc(100vh - 220px);
-    min-height: 360px;
-
-    &--empty {
-      justify-content: center;
-    }
-  }
-
-  &__msgs {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 16px 20px;
-  }
-
-  &__send {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-
-  &__back {
-    display: none;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--ink-2);
-    cursor: pointer;
-  }
-}
-
-.chat-row {
-  all: unset;
-  box-sizing: border-box;
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 12px;
-  align-items: center;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-
-  &[aria-current='true'] {
-    background: var(--hl);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--brand);
-    outline-offset: -2px;
-  }
-
-  &__text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .g-tag {
-    justify-self: end;
-  }
-}
-
 @media (hover: hover) and (pointer: fine) {
-  .chat-row:not([aria-current='true']):hover,
   .ask__close:hover {
     background: #f4f6f3;
-  }
-}
-
-@media (max-width: 900px) {
-  .support {
-    grid-template-columns: minmax(0, 1fr);
-
-    &--open &__list,
-    &:not(&--open) &__dialog {
-      display: none;
-    }
-
-    &__back {
-      display: inline;
-    }
-
-    &__dialog {
-      max-height: calc(100vh - 260px);
-    }
   }
 }
 
@@ -2857,14 +2756,6 @@ body {
   &__note {
     margin: 0;
     padding: 12px 20px 16px;
-  }
-}
-
-.leads {
-  min-width: 720px;
-
-  .g-name {
-    white-space: nowrap;
   }
 }
 

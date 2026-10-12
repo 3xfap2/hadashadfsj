@@ -1687,4 +1687,292 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var losses = await Get<WriteOffReport>("/api/analytics/write-offs?days=1");
         Assert.Equal(2000, losses.ByProduct.Single(p => p.ProductId == product.Id).Value);
     }
+
+    /// <summary>Заметки и задачи из карточки заявки или ресторана.</summary>
+    private sealed record CrmLists(List<CrmNoteResponse> NotesList, List<CrmTaskResponse> Tasks);
+
+    /// <summary>Заявка с лендинга — такой, какой её видит CRM.</summary>
+    private async Task<CrmLeadRow> CrmLead(HttpClient support)
+    {
+        var organization = $"Ресторан {Guid.NewGuid():N}";
+        using var visitor = fx.CreateClient();
+        (await visitor.PostAsJsonAsync("/api/leads", new LeadRequest("Мария", organization, "maria@example.com", "1", null))).EnsureSuccessStatusCode();
+        return Assert.Single(await Get<List<CrmLeadRow>>(support, "/api/crm/leads?status=New"), l => l.Organization == organization);
+    }
+
+    private static async Task<Guid> RestaurantId(HttpClient owner) => (await Get<MeResponse>(owner, "/api/me")).RestaurantId;
+
+    [Fact]
+    public async Task Заявка_проходит_воронку_и_по_ней_открывается_кабинет()
+    {
+        using var support = await fx.SignInAsSupportAsync();
+        var lead = await CrmLead(support);
+        Assert.Equal((LeadStatus.New, lead.CreatedAt), (lead.Status, lead.UpdatedAt));
+        Assert.Null(lead.Assignee);
+
+        fx.Time.Advance(TimeSpan.FromMinutes(5));
+        var moved = await Read<CrmLeadRow>(await support.PutAsJsonAsync($"/api/crm/leads/{lead.Id}", new CrmLeadUpdate(LeadStatus.Demo, " Аслан "), ApiFixture.Json));
+        var noStatus = await support.PutAsJsonAsync($"/api/crm/leads/{lead.Id}", new CrmLeadUpdate(null, null), ApiFixture.Json);
+        var unknown = await support.PutAsJsonAsync("/api/crm/leads/0", new CrmLeadUpdate(LeadStatus.Lost, null), ApiFixture.Json);
+
+        Assert.Equal((LeadStatus.Demo, "Аслан"), (moved.Status, moved.Assignee));
+        Assert.True(moved.UpdatedAt > lead.UpdatedAt);
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.NotFound), (noStatus.StatusCode, unknown.StatusCode));
+        Assert.DoesNotContain(await Get<List<CrmLeadRow>>(support, "/api/crm/leads?status=New"), l => l.Id == lead.Id);
+        Assert.Contains(await Get<List<CrmLeadRow>>(support, "/api/crm/leads?status=Demo"), l => l.Id == lead.Id);
+        Assert.Contains(await Get<List<CrmLeadRow>>(support, "/api/crm/leads"), l => l.Id == lead.Id);
+        Assert.True((await Get<CrmSummary>(support, "/api/crm/summary")).Leads.Demo >= 1);
+
+        // Кабинет открывается прямо из заявки: она становится выигранной и запоминает свой ресторан.
+        var login = $"c{Guid.NewGuid():N}"[..20];
+        var opened = await support.PostAsJsonAsync($"/api/crm/leads/{lead.Id}/restaurant", new RestaurantCreateRequest("Кафе Марии", login));
+        var again = await support.PostAsJsonAsync($"/api/crm/leads/{lead.Id}/restaurant", new RestaurantCreateRequest("Кафе Марии 2", $"d{login}"[..20]));
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.Conflict), (opened.StatusCode, again.StatusCode));
+        var access = await Read<CrmAccess>(opened);
+        Assert.Equal(("Кафе Марии", login), (access.Name, access.Login));
+
+        using var owner = await fx.SignInAsync(access.Login, access.Password);
+        var restaurant = await RestaurantId(owner);
+        var won = await Get<CrmLeadRow>(support, $"/api/crm/leads/{lead.Id}");
+        Assert.Equal((LeadStatus.Won, "Кафе Марии", restaurant), (won.Status, won.RestaurantName, won.RestaurantId));
+        Assert.Equal(lead.Id, Assert.Single(await Get<List<CrmRestaurantRow>>(support, "/api/crm/restaurants"), r => r.Id == restaurant).LeadId);
+        // Прежний список заявок, по которому работает бот, никуда не делся.
+        Assert.Contains(await Get<List<LeadResponse>>(support, "/api/leads"), l => l.Id == lead.Id);
+    }
+
+    [Fact]
+    public async Task CRM_закрыта_для_всех_кроме_команды_продукта()
+    {
+        using var anonymous = fx.CreateClient();
+        using var manager = await fx.SignInAsync("manager");
+        using var support = await fx.SignInAsSupportAsync();
+        var (owner, _, _) = await fx.NewRestaurantAsync("Посторонние");
+        var restaurant = await RestaurantId(owner);
+
+        foreach (var url in new[] { "/api/crm/summary", "/api/crm/leads", "/api/crm/restaurants", $"/api/crm/restaurants/{restaurant}", "/api/crm/chats", "/api/crm/tasks" })
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(url)).StatusCode);
+            // Открытый управляющий демо, шеф-повар демо и управляющий другого ресторана — не команда продукта.
+            Assert.Equal(HttpStatusCode.Forbidden, (await manager.GetAsync(url)).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await Api.GetAsync(url)).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await owner.GetAsync(url)).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await support.GetAsync(url)).StatusCode);
+        }
+
+        // Менять чужие рестораны они тоже не могут.
+        Assert.Equal(HttpStatusCode.Forbidden, (await owner.PostAsJsonAsync("/api/crm/restaurants", new RestaurantCreateRequest("Филиал", "branch.two"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await manager.PostAsync($"/api/crm/restaurants/{restaurant}/disable", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await manager.PostAsJsonAsync($"/api/crm/restaurants/{restaurant}/reset-password", new CrmResetRequest(null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsync($"/api/crm/restaurants/{restaurant}/disable", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync("/api/stop-list")).StatusCode);
+    }
+
+    [Fact]
+    public async Task CRM_видит_активность_ресторана_но_не_его_склад()
+    {
+        var (owner, login, _) = await fx.NewRestaurantAsync("Счётчики");
+        var restaurant = await RestaurantId(owner);
+        var product = await Product(owner);
+        var dish = await Read<DishResponse>(await owner.PostAsJsonAsync("/api/dishes", new DishRequest("Секретный суп", 400, [new RecipeItemDto(product.Id, 0.2m)])));
+        await Supply(owner, new SupplyItemRequest(product.Id, 5, null));
+        using var waiter = await Staff(owner, Role.Waiter);
+        (await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)]))).EnsureSuccessStatusCode();
+        using var support = await fx.SignInAsSupportAsync();
+
+        var rows = await Get<List<CrmRestaurantRow>>(support, "/api/crm/restaurants");
+        var row = Assert.Single(rows, r => r.Id == restaurant);
+
+        Assert.Equal(("Счётчики", false, 2, login, 1, 1), (row.Name, row.IsDemo, row.Staff, row.ManagerLogin, row.Products, row.OrdersLast7Days));
+        Assert.Equal(fx.Time.GetUtcNow(), row.LastActivityAt);
+        Assert.Null(row.DisabledAt);
+        Assert.Equal(Restaurant.DemoId, Assert.Single(rows, r => r.IsDemo).Id);
+        var summary = await Get<CrmSummary>(support, "/api/crm/summary");
+        Assert.True(summary.Restaurants >= 1 && summary.RestaurantsActive7d >= 1 && summary.RestaurantsActive7d <= summary.Restaurants);
+
+        // Карточка называет сотрудников и счётчики — и больше ничего: ни продуктов, ни блюд, ни заказов построчно.
+        var json = await support.GetStringAsync($"/api/crm/restaurants/{restaurant}");
+        var card = System.Text.Json.JsonDocument.Parse(json).RootElement;
+        Assert.Equal(
+            ["createdAt", "disabledAt", "id", "isDemo", "lastActivityAt", "leadId", "managerLogin", "name", "notes", "notesList", "openTasks",
+             "ordersLast7Days", "products", "staff", "tasks", "users"],
+            card.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(["login", "role", "title"], card.GetProperty("users")[0].EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
+        Assert.Contains(login, card.GetProperty("users").EnumerateArray().Select(u => u.GetProperty("login").GetString()));
+        Assert.DoesNotContain(product.Id.ToString(), json);
+        Assert.Equal(HttpStatusCode.NotFound, (await support.GetAsync($"/api/crm/restaurants/{Guid.NewGuid()}")).StatusCode);
+
+        // Новый ресторан заводится и из CRM; занятый логин не проходит.
+        var created = await support.PostAsJsonAsync("/api/crm/restaurants", new RestaurantCreateRequest("Из CRM", $"n{login}"[..20]));
+        var taken = await support.PostAsJsonAsync("/api/crm/restaurants", new RestaurantCreateRequest("Двойник", login));
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.Conflict), (created.StatusCode, taken.StatusCode));
+        var access = await Read<CrmAccess>(created);
+        using var fresh = await fx.SignInAsync(access.Login, access.Password);
+        Assert.Equal("Из CRM", (await Get<MeResponse>(fresh, "/api/me")).Restaurant);
+    }
+
+    [Fact]
+    public async Task Сброс_пароля_управляющего_отменяет_старый_пароль_и_старый_токен()
+    {
+        var (owner, login, password) = await fx.NewRestaurantAsync("Забывчивые");
+        var restaurant = await RestaurantId(owner);
+        using var support = await fx.SignInAsSupportAsync();
+
+        var reset = await Read<CrmPassword>(await support.PostAsJsonAsync($"/api/crm/restaurants/{restaurant}/reset-password", new CrmResetRequest(null)));
+
+        Assert.Equal(login, reset.Login);
+        Assert.NotEqual(password, reset.Password);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await owner.GetAsync("/api/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Login(login, password)).StatusCode);
+        using var again = await fx.SignInAsync(login, reset.Password);
+        Assert.Equal(HttpStatusCode.OK, (await again.GetAsync("/api/me")).StatusCode);
+
+        // Сотруднику пароль сбрасывается по логину; чужой или несуществующий логин не находится.
+        var staffLogin = $"s{login}"[..20];
+        (await again.PostAsJsonAsync("/api/users", new StaffRequest(staffLogin, "staff-2026-pw", "Повар", Role.Cook), ApiFixture.Json)).EnsureSuccessStatusCode();
+        var staffReset = await Read<CrmPassword>(await support.PostAsJsonAsync($"/api/crm/restaurants/{restaurant}/reset-password", new CrmResetRequest(staffLogin)));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Login(staffLogin, "staff-2026-pw")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Login(staffLogin, staffReset.Password)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await support.PostAsJsonAsync($"/api/crm/restaurants/{restaurant}/reset-password", new CrmResetRequest("demo"))).StatusCode);
+
+        // Открытые записи демо и сама поддержка защищены: их пароль CRM не меняет.
+        foreach (var demo in new string?[] { null, "demo", "support" })
+            Assert.Equal(HttpStatusCode.Conflict,
+                (await support.PostAsJsonAsync($"/api/crm/restaurants/{Restaurant.DemoId}/reset-password", new CrmResetRequest(demo))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await support.GetAsync("/api/crm/summary")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Отключённый_ресторан_не_входит_и_теряет_действующие_токены_пока_его_не_включат()
+    {
+        var (owner, login, password) = await fx.NewRestaurantAsync("Должники");
+        var restaurant = await RestaurantId(owner);
+        using var support = await fx.SignInAsSupportAsync();
+
+        var disabled = await support.PostAsync($"/api/crm/restaurants/{restaurant}/disable", null);
+
+        Assert.Equal(HttpStatusCode.NoContent, disabled.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await owner.GetAsync("/api/stop-list")).StatusCode);
+        var refused = await Login(login, password);
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Contains("отключён", (await Read<System.Text.Json.JsonElement>(refused)).GetProperty("detail").GetString());
+        Assert.Equal(fx.Time.GetUtcNow(), Assert.Single(await Get<List<CrmRestaurantRow>>(support, "/api/crm/restaurants"), r => r.Id == restaurant).DisabledAt);
+        // Остальных отключение не касается.
+        Assert.Equal(HttpStatusCode.OK, (await Api.GetAsync("/api/stop-list")).StatusCode);
+
+        var enabled = await support.PostAsync($"/api/crm/restaurants/{restaurant}/enable", null);
+
+        Assert.Equal(HttpStatusCode.NoContent, enabled.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync("/api/stop-list")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Login(login, password)).StatusCode);
+        Assert.Null(Assert.Single(await Get<List<CrmRestaurantRow>>(support, "/api/crm/restaurants"), r => r.Id == restaurant).DisabledAt);
+
+        // Демо-ресторан — рабочее место самой команды продукта.
+        Assert.Equal(HttpStatusCode.Conflict, (await support.PostAsync($"/api/crm/restaurants/{Restaurant.DemoId}/disable", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await support.PostAsync($"/api/crm/restaurants/{Guid.NewGuid()}/disable", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Заметки_и_задачи_ведутся_по_заявке_и_по_ресторану()
+    {
+        using var support = await fx.SignInAsSupportAsync();
+        var lead = await CrmLead(support);
+        var (owner, _, _) = await fx.NewRestaurantAsync("С заметками");
+        var restaurant = await RestaurantId(owner);
+        Task<HttpResponseMessage> Note(long? leadId, Guid? restaurantId, string text) =>
+            support.PostAsJsonAsync("/api/crm/notes", new CrmNoteRequest(leadId, restaurantId, text));
+
+        var noted = await Note(lead.Id, null, "Перезвонить после шести");
+        var aboutRestaurant = await Note(null, restaurant, "Просили счёт на год");
+        HttpResponseMessage[] rejected =
+            [await Note(lead.Id, restaurant, "И туда, и сюда"), await Note(null, null, "Ни о чём"), await Note(lead.Id, null, " "), await Note(0, null, "Нет такой заявки")];
+
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.Created), (noted.StatusCode, aboutRestaurant.StatusCode));
+        Assert.All(rejected, r => Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode));
+        var note = await Read<CrmNoteResponse>(noted);
+        Assert.Equal(("support", "Перезвонить после шести", lead.Id), (note.Author, note.Text, note.LeadId));
+
+        // Задачи: одна просрочена, вторая — о ресторане, на потом.
+        var now = fx.Time.GetUtcNow();
+        var before = await Get<CrmSummary>(support, "/api/crm/summary");
+        var late = await Read<CrmTaskResponse>(await support.PostAsJsonAsync("/api/crm/tasks", new CrmTaskRequest("Отправить договор", now.AddHours(-1), lead.Id, null)));
+        // Срок приходит с часовым поясом того, кто его назначил.
+        var later = await Read<CrmTaskResponse>(await support.PostAsJsonAsync("/api/crm/tasks",
+            new CrmTaskRequest("Спросить, как идёт запуск", now.AddDays(30).ToOffset(TimeSpan.FromHours(3)), null, restaurant)));
+        var noTitle = await support.PostAsJsonAsync("/api/crm/tasks", new CrmTaskRequest("", now, null, null));
+        var noDue = await support.PostAsJsonAsync("/api/crm/tasks", new CrmTaskRequest("Без срока", null, null, null));
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.BadRequest), (noTitle.StatusCode, noDue.StatusCode));
+        Assert.Equal(("Мария", null, "С заметками", now.AddDays(30)), (late.LeadName, late.RestaurantName, later.RestaurantName, later.DueAt));
+        Assert.Equal(before.TasksOverdue + 1, (await Get<CrmSummary>(support, "/api/crm/summary")).TasksOverdue);
+
+        var open = await Get<List<CrmTaskResponse>>(support, "/api/crm/tasks?open=true");
+        Assert.True(open.FindIndex(t => t.Id == late.Id) < open.FindIndex(t => t.Id == later.Id));
+        Assert.Equal(open.OrderBy(t => t.DueAt).Select(t => t.Id), open.Select(t => t.Id));
+        var card = await Get<CrmLists>(support, $"/api/crm/leads/{lead.Id}");
+        Assert.Equal((note.Id, late.Id), (Assert.Single(card.NotesList).Id, Assert.Single(card.Tasks).Id));
+        var row = await Get<CrmLeadRow>(support, $"/api/crm/leads/{lead.Id}");
+        Assert.Equal((1, 1), (row.Notes, row.OpenTasks));
+        var restaurantCard = await Get<CrmLists>(support, $"/api/crm/restaurants/{restaurant}");
+        Assert.Equal(("Просили счёт на год", later.Id), (Assert.Single(restaurantCard.NotesList).Text, Assert.Single(restaurantCard.Tasks).Id));
+
+        // Сделанная задача уходит из открытых, но остаётся в общем списке; отметку можно снять.
+        var done = await Read<CrmTaskResponse>(await support.PutAsJsonAsync($"/api/crm/tasks/{late.Id}", new CrmTaskUpdate("Отправить договор и счёт", late.DueAt, true)));
+        Assert.Equal(("Отправить договор и счёт", now), (done.Title, done.DoneAt));
+        Assert.DoesNotContain(await Get<List<CrmTaskResponse>>(support, "/api/crm/tasks?open=true"), t => t.Id == late.Id);
+        Assert.Contains(await Get<List<CrmTaskResponse>>(support, "/api/crm/tasks"), t => t.Id == late.Id);
+        Assert.Equal(0, (await Get<CrmLeadRow>(support, $"/api/crm/leads/{lead.Id}")).OpenTasks);
+        var reopened = await Read<CrmTaskResponse>(await support.PutAsJsonAsync($"/api/crm/tasks/{late.Id}", new CrmTaskUpdate(done.Title, late.DueAt, false)));
+        Assert.Null(reopened.DoneAt);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await support.DeleteAsync($"/api/crm/tasks/{late.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await support.DeleteAsync($"/api/crm/tasks/{late.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await support.DeleteAsync($"/api/crm/notes/{note.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await support.DeleteAsync($"/api/crm/notes/{note.Id}")).StatusCode);
+        Assert.Empty((await Get<CrmLists>(support, $"/api/crm/leads/{lead.Id}")).NotesList);
+
+        // Текст заметки — личные данные: в базе он лежит зашифрованным.
+        await using var scope = fx.DemoScope();
+        var raw = await scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.AppDbContext>().Database
+            .SqlQuery<string>($"""SELECT "Text" AS "Value" FROM "CrmNotes" """).ToListAsync();
+        Assert.NotEmpty(raw);
+        Assert.All(raw, value => Assert.StartsWith("v1:", value));
+    }
+
+    [Fact]
+    public async Task Диалог_привязывается_к_заявке_и_заявка_заводится_из_диалога()
+    {
+        using var visitor = fx.CreateClient();
+        using var support = await fx.SignInAsSupportAsync();
+        var name = $"Гость {Guid.NewGuid():N}";
+        var chat = await Read<ChatResponse>(await visitor.PostAsJsonAsync("/api/chats", new ChatStartRequest(name, "+7 900 111-22-33", "Сколько стоит на три точки?")));
+        await visitor.PostAsJsonAsync($"/api/chats/{chat.Id}/messages", new ChatTextRequest("И есть ли пробный период?"));
+        async Task<CrmChatRow> Row() => Assert.Single(await Get<List<CrmChatRow>>(support, "/api/crm/chats"), c => c.Id == chat.Id);
+
+        var row = await Row();
+        Assert.Equal((2, "И есть ли пробный период?", null), (row.Unread, row.LastText, row.LeadId));
+
+        // Заявка из диалога: имя и контакт посетителя, комментарий — его первый вопрос.
+        var created = await support.PostAsync($"/api/crm/chats/{chat.Id}/lead", null);
+        var again = await support.PostAsync($"/api/crm/chats/{chat.Id}/lead", null);
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.Conflict), (created.StatusCode, again.StatusCode));
+        var lead = await Read<CrmLeadRow>(created);
+        Assert.Equal((name, "+7 900 111-22-33", "—", "Сколько стоит на три точки?", LeadStatus.New, chat.Id),
+            (lead.Name, lead.Contact, lead.Organization, lead.Comment, lead.Status, lead.ChatId));
+        Assert.Equal(lead.Id, (await Row()).LeadId);
+
+        // Диалог можно отвязать и привязать к другой заявке — той, что пришла с формы.
+        var other = await CrmLead(support);
+        Task<HttpResponseMessage> Link(Guid chatId, long? leadId) => support.PutAsJsonAsync($"/api/crm/chats/{chatId}/lead", new CrmChatLead(leadId));
+        Assert.Equal(HttpStatusCode.NoContent, (await Link(chat.Id, null)).StatusCode);
+        Assert.Null((await Row()).LeadId);
+        Assert.Null((await Get<CrmLeadRow>(support, $"/api/crm/leads/{lead.Id}")).ChatId);
+        Assert.Equal(HttpStatusCode.NoContent, (await Link(chat.Id, other.Id)).StatusCode);
+        Assert.Equal(chat.Id, (await Get<CrmLeadRow>(support, $"/api/crm/leads/{other.Id}")).ChatId);
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.NotFound), ((await Link(chat.Id, 0)).StatusCode, (await Link(Guid.NewGuid(), other.Id)).StatusCode));
+        Assert.Equal(HttpStatusCode.NotFound, (await support.PostAsync($"/api/crm/chats/{Guid.NewGuid()}/lead", null)).StatusCode);
+
+        // Переписка и ответ остались на прежних адресах.
+        Assert.Equal(2, (await Get<ChatDetails>(support, $"/api/support/chats/{chat.Id}")).Messages.Count);
+        Assert.Equal(HttpStatusCode.Created, (await support.PostAsJsonAsync($"/api/support/chats/{chat.Id}/messages", new ChatTextRequest("Да, две недели."))).StatusCode);
+        Assert.Equal(0, (await Row()).Unread);
+    }
 }

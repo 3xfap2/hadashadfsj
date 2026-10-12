@@ -36,9 +36,11 @@ public static partial class LeadEndpoints
                 .Check((req.Comment?.Length ?? 0) <= 1000, "comment", "Комментарий — до 1000 символов.");
             if (errors.Any) return errors.ToResult();
 
+            var now = time.GetUtcNow();
             var lead = new Lead
             {
-                CreatedAt = time.GetUtcNow(),
+                CreatedAt = now,
+                UpdatedAt = now,
                 Name = name,
                 Organization = organization,
                 Contact = contact,

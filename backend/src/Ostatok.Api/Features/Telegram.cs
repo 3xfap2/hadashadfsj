@@ -192,6 +192,8 @@ public static class Restaurants
 {
     private const string PasswordAlphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
+    public static string NewPassword() => RandomNumberGenerator.GetString(PasswordAlphabet, 12);
+
     public static async Task<NewRestaurant> CreateAsync(
         AppDbContext db, string? name, string? login, RestaurantOptions defaults, TimeProvider time, CancellationToken ct)
     {
@@ -201,7 +203,7 @@ public static class Restaurants
         if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Login == login, ct)) return new("Такой логин уже занят.");
 
         // Пароль выдаёт система: его нельзя выбрать слабым, а знает его только тот, кто создал ресторан.
-        var password = RandomNumberGenerator.GetString(PasswordAlphabet, 12);
+        var password = NewPassword();
         var restaurant = new Restaurant
         {
             Id = Guid.NewGuid(), Name = name, CreatedAt = time.GetUtcNow(), ShiftStart = defaults.ShiftStart, ShiftEnd = defaults.ShiftEnd,

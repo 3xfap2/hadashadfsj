@@ -1,0 +1,695 @@
+// Раскладки экранов CRM поверх дизайн-системы кабинета (g.css) и адаптация под телефон.
+$narrow: 900px;
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.g {
+  min-height: 100dvh;
+
+  button,
+  a {
+    touch-action: manipulation;
+  }
+
+  .g-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .g-btn--sm {
+    height: 40px;
+    padding: 0 14px;
+  }
+
+  // Выбранный статус заявки: кнопка заблокирована, но читается как текущая.
+  .g-btn[aria-pressed='true'] {
+    opacity: 1;
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+  }
+
+  select.g-input {
+    appearance: auto;
+  }
+
+  textarea.g-input {
+    font: inherit;
+    height: 76px;
+    padding: 10px 12px;
+    resize: vertical;
+  }
+
+  .g-nav a.active {
+    color: var(--brand);
+    font-weight: 700;
+    border-bottom-color: var(--brand);
+  }
+
+  .g-tabs a.active {
+    color: var(--brand);
+
+    svg {
+      background: var(--accent);
+      border-radius: 8px;
+    }
+  }
+
+  a.g-kpi {
+    text-decoration: none;
+    height: 100%;
+  }
+
+  .g-title .g-tag {
+    margin-bottom: 4px;
+  }
+
+  // Контакты, логины и пароли выделяются целиком одним нажатием — их копируют.
+  .pick {
+    user-select: all;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .over {
+    color: var(--red);
+  }
+
+  .g-empty {
+    padding: 24px 20px;
+  }
+
+  .g-note .g-btn {
+    align-self: flex-start;
+  }
+}
+
+// ---------- Каркас ----------
+
+.shell {
+  display: flex;
+  flex-direction: column;
+
+  &__top {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+
+  &__crm {
+    margin-left: 6px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--ink-2);
+  }
+
+  .g-page {
+    flex: 1;
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+
+  &__exit {
+    padding: 8px 0;
+    border: 0;
+    background: none;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  &__tabs {
+    display: none;
+  }
+}
+
+// Вход и экраны без шапки: одна колонка по центру.
+.gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+
+  > * {
+    width: 100%;
+    max-width: 420px;
+  }
+}
+
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+
+  h1 {
+    margin-bottom: 8px;
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    color: var(--h);
+  }
+}
+
+// ---------- Общие куски ----------
+
+.back {
+  align-self: flex-start;
+  color: var(--ink-2);
+  text-decoration: none;
+  margin-bottom: -12px;
+}
+
+.cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+
+  &__main {
+    flex: 999 1 600px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  &__side {
+    flex: 1 1 340px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+}
+
+.form-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+
+  > .g-field,
+  > .g-note,
+  > form {
+    align-self: stretch;
+  }
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .g-field,
+  > .g-input,
+  > .line,
+  > .task-form {
+    align-self: stretch;
+  }
+}
+
+.g .g-panel__foot.stack {
+  align-items: flex-start;
+}
+
+.line {
+  display: flex;
+  gap: 8px;
+
+  .g-input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+
+  .g &__yes {
+    border-color: var(--red);
+    color: var(--red);
+  }
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px 24px;
+  padding: 20px;
+
+  dt {
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+
+  dd {
+    overflow-wrap: anywhere;
+  }
+}
+
+.notes > li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.notes__meta {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notes__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  &__text {
+    flex: 1 1 260px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  &--done .g-name {
+    color: var(--ink-2);
+    text-decoration: line-through;
+  }
+}
+
+.task-form {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  .g-input {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+
+  .g-input[type='datetime-local'] {
+    flex: 0 1 220px;
+  }
+}
+
+// ---------- Обзор ----------
+
+.funnel-sum,
+.sum {
+  display: grid;
+  gap: 12px;
+}
+
+.funnel-sum {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.sum {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+// ---------- Заявки ----------
+
+.funnel-pick {
+  display: none;
+}
+
+.funnel {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+
+  &__col {
+    background: var(--panel);
+    border-radius: var(--r-panel);
+    padding: 12px;
+    min-width: 0;
+
+    h2 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--h);
+      padding: 2px 4px 10px;
+    }
+
+    ul {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+  }
+
+  &__none {
+    padding: 0 4px 4px;
+  }
+}
+
+.lead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--r-btn);
+  background: var(--bg);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+// ---------- Диалоги ----------
+
+.msgs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.msg {
+  align-self: flex-start;
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  color: var(--h);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+
+  time {
+    align-self: flex-end;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  &--mine {
+    align-self: flex-end;
+    background: var(--hl);
+  }
+}
+
+.chats {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+
+  &__list ul {
+    max-height: calc(100dvh - 220px);
+    min-height: 200px;
+    overflow-y: auto;
+  }
+
+  &__dialog {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 200px);
+    min-height: 420px;
+
+    &--empty {
+      justify-content: center;
+    }
+  }
+
+  &__head .back {
+    display: none;
+    margin: 0;
+  }
+
+  &__lead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--line);
+    background: #fafbf9;
+
+    .g-input {
+      flex: 1 1 200px;
+      min-width: 0;
+      height: 40px;
+    }
+  }
+
+  &__msgs {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 20px;
+  }
+}
+
+.chat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+
+  &[aria-current='true'] {
+    background: var(--hl);
+  }
+
+  &:focus-visible {
+    outline-offset: -2px;
+  }
+
+  &__text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .g-tag {
+    justify-self: end;
+  }
+}
+
+// ---------- Рестораны ----------
+
+.new-rest {
+  width: 100%;
+  max-width: 460px;
+}
+
+.rest-table {
+  min-width: 860px;
+
+  &__name {
+    min-width: 200px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+  }
+
+  &__off .g-name {
+    color: var(--ink-2);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chat-row:not([aria-current='true']):hover,
+  .lead:hover {
+    background: #f4f6f3;
+  }
+
+  a.g-kpi:hover {
+    box-shadow: inset 0 0 0 1px #c9cec6;
+  }
+}
+
+// Правила для любого экрана, где нажимают пальцем.
+@media (pointer: coarse) {
+  .g {
+    .g-btn--sm,
+    .g-seg button {
+      height: 44px;
+    }
+
+    // Поле с шрифтом мельче 16 px браузер телефона увеличивает при фокусе вместе со страницей.
+    input,
+    select,
+    textarea {
+      font-size: max(16px, 1em);
+    }
+  }
+}
+
+// ---------- Телефон ----------
+
+@media (max-width: $narrow) {
+  .shell {
+    &__top {
+      height: 56px;
+      padding: 0 14px;
+
+      .g-nav,
+      .shell__user {
+        display: none;
+      }
+    }
+
+    &__tabs {
+      display: grid;
+      position: sticky;
+      bottom: 0;
+      z-index: 5;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .g-page {
+      padding: 20px 14px;
+      gap: 16px;
+    }
+  }
+
+  .g-title {
+    h1 {
+      font-size: 28px;
+      overflow-wrap: anywhere;
+    }
+
+    .end {
+      width: 100%;
+      margin-left: 0;
+    }
+  }
+
+  .funnel-sum,
+  .sum {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .g .g-kpi {
+    padding: 12px 14px;
+  }
+
+  // В карточке заявки статус и ответственный — главное действие: на телефоне они идут первыми.
+  .cols--side-first .cols__side {
+    order: -1;
+  }
+
+  // Колонки воронки не помещаются: видна одна, выбранная переключателем.
+  .g .funnel-pick {
+    display: flex;
+  }
+
+  .funnel {
+    grid-template-columns: minmax(0, 1fr);
+
+    &__col:not(&__col--picked) {
+      display: none;
+    }
+
+    &__col h2 {
+      display: none;
+    }
+  }
+
+  .chats {
+    grid-template-columns: minmax(0, 1fr);
+
+    &--open &__list,
+    &:not(&--open) &__dialog {
+      display: none;
+    }
+
+    &__list ul {
+      max-height: none;
+    }
+
+    &__head {
+      flex-wrap: wrap;
+
+      .back {
+        display: inline;
+        width: 100%;
+      }
+    }
+
+    &__dialog {
+      height: calc(100dvh - 230px);
+    }
+  }
+
+  .g-panel__head,
+  .g-panel__foot,
+  .form-body,
+  .facts,
+  .task,
+  .notes > li,
+  .chats__lead,
+  .chats__msgs,
+  .chat-row {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .task .acts {
+    width: 100%;
+  }
+
+  html {
+    scroll-padding: 64px 0 80px;
+  }
+}

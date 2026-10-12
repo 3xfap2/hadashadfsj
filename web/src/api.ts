@@ -291,14 +291,6 @@ export interface ChatRow {
   lastFromStaff: boolean;
 }
 
-export interface ChatDetails {
-  id: string;
-  name: string;
-  contact: string;
-  createdAt: string;
-  messages: ChatMessage[];
-}
-
 export interface SimulatorSettings {
   running: boolean;
   ordersPerMinute: number;
@@ -405,23 +397,6 @@ export interface RestaurantSettings {
   shiftEnd: string;
   tables: number;
   hasBar: boolean;
-}
-
-export interface LeadRow {
-  id: number;
-  createdAt: string;
-  name: string;
-  organization: string;
-  contact: string;
-  points: string;
-  comment: string | null;
-}
-
-/** Ответ на создание ресторана: логин и пароль управляющего показываются один раз. */
-export interface NewRestaurant {
-  name: string;
-  login: string;
-  password: string;
 }
 
 export interface StaffRow {
