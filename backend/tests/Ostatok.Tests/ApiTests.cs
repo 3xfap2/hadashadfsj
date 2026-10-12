@@ -1856,14 +1856,19 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
         Assert.Contains("отключён", (await Read<System.Text.Json.JsonElement>(refused)).GetProperty("detail").GetString());
         Assert.Equal(fx.Time.GetUtcNow(), Assert.Single(await Get<List<CrmRestaurantRow>>(support, "/api/crm/restaurants"), r => r.Id == restaurant).DisabledAt);
+        // Меню для гостей отключённого ресторана тоже закрыто.
+        Assert.Equal(HttpStatusCode.NotFound, (await fx.CreateClient().GetAsync($"/api/public/menu/{restaurant}")).StatusCode);
         // Остальных отключение не касается.
         Assert.Equal(HttpStatusCode.OK, (await Api.GetAsync("/api/stop-list")).StatusCode);
 
         var enabled = await support.PostAsync($"/api/crm/restaurants/{restaurant}/enable", null);
 
         Assert.Equal(HttpStatusCode.NoContent, enabled.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync("/api/stop-list")).StatusCode);
+        // Токен, выданный до отключения, не оживает: сотрудник входит заново.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await owner.GetAsync("/api/stop-list")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await Login(login, password)).StatusCode);
+        // Отключение и включение остаются заметками о ресторане.
+        Assert.Equal(["Кабинет включён.", "Кабинет отключён."], (await Get<CrmLists>(support, $"/api/crm/restaurants/{restaurant}")).NotesList.Select(n => n.Text));
         Assert.Null(Assert.Single(await Get<List<CrmRestaurantRow>>(support, "/api/crm/restaurants"), r => r.Id == restaurant).DisabledAt);
 
         // Демо-ресторан — рабочее место самой команды продукта.

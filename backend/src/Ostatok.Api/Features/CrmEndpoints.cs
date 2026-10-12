@@ -58,7 +58,8 @@ public sealed record CrmPassword(string Login, string Password);
 public sealed record CrmChatLead(long? LeadId);
 public sealed record CrmNoteRequest(long? LeadId, Guid? RestaurantId, string? Text);
 public sealed record CrmTaskRequest(string? Title, DateTimeOffset? DueAt, long? LeadId, Guid? RestaurantId);
-public sealed record CrmTaskUpdate(string? Title, DateTimeOffset? DueAt, bool Done);
+/// <param name="Done">Не указано — отметка «сделано» остаётся как была.</param>
+public sealed record CrmTaskUpdate(string? Title, DateTimeOffset? DueAt, bool? Done);
 
 /// <summary>
 /// CRM команды продукта: воронка заявок, рестораны-клиенты, диалоги лендинга, заметки и задачи.
@@ -90,7 +91,8 @@ public static class CrmEndpoints
                 await open.CountAsync(t => t.DueAt < now, ct),
                 await open.CountAsync(t => t.DueAt >= now && t.DueAt < dayEnd, ct),
                 await db.Restaurants.CountAsync(r => r.Id != Restaurant.DemoId, ct),
-                await db.Movements.IgnoreQueryFilters().Where(m => m.At >= since && m.RestaurantId != Restaurant.DemoId)
+                // Автосписание делает сам сервер: оно не значит, что рестораном кто-то пользуется.
+                await db.Movements.IgnoreQueryFilters().Where(m => m.At >= since && m.RestaurantId != Restaurant.DemoId && m.Actor != WriteOffService.System)
                     .Select(m => m.RestaurantId).Distinct().CountAsync(ct));
         });
 
@@ -120,7 +122,10 @@ public static class CrmEndpoints
 
         crm.MapPost("/leads/{id:long}/restaurant", async (long id, RestaurantCreateRequest req, AppDbContext db, RestaurantOptions defaults, TimeProvider time, CancellationToken ct) =>
         {
-            var lead = await db.Leads.FirstOrDefaultAsync(l => l.Id == id, ct);
+            // Заявка блокируется до конца операции: два одновременных нажатия не откроют два кабинета,
+            // а ресторан и привязка к заявке записываются вместе.
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var lead = (await db.Leads.FromSql($"""SELECT * FROM "Leads" WHERE "Id" = {id} FOR UPDATE""").ToListAsync(ct)).FirstOrDefault();
             if (lead is null) return Results.NotFound();
             if (lead.RestaurantId is not null)
                 return Results.Problem("По этой заявке кабинет уже открыт.", statusCode: StatusCodes.Status409Conflict);
@@ -130,6 +135,7 @@ public static class CrmEndpoints
             lead.RestaurantId = await db.Users.IgnoreQueryFilters().Where(u => u.Login == created.Login).Select(u => u.RestaurantId).FirstAsync(ct);
             (lead.Status, lead.UpdatedAt) = (LeadStatus.Won, time.GetUtcNow());
             await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
             return Results.Created($"/api/crm/restaurants/{lead.RestaurantId}", new CrmAccess(created.Name, created.Login, created.Password));
         });
 
@@ -154,14 +160,18 @@ public static class CrmEndpoints
         });
 
         // Клиент забыл пароль, а других управляющих в ресторане нет: новый пароль выдаёт команда продукта.
-        crm.MapPost("/restaurants/{id:guid}/reset-password", async (Guid id, CrmResetRequest? req, AppDbContext db, AuthOptions options, CancellationToken ct) =>
+        crm.MapPost("/restaurants/{id:guid}/reset-password", async (Guid id, CrmResetRequest? req, ClaimsPrincipal staff, AppDbContext db, AuthOptions options, TimeProvider time, CancellationToken ct) =>
         {
             var login = (req?.Login ?? "").Trim().ToLowerInvariant();
-            var users = db.Users.IgnoreQueryFilters().Where(u => u.RestaurantId == id);
-            var user = login == ""
-                ? await users.Where(u => u.Role == Role.Manager).OrderBy(u => u.Login).FirstOrDefaultAsync(ct)
-                : await users.FirstOrDefaultAsync(u => u.Login == login, ct);
-            if (user is null) return Results.NotFound();
+            var users = db.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.RestaurantId == id);
+            var found = login == ""
+                ? await users.Where(u => u.Role == Role.Manager).OrderBy(u => u.Login).Select(u => (Guid?)u.Id).FirstOrDefaultAsync(ct)
+                : await users.Where(u => u.Login == login).Select(u => (Guid?)u.Id).FirstOrDefaultAsync(ct);
+            if (found is null) return Results.NotFound();
+
+            // Запись блокируется: из двух одновременных сбросов второй дождётся первого, и рабочим останется последний выданный пароль.
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var user = (await db.Users.FromSql($"""SELECT * FROM "Users" WHERE "Id" = {found} FOR UPDATE""").IgnoreQueryFilters().ToListAsync(ct)).First();
             if (StaffEndpoints.IsDemoAccount(user, options))
                 return Results.Problem("Пароль открытой записи демо-ресторана и записи поддержки сбросить нельзя.", statusCode: StatusCodes.Status409Conflict);
 
@@ -169,26 +179,38 @@ public static class CrmEndpoints
             user.PasswordHash = new PasswordHasher<User>().HashPassword(user, password);
             // Выданные токены перестают действовать: войти можно только с новым паролем.
             user.TokenVersion++;
+            Log(db, staff, time, id, $"Сброшен пароль записи {user.Login}.");
             await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
             return Results.Ok(new CrmPassword(user.Login, password));
         });
 
-        crm.MapPost("/restaurants/{id:guid}/disable", async (Guid id, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        crm.MapPost("/restaurants/{id:guid}/disable", async (Guid id, ClaimsPrincipal staff, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             // В демо-ресторане работает сама команда продукта: отключив его, она закрыла бы вход и себе.
             if (id == Restaurant.DemoId)
                 return Results.Problem("Демо-ресторан отключить нельзя.", statusCode: StatusCodes.Status409Conflict);
             var restaurant = await db.Restaurants.FirstOrDefaultAsync(r => r.Id == id, ct);
             if (restaurant is null) return Results.NotFound();
-            restaurant.DisabledAt ??= time.GetUtcNow();
-            await db.SaveChangesAsync(ct);
+            if (restaurant.DisabledAt is null)
+            {
+                restaurant.DisabledAt = time.GetUtcNow();
+                Log(db, staff, time, id, "Кабинет отключён.");
+                // Выданные токены отменяются насовсем: после включения сотрудники входят заново.
+                await using var transaction = await db.Database.BeginTransactionAsync(ct);
+                await db.Users.IgnoreQueryFilters().Where(u => u.RestaurantId == id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(u => u.TokenVersion, u => u.TokenVersion + 1), ct);
+                await db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
             return Results.NoContent();
         });
 
-        crm.MapPost("/restaurants/{id:guid}/enable", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        crm.MapPost("/restaurants/{id:guid}/enable", async (Guid id, ClaimsPrincipal staff, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             var restaurant = await db.Restaurants.FirstOrDefaultAsync(r => r.Id == id, ct);
             if (restaurant is null) return Results.NotFound();
+            if (restaurant.DisabledAt is not null) Log(db, staff, time, id, "Кабинет включён.");
             restaurant.DisabledAt = null;
             await db.SaveChangesAsync(ct);
             return Results.NoContent();
@@ -216,7 +238,10 @@ public static class CrmEndpoints
         // Посетитель написал в чат, а форму заявки не заполнял: заявка заводится из его диалога.
         crm.MapPost("/chats/{id:guid}/lead", async (Guid id, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
-            var chat = await db.Chats.FirstOrDefaultAsync(c => c.Id == id, ct);
+            // Диалог блокируется до конца операции: два одновременных нажатия не заведут две заявки.
+            // Заявка и привязка диалога к ней записываются вместе: номер заявки появляется только после первой записи.
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var chat = (await db.Chats.FromSql($"""SELECT * FROM "Chats" WHERE "Id" = {id} FOR UPDATE""").ToListAsync(ct)).FirstOrDefault();
             if (chat is null) return Results.NotFound();
             if (chat.LeadId is not null)
                 return Results.Problem("Диалог уже привязан к заявке.", statusCode: StatusCodes.Status409Conflict);
@@ -227,8 +252,6 @@ public static class CrmEndpoints
                 CreatedAt = now, UpdatedAt = now, Name = chat.Name, Organization = "—", Contact = chat.Contact,
                 Comment = await db.ChatMessages.Where(m => m.ChatId == id).OrderBy(m => m.Id).Select(m => m.Text).FirstAsync(ct),
             };
-            // Заявка и привязка диалога к ней записываются вместе: номер заявки появляется только после первой записи.
-            await using var transaction = await db.Database.BeginTransactionAsync(ct);
             db.Leads.Add(lead);
             await db.SaveChangesAsync(ct);
             chat.LeadId = lead.Id;
@@ -254,14 +277,9 @@ public static class CrmEndpoints
             return Results.Created($"/api/crm/notes/{note.Id}", ToResponse(note));
         });
 
-        crm.MapDelete("/notes/{id:long}", async (long id, AppDbContext db, CancellationToken ct) =>
-        {
-            var note = await db.CrmNotes.FirstOrDefaultAsync(n => n.Id == id, ct);
-            if (note is null) return Results.NotFound();
-            db.CrmNotes.Remove(note);
-            await db.SaveChangesAsync(ct);
-            return Results.NoContent();
-        });
+        // Удаление одной командой: из двух одновременных запросов второй получает «не найдено», а не сбой.
+        crm.MapDelete("/notes/{id:long}", async (long id, AppDbContext db, EventBus bus, CancellationToken ct) =>
+            Deleted(await db.CrmNotes.Where(n => n.Id == id).ExecuteDeleteAsync(ct), db, bus));
 
         crm.MapGet("/tasks", async (bool? open, AppDbContext db, CancellationToken ct) =>
             await TaskRows(db, db.CrmTasks.Where(t => open != true || t.DoneAt == null).OrderBy(t => t.DueAt).Take(500)).ToListAsync(ct));
@@ -293,19 +311,13 @@ public static class CrmEndpoints
             if (task is null) return Results.NotFound();
             (task.Title, task.DueAt) = (title, req.DueAt!.Value.ToUniversalTime());
             // Повторная отметка не сдвигает время, когда задачу закрыли на самом деле.
-            task.DoneAt = req.Done ? task.DoneAt ?? time.GetUtcNow() : null;
+            if (req.Done is { } done) task.DoneAt = done ? task.DoneAt ?? time.GetUtcNow() : null;
             await db.SaveChangesAsync(ct);
             return Results.Ok(await TaskRows(db, db.CrmTasks.Where(t => t.Id == id)).FirstAsync(ct));
         });
 
-        crm.MapDelete("/tasks/{id:long}", async (long id, AppDbContext db, CancellationToken ct) =>
-        {
-            var task = await db.CrmTasks.FirstOrDefaultAsync(t => t.Id == id, ct);
-            if (task is null) return Results.NotFound();
-            db.CrmTasks.Remove(task);
-            await db.SaveChangesAsync(ct);
-            return Results.NoContent();
-        });
+        crm.MapDelete("/tasks/{id:long}", async (long id, AppDbContext db, EventBus bus, CancellationToken ct) =>
+            Deleted(await db.CrmTasks.Where(t => t.Id == id).ExecuteDeleteAsync(ct), db, bus));
     }
 
     private static IQueryable<CrmLeadRow> LeadRows(AppDbContext db, IQueryable<Lead> leads) => leads.Select(l => new CrmLeadRow(
@@ -329,7 +341,7 @@ public static class CrmEndpoints
             db.Users.Where(u => u.RestaurantId == r.Id && u.Role == Role.Manager).OrderBy(u => u.Login).Select(u => u.Login).FirstOrDefault(),
             db.Products.Count(p => p.RestaurantId == r.Id),
             db.Orders.Count(o => o.RestaurantId == r.Id && o.CreatedAt >= since),
-            db.Movements.Where(m => m.RestaurantId == r.Id).Max(m => (DateTimeOffset?)m.At),
+            db.Movements.Where(m => m.RestaurantId == r.Id && m.Actor != WriteOffService.System).Max(m => (DateTimeOffset?)m.At),
             db.Leads.Where(l => l.RestaurantId == r.Id).OrderBy(l => l.Id).Select(l => (long?)l.Id).FirstOrDefault(),
             db.CrmNotes.Count(n => n.RestaurantId == r.Id),
             db.CrmTasks.Count(t => t.RestaurantId == r.Id && t.DoneAt == null)));
@@ -356,6 +368,17 @@ public static class CrmEndpoints
         if (restaurantId is { } restaurant && !await db.Restaurants.AnyAsync(r => r.Id == restaurant, ct)) errors.Add("restaurantId", "Такого ресторана нет.");
         return errors;
     }
+
+    private static IResult Deleted(int rows, AppDbContext db, EventBus bus)
+    {
+        if (rows == 0) return Results.NotFound();
+        bus.Publish(db.TenantId);
+        return Results.NoContent();
+    }
+
+    /// <summary>Сброс пароля и отключение дают доступ к чужому кабинету или отнимают его: кто и когда это сделал, остаётся заметкой о ресторане.</summary>
+    private static void Log(AppDbContext db, ClaimsPrincipal staff, TimeProvider time, Guid restaurant, string text) =>
+        db.CrmNotes.Add(new CrmNote { CreatedAt = time.GetUtcNow(), Author = staff.Identity!.Name!, Text = text, RestaurantId = restaurant });
 
     private static IResult NotCreated(string error) =>
         Results.Problem(error, statusCode: error.Contains("занят") ? StatusCodes.Status409Conflict : StatusCodes.Status400BadRequest);
