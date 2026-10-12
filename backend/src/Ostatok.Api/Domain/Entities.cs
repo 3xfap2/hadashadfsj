@@ -246,8 +246,9 @@ public class OrderShortage
 /// <summary>
 /// PrepUse — сырьё ушло в заготовку, PrepMade — заготовка поступила на склад.
 /// Shortage и Surplus — недостача и излишек, найденные при инвентаризации.
+/// Opened — упаковку вскрыли: остаток не меняется, запись нужна, чтобы в журнале было видно, когда и кем сокращён срок.
 /// </summary>
-public enum MovementType { Supply, Order, WriteOff, PrepUse, PrepMade, Shortage, Surplus }
+public enum MovementType { Supply, Order, WriteOff, PrepUse, PrepMade, Shortage, Surplus, Opened }
 
 public class Movement : IOwned
 {

@@ -13,7 +13,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'Prep', label: 'Заготовки' },
   { id: 'Inventory', label: 'Инвентаризация' },
 ];
-const TYPES = { Supply: 'Поставка', Order: 'Заказ', WriteOff: 'Списание', PrepUse: 'В заготовку', PrepMade: 'Заготовка', Shortage: 'Недостача', Surplus: 'Излишек' };
+const TYPES = { Supply: 'Поставка', Order: 'Заказ', WriteOff: 'Списание', PrepUse: 'В заготовку', PrepMade: 'Заготовка', Shortage: 'Недостача', Surplus: 'Излишек', Opened: 'Вскрытие' };
 // Сервер отдаёт не больше 500 последних операций.
 const STEPS = [100, 300, 500];
 
@@ -72,7 +72,7 @@ export function Journal() {
                     <td className="journal__type">{m.type === 'WriteOff' || m.type === 'Shortage' ? <span className="g-tag g-tag--amber">{TYPES[m.type]}</span> : TYPES[m.type]}</td>
                     <td className="g-name journal__name">{m.productName}</td>
                     <td className="r hd journal__qty">{m.type === 'Supply' || m.type === 'PrepMade' || m.type === 'Surplus' ? '+' : '−'}{qty(m.quantity, m.unit)}</td>
-                    <td className="journal__note">{m.note ?? (m.type === 'Order' ? 'Продажа блюда' : '—')}</td>
+                    <td className="journal__note">{m.note ?? (m.type === 'Order' ? (m.orderNumber ? `Заказ № ${m.orderNumber}` : 'Продажа блюда') : '—')}</td>
                     <td className="muted journal__actor">{m.actor || '—'}</td>
                   </tr>
                 ))}

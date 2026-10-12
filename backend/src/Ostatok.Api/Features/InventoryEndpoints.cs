@@ -30,7 +30,7 @@ public static class InventoryEndpoints
 
         // Вскрытая упаковка хранится меньше закрытой. Вскрытая часть становится отдельной партией с коротким сроком:
         // её первой спишет заказ, по ней же сработают сигналы и горячие предложения. Остаток партии лежит как лежал.
-        stock.MapPost("/batches/{id:guid}/open", async (Guid id, OpenBatchRequest? req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        stock.MapPost("/batches/{id:guid}/open", async (Guid id, OpenBatchRequest? req, AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var now = time.GetUtcNow();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -58,6 +58,11 @@ public static class InventoryEndpoints
                 batch.Remaining -= quantity;
             }
             (opened.ExpiresAt, opened.OpenedAt) = (expiresAt, now);
+            db.Movements.Add(new Movement
+            {
+                RestaurantId = batch.RestaurantId, At = now, Type = MovementType.Opened, ProductId = batch.ProductId, BatchId = opened.Id,
+                Quantity = quantity, Note = $"Упаковка вскрыта, годен до {expiresAt.ToOffset(TimeSpan.FromHours(options.UtcOffsetHours)):dd.MM HH:mm}", Actor = user.Identity?.Name ?? "",
+            });
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return Results.Ok(new { opened.Id, opened.ExpiresAt });

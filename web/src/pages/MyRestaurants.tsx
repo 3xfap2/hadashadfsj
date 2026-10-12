@@ -53,7 +53,7 @@ export function MyRestaurants() {
             <span className="mine__text">
               <span className="g-name">{r.name}</span>
               <span className="muted small">
-                {r.stopped > 0 ? `${plural(r.stopped, 'блюдо', 'блюда', 'блюд')} в стопе` : 'стопов нет'} · истекает на <span className="num">{money(r.atRiskValue)}</span>
+                {r.stopped > 0 ? `${plural(r.stopped, 'блюдо', 'блюда', 'блюд')} в стопе` : 'стопов нет'} · за двое суток истекает на <span className="num">{money(r.atRiskValue)}</span>
               </span>
             </span>
             {r.current

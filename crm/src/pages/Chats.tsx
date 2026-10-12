@@ -77,7 +77,7 @@ function Dialog({ id, leadId }: { id: string; leadId: number | null }) {
       <form className="g-panel__foot stack" onSubmit={submit}>
         <Fail text={error} />
         <div className="line">
-          <input className="g-input" aria-label="Ответ" placeholder="Ответ" maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} />
+          <textarea className="g-input chats__reply" aria-label="Ответ" placeholder="Ответ. Enter — новая строка, отправка — кнопкой" rows={3} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} />
           <button className="g-btn g-btn--primary" type="submit" disabled={busy || !text.trim()}>Ответить</button>
         </div>
       </form>

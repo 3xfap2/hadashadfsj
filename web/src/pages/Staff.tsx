@@ -73,7 +73,8 @@ export function Staff() {
   return (
     <>
       <div className="buy-head">
-        <h1>Сотрудники</h1>
+        <h1>Ресторан</h1>
+        <span className="sub">сотрудники, настройки, мои рестораны, меню для гостей</span>
         <p className="lead-text">{me ? `${me.restaurant}. ` : ''}У каждой роли своя точка входа: заказы оформляет официант, поставки принимает кладовщик.</p>
       </div>
 

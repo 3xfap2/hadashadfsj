@@ -36,7 +36,7 @@ const SECTIONS = [
   { id: 'purchasing', path: '/app/purchasing', title: 'Закупки' },
   { id: 'analytics', path: '/app/analytics', title: 'Аналитика' },
   { id: 'catalog', path: '/app/catalog', title: 'Справочники' },
-  { id: 'staff', path: '/app/staff', title: 'Сотрудники' },
+  { id: 'staff', path: '/app/staff', title: 'Ресторан' },
 ];
 // Повару заготовки доступны отдельным пунктом: у него нет раздела «Склад», где они лежат вкладкой.
 const PREPS = { id: 'kitchen', path: '/app/stock/preps', title: 'Заготовки' };
@@ -92,7 +92,6 @@ export function Shell() {
     <div className="g shell">
       <header className="g-top shell__top">
         <NavLink className="g-brand" to="/app" title={me?.restaurant}>Остаток</NavLink>
-        {me && <span className="shell__place muted small" title="Ресторан, в котором вы работаете">{me.restaurant}</span>}
         <nav className="g-nav" aria-label="Разделы">
           {sections.map((s) => (
             <NavLink key={s.path} to={s.path} end={s.path === '/app'}>
@@ -103,6 +102,7 @@ export function Shell() {
         </nav>
         <div className="g-end">
           {allowed.includes('support') && <SupportLink />}
+          {allowed.includes('support') && !isNative && <a className="muted" href="/crm/">CRM</a>}
           <Alerts />
           <span className="muted">
             {me && <span className="shell__shift">Смена {me.shift.start}–{me.shift.end} · </span>}

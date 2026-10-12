@@ -781,3 +781,12 @@ body {
     padding-left: 40px;
   }
 }
+
+// Ответ в диалоге: видно весь текст перед отправкой.
+.g .chats__reply {
+  height: auto;
+  min-height: 76px;
+  padding-block: 10px;
+  resize: vertical;
+  line-height: 1.4;
+}

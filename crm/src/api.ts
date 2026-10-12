@@ -80,6 +80,9 @@ export interface RestaurantRow {
 }
 
 export interface RestaurantCard extends RestaurantRow {
+  /** Кто оставил заявку, по которой открыт кабинет, и его контакт; null, если кабинет создан без заявки. */
+  contactName: string | null;
+  contact: string | null;
   users: { login: string; title: string; role: 'Manager' | 'Chef' | 'Cook' | 'Storekeeper' | 'Waiter' }[];
   notesList: Note[];
   tasks: Task[];

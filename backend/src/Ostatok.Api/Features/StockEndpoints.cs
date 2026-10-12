@@ -28,7 +28,7 @@ public sealed record WriteOffRequest(WriteOffCause? Reason);
 
 public sealed record MovementRow(
     long Id, DateTimeOffset At, MovementType Type, Guid ProductId, string ProductName, Unit Unit,
-    Guid BatchId, decimal Quantity, Guid? OrderId, string? Note, string Actor);
+    Guid BatchId, decimal Quantity, Guid? OrderId, string? Note, string Actor, int? OrderNumber);
 
 public sealed class StockOptions
 {
@@ -134,7 +134,8 @@ public static class StockEndpoints
             await db.Movements
                 .OrderByDescending(m => m.Id)
                 .Take(Math.Clamp(take, 1, 500))
-                .Select(m => new MovementRow(m.Id, m.At, m.Type, m.ProductId, m.Product!.Name, m.Product.Unit, m.BatchId, m.Quantity, m.OrderId, m.Note, m.Actor))
+                .Select(m => new MovementRow(m.Id, m.At, m.Type, m.ProductId, m.Product!.Name, m.Product.Unit, m.BatchId, m.Quantity, m.OrderId, m.Note, m.Actor,
+                    db.Orders.Where(o => o.Id == m.OrderId).Select(o => (int?)o.Number).FirstOrDefault()))
                 .ToListAsync(ct))
         .WithTags("Склад");
     }

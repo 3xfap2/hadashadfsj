@@ -21,6 +21,8 @@ export interface HotPlan {
   atRiskValue: number | null;
   plannedValue: number | null;
   portions: number;
+  /** За сколько часов вперёд план считает истекающие продукты. */
+  horizonHours: number;
   leftovers: { productId: string; productName: string; unit: Unit; quantity: number; hoursLeft: number; value: number | null }[];
 }
 
@@ -259,12 +261,14 @@ export interface ImportRow {
 export interface MovementRow {
   id: number;
   at: string;
-  type: 'Supply' | 'Order' | 'WriteOff' | 'PrepUse' | 'PrepMade' | 'Shortage' | 'Surplus';
+  type: 'Supply' | 'Order' | 'WriteOff' | 'PrepUse' | 'PrepMade' | 'Shortage' | 'Surplus' | 'Opened';
   productName: string;
   unit: Unit;
   quantity: number;
   note: string | null;
   actor: string;
+  /** Номер заказа, по которому списан продукт; null у остальных операций. */
+  orderNumber: number | null;
 }
 
 export interface AlertRow {

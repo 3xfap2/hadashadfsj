@@ -40,8 +40,13 @@ public sealed record CrmUser(string Login, string Title, Role Role);
 
 public sealed record CrmRestaurantCard : CrmRestaurantRow
 {
-    public CrmRestaurantCard(CrmRestaurantRow row, List<CrmUser> users, List<CrmNoteResponse> notesList, List<CrmTaskResponse> tasks) : base(row) =>
-        (Users, NotesList, Tasks) = (users, notesList, tasks);
+    public CrmRestaurantCard(CrmRestaurantRow row, List<CrmUser> users, List<CrmNoteResponse> notesList, List<CrmTaskResponse> tasks,
+        string? contactName = null, string? contact = null) : base(row) =>
+        (Users, NotesList, Tasks, ContactName, Contact) = (users, notesList, tasks, contactName, contact);
+
+    /// <summary>Кто оставил заявку, по которой открыт кабинет, и как с ним связаться; пусто, если кабинет создан без заявки.</summary>
+    public string? ContactName { get; }
+    public string? Contact { get; }
 
     public List<CrmUser> Users { get; }
     public List<CrmNoteResponse> NotesList { get; }
@@ -143,13 +148,17 @@ public static class CrmEndpoints
             await RestaurantRows(db, db.Restaurants.OrderBy(r => r.CreatedAt), time.GetUtcNow()).ToListAsync(ct));
 
         crm.MapGet("/restaurants/{id:guid}", async (Guid id, AppDbContext db, TimeProvider time, CancellationToken ct) =>
-            await RestaurantRows(db, db.Restaurants.Where(r => r.Id == id), time.GetUtcNow()).FirstOrDefaultAsync(ct) is { } row
-                ? Results.Ok(new CrmRestaurantCard(row,
-                    await db.Users.IgnoreQueryFilters().Where(u => u.RestaurantId == id).OrderBy(u => u.Login)
-                        .Select(u => new CrmUser(u.Login, u.Title, u.Role)).ToListAsync(ct),
-                    await NotesAsync(db.CrmNotes.Where(n => n.RestaurantId == id), ct),
-                    await TaskRows(db, db.CrmTasks.Where(t => t.RestaurantId == id).OrderBy(t => t.DueAt)).ToListAsync(ct)))
-                : Results.NotFound());
+        {
+            if (await RestaurantRows(db, db.Restaurants.Where(r => r.Id == id), time.GetUtcNow()).FirstOrDefaultAsync(ct) is not { } row) return Results.NotFound();
+            // История клиента начинается с заявки: её заметки, задачи и контакт видны и в карточке ресторана.
+            var lead = row.LeadId is null ? null : await db.Leads.AsNoTracking().FirstOrDefaultAsync(l => l.Id == row.LeadId, ct);
+            return Results.Ok(new CrmRestaurantCard(row,
+                await db.Users.IgnoreQueryFilters().Where(u => u.RestaurantId == id).OrderBy(u => u.Login)
+                    .Select(u => new CrmUser(u.Login, u.Title, u.Role)).ToListAsync(ct),
+                await NotesAsync(db.CrmNotes.Where(n => n.RestaurantId == id || (row.LeadId != null && n.LeadId == row.LeadId)), ct),
+                await TaskRows(db, db.CrmTasks.Where(t => t.RestaurantId == id || (row.LeadId != null && t.LeadId == row.LeadId)).OrderBy(t => t.DueAt)).ToListAsync(ct),
+                lead?.Name, lead?.Contact));
+        });
 
         crm.MapPost("/restaurants", async (RestaurantCreateRequest req, AppDbContext db, RestaurantOptions defaults, TimeProvider time, CancellationToken ct) =>
         {

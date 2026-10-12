@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { post, useApi, type BatchRow, type HotOffer, type HotPlan, type OrderRow, type OrderSummary, type ProductRow, type StopListRow, type SupplyRow } from '../api';
+import { post, useApi, type BatchRow, type HotOffer, type HotPlan, type Me, type OrderRow, type OrderSummary, type ProductRow, type StopListRow, type SupplyRow } from '../api';
 import { clock, dayStart, duration, money, plural, portions, qty, today, until } from '../format';
 import { BatchLabel, Photo, PlusIcon, URGENT_HOURS, useCan } from '../ui';
 
@@ -14,6 +14,8 @@ const STOP_REASON = {
 export function Today() {
   const offers = useApi<HotOffer[]>('/hot-offers');
   const plan = useApi<HotPlan>('/hot-offers/plan');
+  // Владельцу нескольких точек видно, в каком ресторане он сейчас.
+  const place = useApi<Me>('/me', 300_000).data?.restaurant;
   const stopList = useApi<StopListRow[]>('/stop-list');
   const batches = useApi<BatchRow[]>('/stock/batches');
   const orders = useApi<OrderRow[]>('/orders?take=4');
@@ -55,7 +57,7 @@ export function Today() {
     <>
       <div className="g-title">
         <h1>Сегодня</h1>
-        <span className="sub">{today()}</span>
+        <span className="sub">{today()}{place && ` · ${place}`}</span>
         <div className="end">
           {canStock && <Link className={`g-btn${canOrder ? ' title-secondary' : ''}`} to="/app/stock/supplies">Принять поставку</Link>}
           {canOrder && <Link className="g-btn g-btn--primary" to="/app/orders"><PlusIcon />Новый заказ</Link>}
@@ -90,7 +92,7 @@ export function Today() {
           <dd className="n">{stopped.map((d) => d.dishName.toLowerCase()).join(', ') || 'все блюда в продаже'}</dd>
         </div>
         <div className="g-kpi g-kpi--main">
-          <dt>Может уйти в списание</dt>
+          <dt>Может уйти в списание за сутки</dt>
           <dd className="v num">{costs ? money(sum(expiring.map((b) => b.value ?? 0))) : plural(expiring.length, 'партия', 'партии', 'партий')}</dd>
           <dd className="n num">
             {expiring.length > 0
@@ -124,9 +126,9 @@ export function Today() {
               <p className="sell-plan">
                 {plan.data.portions > 0 && (
                   <span>
-                    <strong className="hd">План спасения:</strong> продать {portions(plan.data.portions)}
+                    <strong className="hd">План спасения на {duration(plan.data.horizonHours)}:</strong> продать {portions(plan.data.portions)}
                     {plan.data.plannedValue !== null && <> — это <span className="num hd">{money(plan.data.plannedValue)}</span> из <span className="num">{money(plan.data.atRiskValue ?? 0)}</span> истекающих продуктов</>}
-                    . Каждый продукт посчитан один раз.
+                    . Каждый продукт посчитан один раз. Скидки пересчитываются после каждой продажи: чем меньше осталось продать, тем они ниже.
                   </span>
                 )}
                 {plan.data.leftovers.length > 0 && (

@@ -1850,7 +1850,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var json = await support.GetStringAsync($"/api/crm/restaurants/{restaurant}");
         var card = System.Text.Json.JsonDocument.Parse(json).RootElement;
         Assert.Equal(
-            ["createdAt", "disabledAt", "id", "isDemo", "lastActivityAt", "leadId", "managerLogin", "name", "notes", "notesList", "openTasks",
+            ["contact", "contactName", "createdAt", "disabledAt", "id", "isDemo", "lastActivityAt", "leadId", "managerLogin", "name", "notes", "notesList", "openTasks",
              "ordersLast7Days", "products", "staff", "tasks", "users"],
             card.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
         Assert.Equal(["login", "role", "title"], card.GetProperty("users")[0].EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));

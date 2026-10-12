@@ -44,13 +44,22 @@ export function Confirm({ label, ask, yes, busy, onConfirm }: { label: string; a
 
 /** Логин и пароль, которые сервер выдал только что: второй раз их получить нельзя. */
 export function Secret({ title, value, onClose }: { title: string; value: Credentials; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const address = `${location.origin}/login`;
+  // Готовый текст для клиента: адрес входа, логин и пароль одним сообщением.
+  const copy = () =>
+    navigator.clipboard.writeText(`Кабинет «Остаток»\nВход: ${address}\nЛогин: ${value.login}\nПароль: ${value.password}`).then(() => setCopied(true), () => setCopied(false));
   return (
     <div className="g-note g-note--ok" role="status">
       <h3>{title}</h3>
+      <span>Вход: <b className="num pick">{address}</b></span>
       <span>Логин: <b className="num pick">{value.login}</b></span>
       <span>Пароль: <b className="num pick">{value.password}</b></span>
-      <span className="small">Пароль показан один раз — передайте его клиенту сейчас. Потом его можно только сбросить.</span>
-      <button className="g-btn g-btn--sm" type="button" onClick={onClose}>Я передал пароль, скрыть</button>
+      <span className="small">Пароль показан один раз — передайте его клиенту сейчас: по телефону или в личном сообщении, не в чате на сайте. Потом его можно только сбросить.</span>
+      <span className="acts">
+        <button className="g-btn g-btn--sm g-btn--primary" type="button" onClick={copy}>{copied ? 'Скопировано' : 'Скопировать для клиента'}</button>
+        <button className="g-btn g-btn--sm" type="button" onClick={onClose}>Я передал пароль, скрыть</button>
+      </span>
     </div>
   );
 }

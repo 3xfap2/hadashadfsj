@@ -47,7 +47,8 @@ public sealed record ShiftReport(
     IEnumerable<ShiftExpiring>? Expiring, IEnumerable<PurchaseRow>? ToOrder);
 
 /// <summary>Итог плана спасения: блюда плана — в /hot-offers, здесь суммы и то, что не пристроено ни в одно блюдо.</summary>
-public sealed record HotPlanSummary(decimal? AtRiskValue, decimal? PlannedValue, int Portions, IEnumerable<HotLeftover> Leftovers);
+/// <param name="HorizonHours">За сколько часов вперёд план считает истекающие продукты.</param>
+public sealed record HotPlanSummary(decimal? AtRiskValue, decimal? PlannedValue, int Portions, IEnumerable<HotLeftover> Leftovers, double HorizonHours);
 
 public static class InsightsEndpoints
 {
@@ -72,13 +73,14 @@ public static class InsightsEndpoints
         api.MapGet("/hot-offers/plan", async (AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var now = time.GetUtcNow();
+            var rules = await db.LoadHotRulesAsync(options, ct);
             var plan = HotOffers.Plan(
                 await db.LoadDishesAsync(ct),
                 await db.LoadFreshBatchesAsync(now, ct),
                 await db.LoadTotalsAsync(now, ct),
-                now, await db.LoadHotRulesAsync(options, ct),
+                now, rules,
                 await db.LoadConsumptionPerHourAsync(now, options, ct), user.SeesCosts());
-            return new HotPlanSummary(plan.AtRiskValue, plan.PlannedValue, plan.Offers.Sum(o => o.Portions), plan.Leftovers);
+            return new HotPlanSummary(plan.AtRiskValue, plan.PlannedValue, plan.Offers.Sum(o => o.Portions), plan.Leftovers, rules.HorizonHours);
         })
         .WithTags("Горячие предложения");
 
@@ -206,7 +208,7 @@ public static class InsightsEndpoints
             var moves = (await (
                     from m in db.Movements
                     join b in db.Batches on m.BatchId equals b.Id
-                    where b.Supply!.CreatedAt >= since && m.Type != MovementType.Supply && m.Type != MovementType.PrepMade && m.Type != MovementType.Surplus
+                    where b.Supply!.CreatedAt >= since && m.Type != MovementType.Supply && m.Type != MovementType.PrepMade && m.Type != MovementType.Surplus && m.Type != MovementType.Opened
                     group m by new { m.BatchId, m.Type, m.Note } into g
                     select new { g.Key.BatchId, g.Key.Type, g.Key.Note, Quantity = g.Sum(m => m.Quantity) }).ToListAsync(ct))
                 .ToLookup(m => m.BatchId);

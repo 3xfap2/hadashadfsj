@@ -122,6 +122,7 @@ function Card({ r }: { r: RestaurantCard }) {
               <div><dt>Заказов за 7 дней</dt><dd className="hd num">{r.ordersLast7Days}</dd></div>
               <div><dt>Продуктов в справочнике</dt><dd className="hd num">{r.products}</dd></div>
               <div><dt>Заявка</dt><dd>{r.leadId !== null ? <Link className="hd" to={`/leads/${r.leadId}`}>№ {r.leadId}</Link> : 'нет — кабинет создан без заявки'}</dd></div>
+              {r.contact && <div><dt>Контакт</dt><dd><span className="hd">{r.contactName}</span> · <span className="num pick">{r.contact}</span></dd></div>}
             </dl>
           </section>
 
