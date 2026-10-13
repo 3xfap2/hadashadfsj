@@ -25,6 +25,8 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
             .Include(d => d.Recipe)
             .Where(d => quantities.Keys.Contains(d.Id))
             .ToListAsync(ct);
+        // Блюдо удалили между проверкой запроса и заказом: клиент получит 404 «запись удалена» (DbErrors), а не сбой сервера.
+        if (dishes.Count < quantities.Count) throw new DbUpdateConcurrencyException("Блюдо из заказа удалено.");
 
         var required = new Dictionary<Guid, decimal>();
         foreach (var dish in dishes)
@@ -62,15 +64,18 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
             return repeated;
 
         var productIds = required.Keys.ToArray();
+        // Партии, оставшиеся в контексте от прошлого заказа (генератор оформляет несколько заказов в одном контексте), устарели:
+        // EF вернул бы их вместо свежих значений из запроса с блокировкой и затёр бы списание, сделанное между заказами.
+        foreach (var stale in db.ChangeTracker.Entries<Batch>().ToList()) stale.State = EntityState.Detached;
         // Единый порядок блокировки во всех заказах исключает взаимные блокировки.
         var batches = await db.Batches
             .FromSql($"""
                 SELECT * FROM "Batches"
-                WHERE "ProductId" = ANY({productIds}) AND "Remaining" > 0 AND "ExpiresAt" > {now}
+                WHERE "ProductId" = ANY({productIds}) AND "RestaurantId" = {db.TenantId} AND "Remaining" > 0 AND "ExpiresAt" > {now}
                 ORDER BY "ExpiresAt", "Id"
                 FOR UPDATE
                 """)
-            .IgnoreQueryFilters()   // блюда уже отобраны по ресторану, а запрос с блокировкой нельзя оборачивать
+            .IgnoreQueryFilters()   // запрос с блокировкой нельзя оборачивать, поэтому ресторан указан в нём самом
             .ToListAsync(ct);
 
         var result = Fefo.Allocate(batches, required, now);

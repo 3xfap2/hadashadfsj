@@ -5,7 +5,8 @@ using Ostatok.Api.Domain;
 
 namespace Ostatok.Api.Features;
 
-public sealed record PrepRequest(Guid ProductId, decimal Quantity);
+/// <param name="Id">Идентификатор операции, который придумал клиент; повтор с тем же Id вернёт прежнюю заготовку и ничего не спишет.</param>
+public sealed record PrepRequest(Guid ProductId, decimal Quantity, Guid? Id = null);
 public sealed record PrepShortage(Guid ProductId, string ProductName, Unit Unit, decimal Required, decimal Available);
 public sealed record PrepResponse(Guid BatchId, string SupplyNumber, decimal Quantity, DateTimeOffset ExpiresAt, IEnumerable<PrepShortage> Shortages);
 
@@ -26,8 +27,12 @@ public sealed class PrepService(AppDbContext db, TimeProvider time)
 {
     public const string Workshop = "Собственный цех";
 
-    /// <summary>null — такой заготовки нет. При нехватке сырья ничего не списывается, возвращаются нехватки.</summary>
-    public async Task<PrepResponse?> MakeAsync(Guid productId, decimal quantity, string actor, CancellationToken ct)
+    /// <summary>
+    /// null — такой заготовки нет. При нехватке сырья ничего не списывается, возвращаются нехватки.
+    /// Идентификатор от клиента становится идентификатором поставки «З-…»: повтор запроса (обрыв связи, двойное нажатие)
+    /// возвращает уже приготовленное и сырьё второй раз не списывает.
+    /// </summary>
+    public async Task<PrepResponse?> MakeAsync(Guid productId, decimal quantity, string actor, CancellationToken ct, Guid? id = null)
     {
         var prep = await db.Products.Include(p => p.PrepRecipe).FirstOrDefaultAsync(p => p.Id == productId, ct);
         if (prep is null || prep.PrepRecipe.Count == 0) return null;
@@ -41,16 +46,20 @@ public sealed class PrepService(AppDbContext db, TimeProvider time)
         // Номер берётся до блокировки партий — в том же порядке, что у заказа и инвентаризации, иначе они блокируют друг друга.
         // Если сырья не хватит, транзакция откатится и номер не пропадёт.
         var number = $"З-{await db.NextPrepNumberAsync(ct):0000}";
+        // Повтор проверяется после блокировки счётчика: одновременные запросы с одним Id идут по очереди, второй видит первый.
+        if (id is not null && await db.Supplies.AsNoTracking().Include(s => s.Batches)
+                .FirstOrDefaultAsync(s => s.Id == id && s.Supplier == Workshop, ct) is { Batches: [var made] } repeated)
+            return new PrepResponse(made.Id, repeated.Number, made.Quantity, made.ExpiresAt, []);
         var productIds = required.Keys.ToArray();
         // Та же блокировка, что и в заказе: заготовка и заказ не спишут один остаток дважды.
         var batches = await db.Batches
             .FromSql($"""
                 SELECT * FROM "Batches"
-                WHERE "ProductId" = ANY({productIds}) AND "Remaining" > 0 AND "ExpiresAt" > {now}
+                WHERE "ProductId" = ANY({productIds}) AND "RestaurantId" = {db.TenantId} AND "Remaining" > 0 AND "ExpiresAt" > {now}
                 ORDER BY "ExpiresAt", "Id"
                 FOR UPDATE
                 """)
-            .IgnoreQueryFilters()   // продукты уже отобраны по ресторану, а запрос с блокировкой нельзя оборачивать
+            .IgnoreQueryFilters()   // запрос с блокировкой нельзя оборачивать, поэтому ресторан указан в нём самом
             .ToListAsync(ct);
 
         var result = Fefo.Allocate(batches, required, now);
@@ -76,7 +85,7 @@ public sealed class PrepService(AppDbContext db, TimeProvider time)
         // Заготовка годна не дольше самого раннего срока сырья, которое в неё ушло.
         var byNorm = now.AddHours(prep.ShelfLifeHours);
         var byRaw = result.Allocations.Min(a => byId[a.BatchId].ExpiresAt);
-        var supply = new Supply { Id = Guid.NewGuid(), Number = number, Supplier = Workshop, CreatedAt = now };
+        var supply = new Supply { Id = id ?? Guid.NewGuid(), Number = number, Supplier = Workshop, CreatedAt = now };
         var batch = new Batch
         {
             Id = Guid.NewGuid(), SupplyId = supply.Id, ProductId = prep.Id,
@@ -137,7 +146,7 @@ public static class PrepEndpoints
             var errors = new Errors().Check(req.Quantity is >= Validation.MinQuantity and <= 1000, "quantity", "Количество — от 0,001 до 1000.");
             if (errors.Any) return errors.ToResult();
 
-            var made = await service.MakeAsync(req.ProductId, req.Quantity, user.Identity?.Name ?? "", ct);
+            var made = await service.MakeAsync(req.ProductId, req.Quantity, user.Identity?.Name ?? "", ct, req.Id);
             if (made is null) return errors.Add("productId", "Такой заготовки нет: у продукта не задан состав.").ToResult();
             // Сырья не хватило: ничего не списано, в ответе — чего и сколько не хватает.
             return made.Shortages.Any()

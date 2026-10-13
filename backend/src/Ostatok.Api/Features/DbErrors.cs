@@ -47,6 +47,9 @@ public sealed class DbErrors : IExceptionHandler
             PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure => (StatusCodes.Status409Conflict, "Одновременно шла другая операция с теми же продуктами. Повторите действие."),
             _ => (0, ""),
         };
+        // База недоступна (нет соединения, тайм-аут, перезапуск): это не сбой сервера, запрос можно повторить позже.
+        if (status == 0 && (exception as NpgsqlException ?? exception.InnerException as NpgsqlException) is { IsTransient: true })
+            (status, text) = (StatusCodes.Status503ServiceUnavailable, "База данных временно недоступна. Повторите через минуту.");
         if (status == 0) return false;
 
         await Results.Problem(text, statusCode: status).ExecuteAsync(http);

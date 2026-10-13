@@ -1,6 +1,6 @@
 name: tests
 
-# Тесты сервера на настоящем PostgreSQL (Testcontainers) и сборка обоих сайтов.
+# Тесты сервера на настоящем PostgreSQL (Testcontainers), тесты бота и сборка обоих сайтов.
 # Запускается на любой ветке: так работу можно проверить до слияния в main, откуда идёт выкладка.
 on:
   workflow_dispatch:
@@ -17,6 +17,17 @@ jobs:
           dotnet-version: 10.0.x
       - run: dotnet test
         working-directory: backend
+
+  # Тесты бота идут без сети и без токена: Telegram и API в них подставные (bot/tests/conftest.py).
+  bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements-dev.txt && python -m pytest -q -p no:cacheprovider
+        working-directory: bot
 
   sites:
     runs-on: ubuntu-latest

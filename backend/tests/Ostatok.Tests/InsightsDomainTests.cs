@@ -89,9 +89,56 @@ public class HotOffersTests
 
         var plan = HotOffers.Plan(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules());
 
-        Assert.Equal([("Цезарь", 4, 0.8m), ("Суп", 5, 1.2m)], plan.Offers.Select(o => (o.DishName, o.Portions, o.Ingredients.Single().UsableQuantity)));
-        Assert.Empty(plan.Leftovers);
-        Assert.Equal(plan.AtRiskValue, plan.PlannedValue);
+        // На пятую порцию супа нужно 0,25 кг, а осталось 0,2: план обещает только то, что можно приготовить.
+        Assert.Equal([("Цезарь", 4, 0.8m), ("Суп", 4, 1.0m)], plan.Offers.Select(o => (o.DishName, o.Portions, o.Ingredients.Single().UsableQuantity)));
+        Assert.Equal(("Курица", 0.2m), plan.Leftovers.Select(l => (l.ProductName, l.Quantity)).Single());
+    }
+
+    [Fact]
+    public void Общий_неистекающий_продукт_не_обещается_двум_блюдам_сразу()
+    {
+        var k = new Kitchen();
+        var (rice, chicken, fish) = (k.Product("Рис", cost: 100), k.Product("Курица", cost: 400), k.Product("Рыба", cost: 800));
+        // Риса 1 кг — хватает на 5 порций любого из двух блюд, но не на 5 + 5.
+        k.Stock(rice, 1, 200).Stock(chicken, 1, 6).Stock(fish, 1, 6);
+        k.Dish("Плов", (chicken, 0.2m), (rice, 0.2m));
+        k.Dish("Рыба с рисом", (fish, 0.2m), (rice, 0.2m));
+
+        var plan = HotOffers.Plan(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules());
+
+        Assert.Equal([("Рыба с рисом", 5)], plan.Offers.Select(o => (o.DishName, o.Portions)));
+        Assert.Equal(("Курица", 1m), plan.Leftovers.Select(l => (l.ProductName, l.Quantity)).Single());
+        Assert.Equal(800m, plan.PlannedValue);
+    }
+
+    [Fact]
+    public void Общий_истекающий_продукт_не_обещается_сверх_остатка()
+    {
+        var k = new Kitchen();
+        var (cream, salmon) = (k.Product("Сливки", cost: 300), k.Product("Лосось", cost: 2000));
+        k.Stock(cream, 1, 6).Stock(salmon, 1, 6);
+        k.Dish("Паста", (cream, 0.01m), (salmon, 0.05m));
+        k.Dish("Суп", (cream, 0.2m));
+
+        var plan = HotOffers.Plan(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules());
+
+        // Сливок на план уходит не больше литра, что лежит на складе.
+        var cream_ = plan.Offers.Sum(o => o.Portions * k.Dishes.Single(d => d.Id == o.DishId).Recipe.Where(r => r.ProductId == cream.Id).Sum(r => r.Quantity));
+        Assert.True(cream_ <= 1m, $"план требует {cream_} л сливок");
+    }
+
+    [Fact]
+    public void Продукт_без_цены_не_обнуляет_приоритет_блюда()
+    {
+        var k = new Kitchen();
+        var free = k.Product("Зелень с огорода", cost: 0);
+        k.Stock(free, 1, 4);
+        k.Dish("Салат", (free, 0.1m));
+
+        var offer = Assert.Single(k.HotOffers());
+
+        Assert.True(offer.Score > 0);
+        Assert.Equal(10, offer.Portions);
     }
 
     [Fact]
@@ -297,6 +344,21 @@ public class ForecastTests
     }
 
     [Fact]
+    public void Новый_продукт_прогнозируется_по_своим_дням_а_не_нулём()
+    {
+        var (old, fresh) = (Guid.NewGuid(), Guid.NewGuid());
+        var today = new DateOnly(2026, 10, 9);   // пятница
+        // Ресторан работает две недели; новое блюдо появилось в среду, продукт уходил по 7 кг в среду и четверг.
+        var history = Enumerable.Range(1, 14).Select(i => new DailyUse(old, today.AddDays(-i), 1))
+            .Append(new DailyUse(fresh, today.AddDays(-2), 7))
+            .Append(new DailyUse(fresh, today.AddDays(-1), 7))
+            .ToList();
+
+        // Пятниц, суббот и воскресений у нового продукта ещё не было — берётся средний расход по его дням.
+        Assert.Equal(7m / 24, Demand.PerHour(history, today, 3)[fresh]);
+    }
+
+    [Fact]
     public void Смена_через_полночь_заканчивается_на_следующий_день()
     {
         var zone = TimeSpan.FromHours(3);
@@ -459,5 +521,19 @@ public class ForecastTests
 
         Assert.Contains("истечёт раньше, чем израсходуется", suggestion.Reason);
         Assert.Equal(6.6m, suggestion.Quantity);
+    }
+
+    [Fact]
+    public void Закупка_при_пустом_складе_не_больше_срока_хранения()
+    {
+        var k = new Kitchen();
+        var milk = k.Product("Молоко");
+        milk.ShelfLifeHours = 24;
+        k.Dish("Какао", (milk, 0.2m));
+
+        var suggestion = Assert.Single(Forecast.Purchases(k.Products, k.Dishes, k.ByProduct, new Dictionary<Guid, decimal> { [milk.Id] = 1m }, Now, 72));
+
+        // Расход 1 л в час, хранится сутки: везти на трое суток незачем — две трети испортятся.
+        Assert.Equal(24m, suggestion.Quantity);
     }
 }

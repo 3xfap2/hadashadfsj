@@ -78,13 +78,15 @@ public static class Forecast
             var largestPortion = usedIn.Max(d => d.Recipe.First(r => r.ProductId == product.Id).Quantity);
             var rate = perHour.GetValueOrDefault(product.Id);
             var fresh = batches[product.Id].Where(b => b.ExpiresAt > now).Sum(b => b.Remaining);
+            // Скоропортящийся продукт нет смысла запасать дольше, чем он хранится.
+            var cover = Math.Min(coverHours, product.ShelfLifeHours);
 
             decimal quantity;
             double? hoursCovered;
             string reason;
             if (fresh < portion)
             {
-                quantity = Math.Max(rate * (decimal)coverHours, largestPortion * PortionsWhenNoHistory);
+                quantity = Math.Max(rate * (decimal)cover, largestPortion * PortionsWhenNoHistory);
                 hoursCovered = 0;
                 reason = $"Годного остатка нет. В стоп-листе: {string.Join(", ", usedIn.Select(d => d.Name))}.";
             }
@@ -92,8 +94,6 @@ public static class Forecast
             {
                 // Без истории продаж спрос неизвестен: заказывать нечего, пока продукт есть.
                 if (rate == 0) continue;
-                // Скоропортящийся продукт нет смысла запасать дольше, чем он хранится.
-                var cover = Math.Min(coverHours, product.ShelfLifeHours);
                 var hours = (RunOutAt(batches[product.Id], rate, portion, now) - now).TotalHours;
                 if (hours >= cover) continue;
 

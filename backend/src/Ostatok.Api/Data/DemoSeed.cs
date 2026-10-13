@@ -78,13 +78,10 @@ public static class DemoSeed
             return supply;
         }
 
-        var supplies = new[]
-        {
-            S("П-0409", "Молочный двор", (cream, 0.9m, -3), (mozzarella, 1.1m, -1.5), (parmesan, 1.4m, 500), (pasta, 5, 3000), (potato, 18, 400), (egg, 60, 300)),
-            S("П-0410", "«Северная рыба»", (salmon, 0.7m, 5), (shrimp, 1.2m, 7), (tomYum, 2.4m, 6), (romaine, 0.9m, 9), (dough, 1.4m, 10), (chicken, 1.8m, 20)),
-            S("П-0411", "«Северная рыба»", (caesar, 0.6m, 30), (shrimp, 2, 40), (romaine, 1.5m, 50), (beef, 2.6m, 52)),
-            S("П-0412", "Овощная база №3", (chicken, 3, 60), (tomato, 5.2m, 70), (cream, 4, 90)),
-        };
+        var byName = db.Products.Local.ToDictionary(p => p.Name);
+        var supplies = Deliveries
+            .Select(d => S(d.Number, d.Supplier, d.Items.Select(i => (byName[i.Product], i.Quantity, i.HoursLeft)).ToArray()))
+            .ToArray();
         db.Supplies.AddRange(supplies);
         db.Movements.AddRange(supplies.SelectMany(s => s.Batches.Select(b => new Movement
         {
@@ -104,5 +101,52 @@ public static class DemoSeed
         (await db.Restaurants.FirstAsync(r => r.Id == db.TenantId, ct)).LastOrderNumber = number;
 
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Текущие поставки демо-ресторана: продукт, количество и сколько часов осталось до конца срока (меньше нуля — просрочено).</summary>
+    private static readonly (string Number, string Supplier, (string Product, decimal Quantity, double HoursLeft)[] Items)[] Deliveries =
+    [
+        ("П-0409", "Молочный двор", [("Сливки 33%", 0.9m, -3), ("Моцарелла", 1.1m, -1.5), ("Пармезан", 1.4m, 500), ("Паста феттучине", 5, 3000), ("Картофель", 18, 400), ("Яйцо куриное", 60, 300)]),
+        ("П-0410", "«Северная рыба»", [("Лосось охлаждённый", 0.7m, 5), ("Креветки тигровые", 1.2m, 7), ("Основа том ям", 2.4m, 6), ("Салат романо", 0.9m, 9), ("Тесто для пиццы", 1.4m, 10), ("Куриное филе", 1.8m, 20)]),
+        ("П-0411", "«Северная рыба»", [("Соус цезарь", 0.6m, 30), ("Креветки тигровые", 2, 40), ("Салат романо", 1.5m, 50), ("Говяжья вырезка", 2.6m, 52)]),
+        ("П-0412", "Овощная база №3", [("Куриное филе", 3, 60), ("Томаты", 5.2m, 70), ("Сливки 33%", 4, 90)]),
+    ];
+
+    public const string RefreshSupplier = "Демо: утренний завоз";
+
+    /// <summary>Через сколько часов без поставок демо-ресторан считается опустевшим.</summary>
+    public const int StaleHours = 48;
+
+    /// <summary>
+    /// Демо-данные создаются один раз, а сроки партий — часы: через пару суток всё меню демо-ресторана в стопе
+    /// и смотреть систему не на чем. Если в демо-ресторане давно не было поставок, сюда снова «приезжают» текущие
+    /// поставки из начальных данных, со сроками от этого момента (кроме заведомо просроченных партий).
+    /// Продукты ищутся по названию; переименованные и удалённые пропускаются. Ничего не удаляет и не меняет.
+    /// Возвращает true, если поставки добавлены.
+    /// </summary>
+    public static async Task<bool> RefreshAsync(AppDbContext db, DateTimeOffset now, CancellationToken ct = default)
+    {
+        if (!await db.Products.AnyAsync(ct)) return false;
+        if (await db.Supplies.AnyAsync(s => s.CreatedAt > now.AddHours(-StaleHours), ct)) return false;
+
+        var byName = await db.Products.ToDictionaryAsync(p => p.Name, ct);
+        var added = false;
+        foreach (var (number, _, items) in Deliveries)
+        {
+            var supply = new Supply { Id = Guid.NewGuid(), Number = $"{number}-{now:yyMMdd}", Supplier = RefreshSupplier, CreatedAt = now };
+            foreach (var (name, quantity, hoursLeft) in items)
+                if (hoursLeft > 0 && byName.TryGetValue(name, out var product))
+                    supply.Batches.Add(new Batch { Id = Guid.NewGuid(), ProductId = product.Id, Quantity = quantity, Remaining = quantity, ExpiresAt = now.AddHours(hoursLeft), UnitCost = product.Cost });
+            if (supply.Batches.Count == 0 || await db.Supplies.AnyAsync(s => s.Number == supply.Number, ct)) continue;
+
+            db.Supplies.Add(supply);
+            db.Movements.AddRange(supply.Batches.Select(b => new Movement
+            {
+                At = now, Type = MovementType.Supply, ProductId = b.ProductId, BatchId = b.Id, Quantity = b.Quantity, Note = $"Поставка {supply.Number}",
+            }));
+            added = true;
+        }
+        await db.SaveChangesAsync(ct);
+        return added;
     }
 }

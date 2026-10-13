@@ -168,8 +168,9 @@ public static class InsightsEndpoints
                     .Select(g => new { ProductId = g.Key, Count = g.Count(), Missing = g.Sum(s => s.Required - s.Available) })
                     .ToListAsync(ct))
                 .ToDictionary(r => r.ProductId);
+            // Ручной стоп — решение кухни, а не нехватка продукта: в дефицит он не идёт.
             var stops = (await db.StopLogs.AsNoTracking().Include(l => l.Dish)
-                    .Where(l => l.EndedAt == null || l.EndedAt >= since)
+                    .Where(l => (l.EndedAt == null || l.EndedAt >= since) && l.Reason != StopReason.Manual)
                     .ToListAsync(ct))
                 .ToLookup(l => l.ProductId);
             var products = await db.Products.AsNoTracking().ToDictionaryAsync(p => p.Id, ct);

@@ -37,8 +37,8 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
     }
 
     /// <summary>
-    /// Списывает партии, просроченные дольше отсрочки. Отсрочка не длиннее срока хранения самой партии:
-    /// продукт, который хранится час, не лежит просроченным полсуток. Возвращает число списанных партий.
+    /// Списывает партии, просроченные дольше отсрочки. Отсрочка не длиннее срока хранения самой партии
+    /// (у вскрытой — срока после вскрытия): продукт, который хранится час, не лежит просроченным полсуток. Возвращает число списанных партий.
     /// Работает по всем ресторанам сразу: это фоновая задача, у неё нет «своего» ресторана.
     /// </summary>
     public async Task<int> WriteOffExpiredAsync(TimeSpan grace, CancellationToken ct)
@@ -49,11 +49,13 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
             .FromSql($"""
                 SELECT b.* FROM "Batches" b
                 JOIN "Supplies" s ON s."Id" = b."SupplyId"
-                WHERE b."Remaining" > 0 AND b."ExpiresAt" <= {now} - LEAST({grace}, b."ExpiresAt" - s."CreatedAt")
+                WHERE b."Remaining" > 0 AND b."ExpiresAt" <= {now} - LEAST({grace}, b."ExpiresAt" - COALESCE(b."OpenedAt", s."CreatedAt"))
                 FOR UPDATE OF b SKIP LOCKED
                 """)
             .IgnoreQueryFilters()
             .ToListAsync(ct);
+        // Списывать нечего: транзакция откатывается без фиксации, и открытые кабинеты не получают пустое «изменилось» каждые 20 секунд.
+        if (batches.Count == 0) return 0;
 
         foreach (var batch in batches) Apply(batch, now, "Истёк срок годности (автосписание)", System);
         await db.SaveChangesAsync(ct);

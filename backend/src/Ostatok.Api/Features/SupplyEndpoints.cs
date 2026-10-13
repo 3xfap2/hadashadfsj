@@ -23,7 +23,8 @@ public sealed record SupplyResponse(Guid Id, string Number, string? Supplier, Da
 
 public sealed record IncomingItemResponse(Guid ProductId, string ProductName, Unit Unit, decimal Quantity, int ShelfLifeHours);
 /// <summary>Поставка от внешней системы, которая ждёт подтверждения.</summary>
-public sealed record IncomingResponse(Guid Id, string Number, string? Supplier, DateTimeOffset ReceivedAt, decimal Total, IEnumerable<IncomingItemResponse> Items);
+/// <param name="CreatedAt">Дата создания поставки: от неё считается срок годности партий.</param>
+public sealed record IncomingResponse(Guid Id, string Number, string? Supplier, DateTimeOffset ReceivedAt, decimal Total, IEnumerable<IncomingItemResponse> Items, DateTimeOffset CreatedAt);
 
 public static class SupplyEndpoints
 {
@@ -129,12 +130,14 @@ public static class SupplyEndpoints
 
         incoming.MapPost("", async (SupplyRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
+            var now = time.GetUtcNow();
+            var createdAt = req.CreatedAt?.ToUniversalTime() ?? now;
             var (errors, products) = await CheckAsync(req, db, ct);
-            if (errors.Any) return errors.ToResult();
+            if (errors.Check(createdAt <= now, "createdAt", "Дата поставки не может быть в будущем.").Any) return errors.ToResult();
 
             var supply = new IncomingSupply
             {
-                Id = req.Id ?? Guid.NewGuid(), Number = req.Number!.Trim(), Supplier = Clean(req.Supplier), ReceivedAt = time.GetUtcNow(),
+                Id = req.Id ?? Guid.NewGuid(), Number = req.Number!.Trim(), Supplier = Clean(req.Supplier), ReceivedAt = now, CreatedAt = createdAt,
                 Items = req.Items!.Select(i => new IncomingItem { ProductId = i.ProductId, Product = products[i.ProductId], Quantity = i.Quantity, ShelfLifeHours = i.ShelfLifeHours }).ToList(),
             };
             if (await TakenAsync(db, supply.Id, supply.Number, ct)
@@ -152,7 +155,9 @@ public static class SupplyEndpoints
             return Results.Accepted($"/api/supplies/incoming/{supply.Id}", ToResponse(supply));
         }).Produces<IncomingResponse>(StatusCodes.Status202Accepted);
 
-        // Приёмка: срок годности партий отсчитывается от этого момента, продукты появляются на складе.
+        // Приёмка: продукты появляются на складе. Срок годности партий отсчитывается от даты создания поставки,
+        // как у поставки, внесённой в кабинете: пока она ждала подтверждения, продукт старел.
+        // У поставок, полученных до появления этой даты, срок по-прежнему считается от приёмки.
         incoming.MapPost("{id:guid}/accept", async (Guid id, AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -163,8 +168,9 @@ public static class SupplyEndpoints
 
             var now = time.GetUtcNow();
             var actor = user.Identity?.Name ?? "";
-            var supply = new Supply { Id = waiting.Id, Number = waiting.Number, Supplier = waiting.Supplier, CreatedAt = now };
-            Fill(supply, waiting.Items.Select(i => (i.Product!, i.Quantity, i.ShelfLifeHours, i.Product!.Cost)), now);
+            var supply = new Supply { Id = waiting.Id, Number = waiting.Number, Supplier = waiting.Supplier, CreatedAt = waiting.CreatedAt ?? now };
+            if (Fill(supply, waiting.Items.Select(i => (i.Product!, i.Quantity, i.ShelfLifeHours, i.Product!.Cost)), now) is { } expired)
+                return Results.Problem($"{expired} Отклоните поставку.", statusCode: StatusCodes.Status409Conflict);
             Store(db, supply, now, actor);
             (waiting.Status, waiting.DecidedAt, waiting.DecidedBy) = (IncomingStatus.Accepted, now, actor);
             await db.SaveChangesAsync(ct);
@@ -287,7 +293,8 @@ public static class SupplyEndpoints
 
     private static IncomingResponse ToResponse(IncomingSupply s) => new(
         s.Id, s.Number, s.Supplier, s.ReceivedAt, s.Items.Sum(i => i.Quantity * i.Product!.Cost),
-        s.Items.Select(i => new IncomingItemResponse(i.ProductId, i.Product!.Name, i.Product.Unit, i.Quantity, i.ShelfLifeHours ?? i.Product.ShelfLifeHours)));
+        s.Items.Select(i => new IncomingItemResponse(i.ProductId, i.Product!.Name, i.Product.Unit, i.Quantity, i.ShelfLifeHours ?? i.Product.ShelfLifeHours)),
+        s.CreatedAt ?? s.ReceivedAt);
 
     private static SupplyResponse ToResponse(Supply s, bool costs = true) => new(
         s.Id, s.Number, s.Supplier, s.CreatedAt, costs ? s.Batches.Sum(b => b.Quantity * b.UnitCost) : null,

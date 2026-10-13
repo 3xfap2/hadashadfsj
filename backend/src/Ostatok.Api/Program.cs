@@ -213,7 +213,12 @@ await using (var scope = app.Services.CreateAsyncScope())
     await db.Database.MigrateAsync();
     await AuthEndpoints.EnsureUsersAsync(db, scope.ServiceProvider.GetRequiredService<AuthOptions>(), scope.ServiceProvider.GetRequiredService<TimeProvider>());
     if (app.Configuration.GetValue<bool>("Seed:Demo"))
-        await DemoSeed.RunAsync(db, scope.ServiceProvider.GetRequiredService<TimeProvider>().GetUtcNow());
+    {
+        var now = scope.ServiceProvider.GetRequiredService<TimeProvider>().GetUtcNow();
+        await DemoSeed.RunAsync(db, now);
+        // Сервер на бесплатном хостинге засыпает и просыпается часто: при запуске опустевший демо-склад пополняется.
+        await DemoSeed.RefreshAsync(db, now);
+    }
 }
 
 // CRM команды продукта — второе приложение, в папке crm. Его маршрут точнее общего, поэтому адреса /crm/... достаются ему;

@@ -200,7 +200,7 @@ public static class Restaurants
         (name, login) = ((name ?? "").Trim(), (login ?? "").Trim().ToLowerInvariant());
         if (name is not { Length: > 0 and <= 120 }) return new("Укажите название ресторана — до 120 символов.");
         if (!StaffEndpoints.LoginPattern().IsMatch(login)) return new(StaffEndpoints.LoginRule);
-        if (await db.Users.IgnoreQueryFilters().AnyAsync(u => u.Login == login, ct)) return new("Такой логин уже занят.");
+        if (await StaffEndpoints.LoginTakenAsync(db, login, ct)) return new("Такой логин уже занят.");
 
         // Пароль выдаёт система: его нельзя выбрать слабым, а знает его только тот, кто создал ресторан.
         var password = NewPassword();
@@ -237,13 +237,15 @@ public sealed class TelegramBot(IServiceScopeFactory scopes, ITelegramApi telegr
                         await using var scope = scopes.CreateAsyncScope();
                         await scope.ServiceProvider.GetRequiredService<SupportDesk>().HandleAsync(update, stop);
                     }
-                    catch (Exception e) when (e is not OperationCanceledException)
+                    // Тайм-аут HttpClient — тоже OperationCanceledException; пропускается только остановка сервера,
+                    // иначе зависший Telegram остановил бы весь сервер.
+                    catch (Exception e) when (!stop.IsCancellationRequested)
                     {
                         log.LogError(e, "Сообщение из Telegram не обработано");
                     }
                 }
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            catch (Exception e) when (!stop.IsCancellationRequested)
             {
                 // В тексте ошибки HttpClient есть адрес с токеном — в журнал он попасть не должен.
                 log.LogWarning("Telegram недоступен: {Error}", e.GetType().Name);

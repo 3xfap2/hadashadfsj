@@ -34,6 +34,9 @@ public static class InventoryEndpoints
         {
             var now = time.GetUtcNow();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
+            // Вскрытие создаёт партию, поэтому встаёт в ту же очередь ресторана, что заказ, заготовка и инвентаризация
+            // (они первыми блокируют строку ресторана): иначе параллельная инвентаризация не увидела бы новую партию.
+            await db.Database.ExecuteSqlAsync($"""SELECT 1 FROM "Restaurants" WHERE "Id" = {db.TenantId} FOR NO KEY UPDATE""", ct);
             var batch = (await db.Batches
                 .FromSql($"""SELECT * FROM "Batches" WHERE "Id" = {id} AND "RestaurantId" = {db.TenantId} FOR UPDATE""")
                 .IgnoreQueryFilters()

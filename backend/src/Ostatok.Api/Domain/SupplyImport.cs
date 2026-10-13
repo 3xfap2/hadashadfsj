@@ -87,8 +87,14 @@ public static partial class SupplyImport
         if (!match.Success || !TryNumber(match.Groups[1].Value, out var amount) || amount <= 0)
             return Fail($"Срок хранения «{lifeText}» не распознан. Укажите часы или дни, например «72 ч» или «5 дней».", product.Id);
 
-        var inDays = match.Groups[2].Value.ToLowerInvariant() is var u && (u.StartsWith('д') || u.StartsWith("сут"));
+        var unit = match.Groups[2].Value;
+        // Дробное число без единицы — скорее дата без года («15.10»), чем срок в часах.
+        if (unit == "" && match.Groups[1].Value.IndexOfAny(['.', ',']) >= 0)
+            return Fail($"Срок хранения «{lifeText}» не распознан. Укажите часы или дни, например «72 ч» или «5 дней».", product.Id);
+        var inDays = unit.ToLowerInvariant() is var u && (u.StartsWith('д') || u.StartsWith("сут"));
         var hours = (int)Math.Round(amount * (inDays ? 24 : 1));
+        // Меньше часа после округления поставка не примет: ошибка видна уже в предпросмотре.
+        if (hours < 1) return Fail($"Срок хранения «{lifeText}» меньше часа. Укажите срок от 1 часа.", product.Id);
         return new ImportRow(line, name, product.Id, quantity, product.Unit, hours, price, ImportRowStatus.Ok, "", cost, product.Cost);
     }
 

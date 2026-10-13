@@ -67,4 +67,13 @@ public class SupplyImportTests
 
         Assert.Equal(ImportRowStatus.Ok, Assert.Single(rows).Status);
     }
+
+    [Fact]
+    public void Дата_без_года_и_срок_меньше_часа_не_принимаются_за_срок()
+    {
+        // «15.10» — дата, а не 15 часов; «0,4 ч» округлилось бы до нуля, и поставку отклонил бы уже сервер.
+        Assert.All(Parse("Лосось охлаждённый;3;кг;15.10;", "Лосось охлаждённый;3;кг;0,4 ч;"), row => Assert.Equal(ImportRowStatus.Error, row.Status));
+        // Целое число без единицы — по-прежнему часы.
+        Assert.Equal(72, Assert.Single(Parse("Лосось охлаждённый;3;кг;72;")).ShelfLifeHours);
+    }
 }

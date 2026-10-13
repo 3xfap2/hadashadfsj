@@ -13,6 +13,8 @@ public static class Demand
     /// Ожидаемый расход в час на ближайшие horizonDays дней, начиная с сегодняшнего.
     /// Для каждого из этих дней берётся средний расход в такие же дни недели из истории;
     /// если такого дня недели в истории ещё не было — средний по всем дням.
+    /// История каждого продукта начинается с первого дня, когда он расходовался: дни до появления
+    /// нового блюда в меню — не нулевой спрос, а отсутствие наблюдений.
     /// Сегодняшний день в историю не входит: он ещё не закончился.
     /// Пустой результат означает, что полных дней истории нет.
     /// </summary>
@@ -21,14 +23,14 @@ public static class Demand
         var past = history.Where(u => u.Day < today).ToList();
         if (past.Count == 0) return [];
 
-        var first = past.Min(u => u.Day);
-        var days = Enumerable.Range(0, today.DayNumber - first.DayNumber).Select(first.AddDays).ToList();
         var ahead = Enumerable.Range(0, horizonDays).Select(today.AddDays).ToList();
 
         var result = new Dictionary<Guid, decimal>();
         foreach (var product in past.GroupBy(u => u.ProductId))
         {
             var byDay = product.ToDictionary(u => u.Day, u => u.Quantity);
+            var first = product.Min(u => u.Day);
+            var days = Enumerable.Range(0, today.DayNumber - first.DayNumber).Select(first.AddDays).ToList();
             // День без продаж — тоже наблюдение: расход в этот день был нулевым.
             decimal Average(IReadOnlyCollection<DateOnly> sample) => sample.Sum(d => byDay.GetValueOrDefault(d)) / sample.Count;
 

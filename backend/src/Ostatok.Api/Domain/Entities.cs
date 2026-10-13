@@ -88,6 +88,8 @@ public class IncomingSupply : IOwned
     public required string Number { get; set; }
     public string? Supplier { get; set; }
     public DateTimeOffset ReceivedAt { get; set; }
+    /// <summary>Дата создания поставки во внешней системе: от неё считается срок годности. Пусто у поставок, полученных до появления поля.</summary>
+    public DateTimeOffset? CreatedAt { get; set; }
     public IncomingStatus Status { get; set; }
     public DateTimeOffset? DecidedAt { get; set; }
     /// <summary>Логин сотрудника, который принял или отклонил поставку.</summary>

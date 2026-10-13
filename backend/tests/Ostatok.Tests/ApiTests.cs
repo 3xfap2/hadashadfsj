@@ -2101,4 +2101,301 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync("/api/products")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await owner.PostAsync($"/api/my/restaurants/{second.Id}/enter", null)).StatusCode);
     }
+
+    // ——— Исправления по итогам проверки кода ———
+
+    /// <summary>Telegram, который не отвечает: HttpClient бросает TaskCanceledException по своему тайм-ауту.</summary>
+    private sealed class HangingTelegram : ITelegramApi
+    {
+        public TaskCompletionSource Called { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Enabled => true;
+        public Task SendAsync(long chatId, string text, CancellationToken ct) => Task.CompletedTask;
+
+        public async Task<IReadOnlyList<TelegramUpdate>> GetUpdatesAsync(long offset, CancellationToken ct)
+        {
+            await Task.Yield();
+            Called.TrySetResult();
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout", new TimeoutException());
+        }
+    }
+
+    [Fact]
+    public async Task Тайм_аут_Telegram_не_останавливает_сервер()
+    {
+        var telegram = new HangingTelegram();
+        var bot = new TelegramBot(fx.Services.GetRequiredService<IServiceScopeFactory>(), telegram,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<TelegramBot>.Instance);
+
+        await bot.StartAsync(default);
+        await telegram.Called.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Delay(300);
+
+        // Фоновая служба жива и ждёт следующей попытки; упавшая служба остановила бы весь сервер.
+        Assert.False(bot.ExecuteTask!.IsCompleted);
+        await bot.StopAsync(default);
+    }
+
+    [Fact]
+    public void Адрес_запроса_к_Telegram_с_токеном_не_пишется_в_журнал()
+    {
+        var logger = fx.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("System.Net.Http.HttpClient.Default.LogicalHandler");
+
+        Assert.False(logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Information));
+    }
+
+    [Fact]
+    public async Task Заказы_в_одном_контексте_не_затирают_списание_сделанное_между_ними()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 1m));
+        await Supply(new SupplyItemRequest(product.Id, 10, null));
+        // Генератор оформляет несколько заказов подряд в одном контексте, а между ними официант продаёт своё.
+        await using var scope = fx.DemoScope();
+        var service = scope.ServiceProvider.GetRequiredService<OrderService>();
+
+        await service.PlaceAsync([new OrderLine(dish.Id, 1)], "", Simulator.Actor, default);
+        (await Order(dish, 2)).EnsureSuccessStatusCode();
+        await service.PlaceAsync([new OrderLine(dish.Id, 1)], "", Simulator.Actor, default);
+
+        Assert.Equal(6m, (await Batches(product)).Single().Remaining);
+        // Блюдо удалили между проверкой запроса и заказом — отказ «запись удалена» (404), а не сбой сервера.
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => service.PlaceAsync([new OrderLine(Guid.NewGuid(), 1)], "", Simulator.Actor, default));
+    }
+
+    [Fact]
+    public async Task Другой_управляющий_не_забирает_рестораны_владельца()
+    {
+        var (owner, ownerLogin, _) = await fx.NewRestaurantAsync("Сеть");
+        (await owner.PostAsJsonAsync("/api/my/restaurants", new MyRestaurantRequest("Вторая точка сети"))).EnsureSuccessStatusCode();
+        var coLogin = $"m{Guid.NewGuid():N}"[..20];
+        (await owner.PostAsJsonAsync("/api/users", new StaffRequest(coLogin, "co-manager-2026", "Управляющий", Role.Manager), ApiFixture.Json)).EnsureSuccessStatusCode();
+        using var co = await fx.SignInAsync(coLogin, "co-manager-2026");
+        var ownerId = (await Get<List<StaffResponse>>(co, "/api/users")).Single(u => u.Login == ownerLogin).Id;
+
+        // Пароль, роль и удаление владельца — нет: с его паролем второй управляющий вошёл бы во все его рестораны.
+        Assert.Equal(HttpStatusCode.Conflict, (await co.PutAsJsonAsync($"/api/users/{ownerId}", new StaffUpdate("Управляющий", Role.Manager, "taken-over-2026"), ApiFixture.Json)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await co.PutAsJsonAsync($"/api/users/{ownerId}", new StaffUpdate("Управляющий", Role.Waiter), ApiFixture.Json)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await co.DeleteAsync($"/api/users/{ownerId}")).StatusCode);
+        // Должность поменять можно.
+        Assert.Equal(HttpStatusCode.OK, (await co.PutAsJsonAsync($"/api/users/{ownerId}", new StaffUpdate("Владелец", Role.Manager), ApiFixture.Json)).StatusCode);
+
+        // Логин, за которым числятся рестораны (запись владельца удалили до этого запрета), занять нельзя.
+        var ghost = $"g{Guid.NewGuid():N}"[..20];
+        await using (var scope = fx.DemoScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.AppDbContext>();
+            db.Restaurants.Add(new Restaurant { Id = Guid.NewGuid(), Name = "Брошенная точка", CreatedAt = fx.Time.GetUtcNow(), OwnerLogin = ghost });
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await co.PostAsJsonAsync("/api/users", new StaffRequest(ghost, "ghost-login-2026", "Управляющий", Role.Manager), ApiFixture.Json)).StatusCode);
+
+        // Свой пароль владелец меняет сам.
+        Assert.Equal(HttpStatusCode.OK, (await owner.PutAsJsonAsync($"/api/users/{ownerId}", new StaffUpdate("Владелец", Role.Manager, "owner-new-2026"), ApiFixture.Json)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Смена_пароля_поддержки_отзывает_токены_и_операторов_Telegram()
+    {
+        // Отдельная запись поддержки, чтобы не задеть настоящую, под которой работают другие сценарии.
+        var login = $"sup{Guid.NewGuid():N}"[..20];
+        await using var scope = fx.DemoScope();
+        var db = scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.AppDbContext>();
+        await AuthEndpoints.EnsureUsersAsync(db, new AuthOptions { SupportLogin = login, SupportPassword = "first-support-2026" }, fx.Time);
+        db.TelegramOperators.Add(new TelegramOperator { ChatId = Random.Shared.NextInt64(1, long.MaxValue), Name = "Оператор", AddedAt = fx.Time.GetUtcNow() });
+        await db.SaveChangesAsync();
+
+        await AuthEndpoints.EnsureUsersAsync(db, new AuthOptions { SupportLogin = login, SupportPassword = "second-support-2026" }, fx.Time);
+
+        Assert.Equal(1, (await db.Users.SingleAsync(u => u.Login == login)).TokenVersion);
+        Assert.False(await db.TelegramOperators.AnyAsync());
+    }
+
+    [Fact]
+    public async Task Роль_единица_и_простой_пароль_проверяются_явно()
+    {
+        using var manager = await fx.SignInAsync("manager");
+        var login = $"w{Guid.NewGuid():N}"[..20];
+
+        // Без поля role сотрудник раньше становился управляющим, продукт без unit — килограммами.
+        Assert.Equal(HttpStatusCode.BadRequest, (await manager.PostAsJsonAsync("/api/users", new { login, password = "staff-2026-pw", title = "Повар" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Api.PostAsJsonAsync("/api/products", new { name = $"Продукт {Guid.NewGuid():N}", shelfLifeHours = 48, cost = 100 })).StatusCode);
+        foreach (var weak in new[] { login, "12345678", "aaaaaaaa", "12121212" })
+            Assert.Equal(HttpStatusCode.BadRequest, (await manager.PostAsJsonAsync("/api/users", new StaffRequest(login, weak, "Повар", Role.Cook), ApiFixture.Json)).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await manager.PostAsJsonAsync("/api/users", new StaffRequest(login, "staff-2026-pw", "Повар", Role.Cook), ApiFixture.Json)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Повтор_заготовки_с_тем_же_идентификатором_не_списывает_сырьё_второй_раз()
+    {
+        var raw = await Product();
+        var sauce = await Read<ProductResponse>(await Api.PostAsJsonAsync("/api/products",
+            new ProductRequest($"Соус {Guid.NewGuid():N}", Unit.L, 48, 0, [new RecipeItemDto(raw.Id, 0.5m)]), ApiFixture.Json));
+        await Supply(new SupplyItemRequest(raw.Id, 2, null));
+        var request = new PrepRequest(sauce.Id, 1, Guid.NewGuid());
+
+        var first = await Api.PostAsJsonAsync("/api/preps", request);
+        var again = await Api.PostAsJsonAsync("/api/preps", request);
+
+        Assert.Equal((HttpStatusCode.Created, HttpStatusCode.Created), (first.StatusCode, again.StatusCode));
+        Assert.Equal((await Read<PrepResponse>(first)).BatchId, (await Read<PrepResponse>(again)).BatchId);
+        Assert.Equal(1.5m, (await Batches(raw)).Single().Remaining);
+        Assert.Single(await Batches(sauce));
+    }
+
+    [Fact]
+    public async Task Вскрытие_ждёт_общую_очередь_ресторана()
+    {
+        var product = await Read<ProductResponse>(await Api.PostAsJsonAsync("/api/products",
+            new ProductRequest($"Сливки {Guid.NewGuid():N}", Unit.L, 120, 500, OpenedShelfLifeHours: 24), ApiFixture.Json));
+        await Supply(new SupplyItemRequest(product.Id, 5, null));
+        var batch = (await Batches(product)).Single();
+
+        // Идёт инвентаризация: её транзакция держит строку ресторана (счётчик номера).
+        await using var scope = fx.DemoScope();
+        var db = scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.AppDbContext>();
+        await using var tx = await db.Database.BeginTransactionAsync();
+        await db.Database.ExecuteSqlAsync($"""UPDATE "Restaurants" SET "LastInventoryNumber" = "LastInventoryNumber" WHERE "Id" = {Restaurant.DemoId}""");
+
+        var open = Api.PostAsJsonAsync($"/api/stock/batches/{batch.Id}/open", new OpenBatchRequest(1));
+        await Task.Delay(500);
+        Assert.False(open.IsCompleted);
+
+        await tx.RollbackAsync();
+        Assert.Equal(HttpStatusCode.OK, (await open).StatusCode);
+    }
+
+    [Fact]
+    public async Task Автосписание_без_просрочки_не_будит_кабинеты_а_вскрытое_ждёт_не_дольше_своего_срока()
+    {
+        async Task<int> WriteOff()
+        {
+            await using var scope = fx.DemoScope();
+            return await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
+        }
+        using var events = fx.Services.GetRequiredService<EventBus>().Subscribe(Restaurant.DemoId);
+        await WriteOff();                               // просрочка, оставшаяся от других сценариев
+        while (events.Reader.TryRead(out _)) { }
+
+        Assert.Equal(0, await WriteOff());
+        Assert.False(events.Reader.TryRead(out _));
+
+        // Поставка пятидневной давности, сегодня вскрыли литр со сроком 2 часа.
+        var product = await Read<ProductResponse>(await Api.PostAsJsonAsync("/api/products",
+            new ProductRequest($"Сливки {Guid.NewGuid():N}", Unit.L, 240, 500, OpenedShelfLifeHours: 2), ApiFixture.Json));
+        (await Api.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, $"П-{Guid.NewGuid():N}", fx.Time.GetUtcNow().AddHours(-120), [new SupplyItemRequest(product.Id, 5, null)]))).EnsureSuccessStatusCode();
+        (await Api.PostAsJsonAsync($"/api/stock/batches/{(await Batches(product)).Single().Id}/open", new OpenBatchRequest(1))).EnsureSuccessStatusCode();
+        fx.Time.Advance(TimeSpan.FromHours(5));          // просрочено 3 часа: больше срока после вскрытия, меньше 12 часов
+
+        Assert.True(await WriteOff() >= 1);
+        Assert.Equal([4m], (await Batches(product)).Where(b => b.Remaining > 0).Select(b => b.Remaining));
+    }
+
+    [Fact]
+    public async Task Ошибка_соединения_с_базой_даёт_503_а_не_сбой_сервера()
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = fx.Services };
+
+        var handled = await new DbErrors().TryHandleAsync(http, new Npgsql.NpgsqlException("нет связи", new System.Net.Sockets.SocketException()), default);
+
+        Assert.True(handled);
+        Assert.Equal(503, http.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Подбор_к_одному_логину_с_разных_адресов_ненадолго_закрывает_логин()
+    {
+        var attempts = fx.Services.GetRequiredService<LoginAttempts>();
+        var login = $"user-{Guid.NewGuid():N}";
+        // Пачка одновременных запросов: попытки сверх лимита отклоняются, не доходя до проверки пароля.
+        Assert.Equal([4, 3, 2, 1, 0, -1], Enumerable.Range(0, 6).Select(_ => attempts.Fail(login, "10.0.0.1")));
+
+        var other = $"user-{Guid.NewGuid():N}";
+        for (var i = 0; i < 20; i++) attempts.Fail(other, $"10.0.1.{i}");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await Login(other, "нет")).StatusCode);
+        // Блокировка логина короткая: чужими попытками вход надолго не закрыть.
+        fx.Time.Advance(TimeSpan.FromMinutes(3));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Login(other, "нет")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Срок_поставки_извне_считается_от_её_даты_а_не_от_приёмки()
+    {
+        var product = await Product(shelfLifeHours: 72);
+        var request = new SupplyRequest(Guid.NewGuid(), $"ВН-{Guid.NewGuid():N}", fx.Time.GetUtcNow().AddHours(-48), [new SupplyItemRequest(product.Id, 3, null)]);
+        (await Api.PostAsJsonAsync("/api/supplies/incoming", request)).EnsureSuccessStatusCode();
+        fx.Time.Advance(TimeSpan.FromHours(10));         // поставка ждала подтверждения
+
+        (await Api.PostAsync($"/api/supplies/incoming/{request.Id}/accept", null)).EnsureSuccessStatusCode();
+
+        Assert.InRange((await Batches(product)).Single().HoursLeft, 13.9, 14.1);   // 72 − 48 − 10
+        // Пока ждала, истекла: принять нельзя, только отклонить. Дата из будущего не принимается.
+        var stale = request with { Id = Guid.NewGuid(), Number = $"ВН-{Guid.NewGuid():N}", CreatedAt = fx.Time.GetUtcNow().AddHours(-71) };
+        (await Api.PostAsJsonAsync("/api/supplies/incoming", stale)).EnsureSuccessStatusCode();
+        fx.Time.Advance(TimeSpan.FromHours(2));
+        Assert.Equal(HttpStatusCode.Conflict, (await Api.PostAsync($"/api/supplies/incoming/{stale.Id}/accept", null)).StatusCode);
+        var future = request with { Id = Guid.NewGuid(), Number = $"ВН-{Guid.NewGuid():N}", CreatedAt = fx.Time.GetUtcNow().AddHours(1) };
+        Assert.Equal(HttpStatusCode.BadRequest, (await Api.PostAsJsonAsync("/api/supplies/incoming", future)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Опустевший_демо_склад_пополняется_а_свежий_не_трогается()
+    {
+        var (owner, _, _) = await fx.NewRestaurantAsync("Витрина");
+        await using var scope = fx.Services.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.Tenant>().Id = await RestaurantId(owner);
+        var db = scope.ServiceProvider.GetRequiredService<Ostatok.Api.Data.AppDbContext>();
+        var now = fx.Time.GetUtcNow();
+        await Ostatok.Api.Data.DemoSeed.RunAsync(db, now);
+        async Task<int> OnSale(DateTimeOffset at)
+        {
+            var totals = await Ostatok.Api.Data.StockQueries.LoadTotalsAsync(db, at, default);
+            return (await Ostatok.Api.Data.StockQueries.LoadDishesAsync(db, default)).Count(d => Availability.Of(d, totals).Status != DishStatus.Stop);
+        }
+
+        Assert.False(await Ostatok.Api.Data.DemoSeed.RefreshAsync(db, now));
+        var later = now.AddDays(5);
+        Assert.Equal(0, await OnSale(later));            // через пять дней без поставок всё меню в стопе
+
+        Assert.True(await Ostatok.Api.Data.DemoSeed.RefreshAsync(db, later));
+        Assert.False(await Ostatok.Api.Data.DemoSeed.RefreshAsync(db, later));
+        Assert.True(await OnSale(later) >= 7);
+    }
+
+    [Fact]
+    public async Task Ручной_стоп_и_смена_причины_не_дают_повторных_сигналов_и_не_идут_в_дефицит()
+    {
+        var (a, b) = (await Product(), await Product());
+        var dish = await Dish((a, 0.1m), (b, 0.1m));
+        var other = await Dish((b, 0.3m));
+        await Supply(new SupplyItemRequest(a.Id, 1, null), new SupplyItemRequest(b.Id, 1.2m, null));
+        async Task Track()
+        {
+            await using var scope = fx.DemoScope();
+            await scope.ServiceProvider.GetRequiredService<StopTracker>().TrackAsync(default);
+        }
+        async Task<List<AlertKind>> Alerts(DishResponse d) =>
+            (await Get<AlertsResponse>("/api/alerts?take=100")).Items.Where(x => x.Title.StartsWith(d.Name)).Select(x => x.Kind).ToList();
+
+        (await Api.PostAsync($"/api/dishes/{dish.Id}/stop", null)).EnsureSuccessStatusCode();
+        await Track();
+        (await Order(other)).EnsureSuccessStatusCode();   // продукта Б стало меньше, чем А: «ограничивающий» продукт сменился
+        await Track();
+        fx.Time.Advance(TimeSpan.FromHours(2));
+        await Track();
+
+        Assert.Equal([AlertKind.DishStopped], await Alerts(dish));
+        Assert.DoesNotContain(await Get<List<DeficitRow>>("/api/analytics/deficit"), r => r.Dishes.Contains(dish.Name));
+
+        // Партия истекла (стоп «просрочено»), потом её списали (стоп «нет на складе») — блюдо из стопа не выходило.
+        var c = await Product();
+        var expiring = await Dish((c, 0.1m));
+        await Supply(new SupplyItemRequest(c.Id, 1, 1));
+        fx.Time.Advance(TimeSpan.FromHours(2));
+        await Track();
+        (await Api.PostAsJsonAsync($"/api/stock/batches/{(await Batches(c)).Single().Id}/write-off", new WriteOffRequest(null))).EnsureSuccessStatusCode();
+        await Track();
+
+        Assert.Equal([AlertKind.DishStopped], await Alerts(expiring));
+    }
 }

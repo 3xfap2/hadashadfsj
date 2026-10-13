@@ -9,7 +9,7 @@ public sealed record RecipeItemDto(Guid ProductId, decimal Quantity);
 
 /// <param name="PrepRecipe">Состав на единицу продукта, если это заготовка; цена такой заготовки считается по составу.</param>
 /// <param name="OpenedShelfLifeHours">Срок хранения после вскрытия упаковки; не указан — вскрытие срок не меняет.</param>
-public sealed record ProductRequest(string? Name, Unit Unit, int ShelfLifeHours, decimal Cost, List<RecipeItemDto>? PrepRecipe = null, int? OpenedShelfLifeHours = null);
+public sealed record ProductRequest(string? Name, Unit? Unit, int ShelfLifeHours, decimal Cost, List<RecipeItemDto>? PrepRecipe = null, int? OpenedShelfLifeHours = null);
 /// <param name="Cost">Закупочная цена; пусто для ролей, которым она не видна (см. <see cref="Access.Costs"/>).</param>
 public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfLifeHours, decimal? Cost, IEnumerable<RecipeItemDto> PrepRecipe, int? OpenedShelfLifeHours);
 public sealed record DishRequest(string? Name, decimal Price, List<RecipeItemDto>? Recipe, string? PhotoUrl = null, string? Category = null);
@@ -31,7 +31,7 @@ public static class CatalogEndpoints
             if (await ValidateAsync(req, null, db, ct) is { Any: true } errors) return errors.ToResult();
             if (await db.Products.AnyAsync(p => p.Name == req.Name!.Trim(), ct)) return NameTaken("Продукт");
 
-            var product = new Product { Name = req.Name!.Trim(), Unit = req.Unit, ShelfLifeHours = req.ShelfLifeHours, OpenedShelfLifeHours = req.OpenedShelfLifeHours, Cost = req.Cost };
+            var product = new Product { Name = req.Name!.Trim(), Unit = req.Unit!.Value, ShelfLifeHours = req.ShelfLifeHours, OpenedShelfLifeHours = req.OpenedShelfLifeHours, Cost = req.Cost };
             await SetPrepRecipeAsync(product, req, db, ct);
             db.Products.Add(product);
             await db.SaveChangesAsync(ct);
@@ -51,7 +51,7 @@ public static class CatalogEndpoints
                 || await db.Products.AnyAsync(p => p.PrepRecipe.Any(i => i.ProductId == id), ct)))
                 return Results.Problem("Единицу измерения нельзя сменить: продукт уже есть в поставках или техкартах.", statusCode: StatusCodes.Status409Conflict);
 
-            (product.Name, product.Unit, product.ShelfLifeHours, product.OpenedShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit, req.ShelfLifeHours, req.OpenedShelfLifeHours, req.Cost);
+            (product.Name, product.Unit, product.ShelfLifeHours, product.OpenedShelfLifeHours, product.Cost) = (req.Name!.Trim(), req.Unit!.Value, req.ShelfLifeHours, req.OpenedShelfLifeHours, req.Cost);
             await SetPrepRecipeAsync(product, req, db, ct);
             // Продукт подорожал или подешевел — вместе с ним меняется цена заготовок, в которые он входит.
             await db.RecalcPrepCostsAsync([id], ct);
@@ -170,7 +170,8 @@ public static class CatalogEndpoints
 
     private static Errors Validate(ProductRequest req) => new Errors()
         .Check(!string.IsNullOrWhiteSpace(req.Name) && req.Name.Length <= 120, "name", "Укажите название до 120 символов.")
-        .Check(Enum.IsDefined(req.Unit), "unit", "Единица измерения: Kg, L или Pcs.")
+        // Без явной единицы перечисление получило бы первое значение — килограммы.
+        .Check(req.Unit is { } unit && Enum.IsDefined(unit), "unit", "Единица измерения: Kg, L или Pcs.")
         .Check(req.ShelfLifeHours is > 0 and <= 100_000, "shelfLifeHours", "Срок хранения — от 1 до 100 000 часов.")
         .Check(req.OpenedShelfLifeHours is null || (req.OpenedShelfLifeHours > 0 && req.OpenedShelfLifeHours <= req.ShelfLifeHours), "openedShelfLifeHours", "Срок после вскрытия — от 1 часа и не длиннее срока хранения.")
         .Check(req.Cost is >= 0 and <= 10_000_000, "cost", "Цена — от 0 до 10 000 000 ₽.");
