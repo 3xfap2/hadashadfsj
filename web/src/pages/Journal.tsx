@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useApi, type MovementRow } from '../api';
 import { dueLong, qty } from '../format';
 import { StockTabs } from './Stock';
@@ -19,7 +20,9 @@ const STEPS = [100, 300, 500];
 
 export function Journal() {
   const [take, setTake] = useState(STEPS[0]);
-  const movements = useApi<MovementRow[]>(`/movements?take=${take}`);
+  // ?batch=<id> — история одной партии: сюда ведёт ссылка из строки партии на складе.
+  const batch = useSearchParams()[0].get('batch');
+  const movements = useApi<MovementRow[]>(batch ? `/movements?take=500&batchId=${batch}` : `/movements?take=${take}`);
   const [filter, setFilter] = useState<Filter>('all');
   // Пока догружается следующая порция, на экране прежние строки.
   const [loadingMore, setLoadingMore] = useState(false);
@@ -32,9 +35,9 @@ export function Journal() {
     filter === 'all' || m.type === filter || (filter === 'Prep' && m.type.startsWith('Prep')) || (filter === 'Inventory' && (m.type === 'Shortage' || m.type === 'Surplus')));
   const loaded = movements.data.length;
   // Пришло меньше, чем просили, — значит, это весь журнал.
-  const whole = !loadingMore && loaded < take;
-  const next = STEPS.find((s) => s > take);
-  const scope = whole ? `Показан весь журнал, операций: ${loaded}` : `Показаны последние ${loaded} операций`;
+  const whole = !loadingMore && loaded < (batch ? 500 : take);
+  const next = batch ? undefined : STEPS.find((s) => s > take);
+  const scope = batch && whole ? `Операций с этой партией: ${loaded}` : whole ? `Показан весь журнал, операций: ${loaded}` : `Показаны последние ${loaded} операций`;
 
   return (
     <>
@@ -54,11 +57,13 @@ export function Journal() {
 
       <section className="g-panel" aria-labelledby="journal-h">
         <div className="g-panel__head">
-          <h2 id="journal-h">Журнал операций</h2>
-          <span className="end">{whole ? `все операции: ${loaded}` : `последние ${loaded}`} · новые сверху</span>
+          <h2 id="journal-h">{batch ? `История партии${movements.data[0] ? `: ${movements.data[0].productName}` : ''}` : 'Журнал операций'}</h2>
+          <span className="end">
+            {batch ? <Link to="/app/stock/journal">весь журнал</Link> : whole ? `все операции: ${loaded}` : `последние ${loaded}`} · новые сверху
+          </span>
         </div>
         {shown.length === 0 ? (
-          <p className="g-empty"><strong>Таких операций нет</strong>Выберите другой вид операции.</p>
+          <p className="g-empty"><strong>Таких операций нет</strong>{batch && movements.data.length === 0 ? 'У этой партии нет записей в журнале.' : 'Выберите другой вид операции.'}</p>
         ) : (
           <div className="g-table-wrap">
             <table className="g-table journal">

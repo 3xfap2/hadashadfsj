@@ -130,8 +130,10 @@ public static class StockEndpoints
         })
         .WithTags("Стоп-лист");
 
-        api.MapGet("/movements", async (AppDbContext db, CancellationToken ct, int take = 100) =>
+        // batchId — история одной партии: приёмка, вскрытие, заказы и списания, которые её касались.
+        api.MapGet("/movements", async (AppDbContext db, CancellationToken ct, int take = 100, Guid? batchId = null) =>
             await db.Movements
+                .Where(m => batchId == null || m.BatchId == batchId)
                 .OrderByDescending(m => m.Id)
                 .Take(Math.Clamp(take, 1, 500))
                 .Select(m => new MovementRow(m.Id, m.At, m.Type, m.ProductId, m.Product!.Name, m.Product.Unit, m.BatchId, m.Quantity, m.OrderId, m.Note, m.Actor,

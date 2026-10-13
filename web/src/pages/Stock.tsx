@@ -222,7 +222,7 @@ export function Stock() {
                           <span className="batch-row__main">
                             <strong className="num hd">{qty(b.remaining, b.unit)} из {qty(b.quantity, b.unit)}</strong>
                             <span className="muted small">
-                              Поставка {b.supplyNumber} · принята {dayMonthShort(b.receivedAt)}{b.openedAt && ` · вскрыта ${dayMonthShort(b.openedAt)}`} · <Link to={`/app/labels?batch=${b.id}`}>этикетка</Link>
+                              Поставка {b.supplyNumber} · принята {dayMonthShort(b.receivedAt)}{b.openedAt && ` · вскрыта ${dayMonthShort(b.openedAt)}`} · <Link to={`/app/labels?batch=${b.id}`}>этикетка</Link> · <Link to={`/app/stock/journal?batch=${b.id}`}>история</Link>
                             </span>
                           </span>
                           <span className="batch-row__until">

@@ -108,6 +108,25 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task История_партии_показывает_только_её_операции()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.4m));
+        await Supply(new SupplyItemRequest(product.Id, 1, 40));
+        await Supply(new SupplyItemRequest(product.Id, 0.5m, 5));
+        await Order(dish, quantity: 1);
+        // Заказ ушёл из ранней партии, поздняя не тронута.
+        var late = (await Batches(product)).Single(b => b.Remaining == 1);
+        var early = (await Batches(product)).Single(b => b.Id != late.Id);
+
+        var history = await Get<List<MovementRow>>($"/api/movements?take=500&batchId={early.Id}");
+
+        Assert.Equal([MovementType.Order, MovementType.Supply], history.Select(m => m.Type));
+        Assert.All(history, m => Assert.Equal(early.Id, m.BatchId));
+        Assert.Equal([MovementType.Supply], (await Get<List<MovementRow>>($"/api/movements?take=500&batchId={late.Id}")).Select(m => m.Type));
+    }
+
+    [Fact]
     public async Task Заказ_с_нехваткой_отклоняется_и_ничего_не_списывает()
     {
         var enough = await Product();
