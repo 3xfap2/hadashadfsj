@@ -157,12 +157,21 @@ async def cb_add(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(InventoryForm.more, F.data == "iv:send")
 async def cb_send(callback: CallbackQuery, state: FSMContext, api: ApiClient, token: str) -> None:
     data = await state.get_data()
-    await state.clear()
+    # Диалог сбрасывается только после определённого ответа сервера. Если сервер недоступен, пересчёт
+    # и кнопка «Провести» остаются: повтор безопасен, инвентаризация выставляет остаток под факт.
     try:
         result = await api.inventory(token, data["items"])
     except (ValidationFailed, NotFound) as exc:
+        await clear_if_still_here(state)
         fallback = "Какой-то продукт не найден, возможно его удалили." if isinstance(exc, NotFound) else None
         await show(callback, "Инвентаризация не проведена, остатки не изменились.\n"
                    + api_error_text(exc, fallback) + "\nНачать заново: /inventory")
         return
+    await clear_if_still_here(state)
     await show(callback, result_text(result))
+
+
+async def clear_if_still_here(state: FSMContext) -> None:
+    """Пока шёл запрос, сотрудник мог начать другой диалог: его не сбрасываем."""
+    if await state.get_state() == InventoryForm.more.state:
+        await state.clear()

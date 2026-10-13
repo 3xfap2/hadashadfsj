@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { send, useApi, type DishRow, type HotOffer, type HotRules } from '../api';
+import { problemText, send, useApi, type DishRow, type HotOffer, type HotRules } from '../api';
 import { money, portions } from '../format';
 import { Photo } from '../ui';
 
@@ -25,23 +25,35 @@ export function HotSettings() {
 
   const save = async (next: HotRules) => {
     setBusy(true);
-    const response = await send('PUT', '/hot-offers/settings', next);
-    if (response.ok) {
-      setForm(next);
-      setNote({ kind: 'ok', text: 'Сохранено. Список справа пересчитан.' });
-      await offers.reload();
-    } else {
-      const problem = await response.json().catch(() => ({}));
-      setNote({ kind: 'err', text: Object.values((problem.errors ?? {}) as Record<string, string[]>).flat().join(' ') || `Сервер ответил ошибкой ${response.status}.` });
+    // Обрыв связи бросает исключение: без finally кнопки остались бы серыми до перезагрузки страницы.
+    try {
+      const response = await send('PUT', '/hot-offers/settings', next);
+      if (response.ok) {
+        setForm(next);
+        setNote({ kind: 'ok', text: 'Сохранено. Список справа пересчитан.' });
+        await offers.reload();
+      } else {
+        setNote({ kind: 'err', text: await problemText(response) });
+      }
+    } catch (e) {
+      setNote({ kind: 'err', text: (e as Error).message });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   const mark = async (dishId: string, pinned: boolean, hidden: boolean) => {
     setBusy(true);
-    await send('PUT', `/hot-offers/dishes/${dishId}`, { pinned, hidden });
-    await Promise.all([offers.reload(), dishes.reload()]);
-    setBusy(false);
+    try {
+      const response = await send('PUT', `/hot-offers/dishes/${dishId}`, { pinned, hidden });
+      // Отказ сервера показываем, а не глотаем: иначе кажется, что блюдо закреплено или скрыто.
+      setNote(response.ok ? null : { kind: 'err', text: await problemText(response) });
+      await Promise.all([offers.reload(), dishes.reload()]);
+    } catch (e) {
+      setNote({ kind: 'err', text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const hidden = dishes.data.filter((d) => d.hotHidden);

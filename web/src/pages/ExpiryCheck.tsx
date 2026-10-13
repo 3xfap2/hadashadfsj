@@ -54,10 +54,16 @@ export function ExpiryCheck() {
     if (!(Number(minutes) >= 1 && Number(minutes) <= 30)) return setError('Укажите от 1 до 30 минут.');
     setBusy(true);
     setError('');
-    const response = await post('/simulator/expiry-check', { productId, minutes: Number(minutes) });
-    if (!response.ok) setError(`Сервер ответил ошибкой ${response.status}.`);
-    await Promise.all([check.reload(), stock.reload(), stopList.reload()]);
-    setBusy(false);
+    // Обрыв связи бросает исключение: без finally кнопка осталась бы серой до перезагрузки страницы.
+    try {
+      const response = await post('/simulator/expiry-check', { productId, minutes: Number(minutes) });
+      if (!response.ok) setError(`Сервер ответил ошибкой ${response.status}.`);
+      await Promise.all([check.reload(), stock.reload(), stopList.reload()]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const c = check.data;

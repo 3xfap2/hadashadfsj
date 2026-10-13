@@ -98,12 +98,14 @@ def alert_events(alerts: list[dict], last_id: int | None) -> list[Event]:
     """События по сигналам новее last_id. Без last_id (первый опрос) — без событий: старое не присылаем."""
     if last_id is None:
         return []
-    fresh = sorted((a for a in alerts if alert_id(a) > last_id), key=alert_id)[-MAX_ALERTS:]
+    # Сначала отбросить виды, которые бот считает сам, и только потом брать последние: иначе ждущую
+    # поставку вытеснят пять более новых сигналов о партиях.
+    fresh = sorted(
+        (a for a in alerts if alert_id(a) > last_id and a.get("kind") not in DIFF_ALERT_KINDS), key=alert_id
+    )[-MAX_ALERTS:]
     events = []
     for alert in fresh:
         kind = alert.get("kind")
-        if kind in DIFF_ALERT_KINDS:
-            continue
         text = "\n".join(str(alert[k]).strip() for k in ("title", "detail") if alert.get(k)) or "Новый сигнал"
         if kind == "SupplyWaiting":
             events.append(Event("supply_waiting", f"{text}\nПринять или отклонить: /incoming"))
@@ -204,7 +206,8 @@ class Monitor:
             if session.chat_id in logged_out:
                 continue
             visible = visible_events(events, session)
-            if visible:
+            # Опрос шёл токеном одного чата; токен остальных мог быть отозван (сотрудника удалили, сменили роль).
+            if visible and (session.token == token or await self._still_signed_in(session)):
                 text, keyboard = render(visible, can_write_off=session.allows("stock"))
                 attempted += 1
                 delivered += await self._send(session, text, keyboard)
@@ -239,6 +242,18 @@ class Monitor:
             log.warning("Сигналы пришли в неожиданном виде")
             return None
         return [a for a in items if isinstance(a, dict)] if isinstance(items, list) else None
+
+    async def _still_signed_in(self, session: Session) -> bool:
+        """Проверить токен чата перед уведомлением: на 401 — разлогинить и ничего не слать. Другие сбои
+        проверки уведомление не задерживают: сервер в любом случае не даст отозванному токену что-то сделать."""
+        try:
+            await self._api.get_me(session.token)
+        except Unauthorized:
+            await self._log_out(session)
+            return False
+        except ApiError as exc:
+            log.warning("Токен чата %s проверить не удалось: %s", session.chat_id, exc)
+        return True
 
     async def _log_out(self, session: Session) -> None:
         # Только если в базе всё ещё этот токен: пока шёл опрос, чат мог войти заново.

@@ -144,5 +144,7 @@ async def submit_supply(
         # Ошибка, которую ловят общие обработчики (401, 403…): не оставлять диалог в «отправляется».
         if await state.get_state() == sending_state.state:
             await state.set_state(confirm_state)
-    await state.clear()
+    # Пока шла отправка, сотрудник мог начать другой диалог: его не сбрасываем.
+    if await state.get_state() == confirm_state.state:
+        await state.clear()
     await show(callback, result_text(lambda: supply_result_text(supply, tz), "Поставка отправлена, сервер ответил успехом."))

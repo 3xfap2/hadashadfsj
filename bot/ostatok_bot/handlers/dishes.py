@@ -18,7 +18,7 @@ from ..keyboards import cancel_row, confirm, paged, rows
 from ..storage import Session
 from ..texts import api_error_text, dish_card_text
 from .pickers import page_from, product_cache, product_picker
-from .util import show
+from .util import ack, show
 
 router = Router(name="dishes")
 
@@ -87,7 +87,7 @@ async def cb_view(callback: CallbackQuery, api: ApiClient, token: str, session: 
     dish_id = callback.data.removeprefix("ds:v:")
     dish, products = await load_dish(api, token, dish_id)
     if dish is None:
-        await callback.answer("Блюдо не найдено, возможно его удалили.", show_alert=True)
+        await ack(callback, "Блюдо не найдено, возможно его удалили.", show_alert=True)
         return
     text = dish_card_text(
         dish["name"], dish["price"], dish["recipe"], products, dish.get("category"), dish.get("manuallyStopped", False)
@@ -115,7 +115,7 @@ async def cb_pause_ask(callback: CallbackQuery, state: FSMContext, api: ApiClien
     dish_id = callback.data.split(":", 2)[2]
     dish = next((d for d in await api.list_dishes(token) if d["id"] == dish_id), None)
     if dish is None:
-        await callback.answer("Блюдо не найдено, возможно его удалили.", show_alert=True)
+        await ack(callback, "Блюдо не найдено, возможно его удалили.", show_alert=True)
         return
     await state.clear()
     await state.update_data(dish_id=dish_id, dish_name=dish["name"], stop=stop)
@@ -156,11 +156,11 @@ async def cb_add(callback: CallbackQuery, state: FSMContext, api: ApiClient, tok
     products = product_cache(await api.list_products(token))
     await state.clear()
     if not products:
-        await callback.answer("Сначала добавьте продукты: /products", show_alert=True)
+        await ack(callback, "Сначала добавьте продукты: /products", show_alert=True)
         return
     await state.update_data(mode="add", products=products, draft={"recipe": []})
     await state.set_state(DishForm.name)
-    await callback.answer()
+    await ack(callback)
     await callback.message.answer("Новое блюдо. Отменить: /cancel\n\nНазвание блюда?", reply_markup=rows(cancel_row()))
 
 
@@ -184,7 +184,7 @@ async def cb_edit(callback: CallbackQuery, state: FSMContext, api: ApiClient, to
     dish_id = callback.data.removeprefix("ds:e:")
     dish, products = await load_dish(api, token, dish_id)
     if dish is None:
-        await callback.answer("Блюдо не найдено, возможно его удалили.", show_alert=True)
+        await ack(callback, "Блюдо не найдено, возможно его удалили.", show_alert=True)
         return
     await state.clear()
     draft = {
@@ -463,7 +463,7 @@ async def cb_delete_ask(
     dish_id = callback.data.removeprefix("ds:d:")
     dish = next((d for d in await api.list_dishes(token) if d["id"] == dish_id), None)
     if dish is None:
-        await callback.answer("Блюдо не найдено, возможно его удалили.", show_alert=True)
+        await ack(callback, "Блюдо не найдено, возможно его удалили.", show_alert=True)
         return
     await state.clear()
     await state.update_data(dish_id=dish_id, dish_name=dish["name"])

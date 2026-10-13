@@ -43,31 +43,42 @@ export function Staff() {
     e.preventDefault();
     setBusy(true);
     const title = form.title.trim() || roleTitle(form.role);
-    const response = editing
-      ? await send('PUT', `/users/${editing.id}`, { title, role: form.role, password: form.password || null })
-      : await send('POST', '/users', { ...form, title });
-    if (response.ok) {
-      setNote({
-        kind: 'ok',
-        text: editing
-          ? `Изменения для «${editing.login}» сохранены.${form.password ? ' Передайте сотруднику новый пароль.' : ''}${form.password || form.role !== editing.role ? ' Его попросят войти заново.' : ''}`
-          : `Учётная запись «${form.login.trim().toLowerCase()}» создана. Передайте сотруднику логин и пароль.`,
-      });
-      setEditing(null);
-      setForm({ login: '', password: '', title: '', role: 'Waiter' });
-      await staff.reload();
-    } else {
-      setNote({ kind: 'err', text: await problem(response) });
+    // Обрыв связи бросает исключение: без finally кнопки остались бы серыми до перезагрузки страницы.
+    try {
+      const response = editing
+        ? await send('PUT', `/users/${editing.id}`, { title, role: form.role, password: form.password || null })
+        : await send('POST', '/users', { ...form, title });
+      if (response.ok) {
+        setNote({
+          kind: 'ok',
+          text: editing
+            ? `Изменения для «${editing.login}» сохранены.${form.password ? ' Передайте сотруднику новый пароль.' : ''}${form.password || form.role !== editing.role ? ' Его попросят войти заново.' : ''}`
+            : `Учётная запись «${form.login.trim().toLowerCase()}» создана. Передайте сотруднику логин и пароль.`,
+        });
+        setEditing(null);
+        setForm({ login: '', password: '', title: '', role: 'Waiter' });
+        await staff.reload();
+      } else {
+        setNote({ kind: 'err', text: await problem(response) });
+      }
+    } catch (e) {
+      setNote({ kind: 'err', text: (e as Error).message });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   const remove = async (user: StaffRow) => {
     setBusy(true);
-    const response = await send('DELETE', `/users/${user.id}`);
-    setNote(response.ok ? null : { kind: 'err', text: await problem(response) });
-    await staff.reload();
-    setBusy(false);
+    try {
+      const response = await send('DELETE', `/users/${user.id}`);
+      setNote(response.ok ? null : { kind: 'err', text: await problem(response) });
+      await staff.reload();
+    } catch (e) {
+      setNote({ kind: 'err', text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

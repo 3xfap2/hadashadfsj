@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { post, useApi, type IncomingRow, type ProductRow, type SupplyRow } from '../api';
 import { dueLong, money, plural, qty, toLocalInput, unitName, weekdayLong } from '../format';
-import { PlusIcon } from '../ui';
+import { PlusIcon, useCan } from '../ui';
 import { clearDraft, loadDraft, saveDraft, type DraftLine, type SupplyDraft } from '../supplyDraft';
 import { StockTabs } from './Stock';
 
@@ -20,6 +20,8 @@ export function Supplies() {
   const [tried, setTried] = useState(false);
   const [note, setNote] = useState<Note>(null);
   const [busy, setBusy] = useState(false);
+  // Справочник открыт не всем ролям: кладовщику ссылка на него вела бы обратно на «Сегодня».
+  const canCatalog = useCan('catalog');
 
   // Форма открывается с сохранённым черновиком, а если его нет — с одной пустой строкой и следующим номером.
   useEffect(() => {
@@ -37,7 +39,8 @@ export function Supplies() {
         <div className="g-title"><div className="stock-head"><h1>Склад</h1><StockTabs /></div></div>
         <p className="g-empty">
           <strong>Сначала заведите продукты</strong>
-          Поставка состоит из продуктов справочника. <Link to="/app/catalog">Открыть справочник продуктов</Link>
+          Поставка состоит из продуктов справочника.{' '}
+          {canCatalog ? <Link to="/app/catalog">Открыть справочник продуктов</Link> : 'Попросите шеф-повара или управляющего завести их.'}
         </p>
       </>
     );
@@ -235,7 +238,7 @@ export function Supplies() {
                 {s.supplier && <span className="muted small">{s.supplier}</span>}
                 <span className="sup__items">{s.items.map((i) => `${i.productName} ${qty(i.quantity, i.unit)}`).join(' · ')}</span>
                 <div className="sup__bottom"><strong className="num hd">{money(s.total)}</strong><span className="g-tag g-tag--amber">Ждёт подтверждения</span></div>
-                <span className="muted small">Пришла из внешней системы. На склад попадёт после приёмки, срок годности считается с этого момента.</span>
+                <span className="muted small">Пришла из внешней системы. Поставка от {dueLong(s.createdAt)}: срок годности считается от этой даты, на склад попадёт после приёмки.</span>
                 {deciding.error && deciding.id === s.id && <span className="g-error-text" role="alert">{deciding.error}</span>}
                 <div className="sup__decide">
                   <button className="g-btn g-btn--sm" type="button" disabled={deciding.busy} onClick={() => decide(s.id, 'reject')}>Отклонить</button>
@@ -249,7 +252,8 @@ export function Supplies() {
                 {savedDraft.supplier && <span className="muted small">{savedDraft.supplier}</span>}
                 <span className="sup__items">Черновик · {plural(savedDraft.lines.length, 'позиция', 'позиции', 'позиций')}</span>
                 <div className="sup__bottom">
-                  <strong className="num hd">{money(savedDraft.lines.reduce((sum, l) => sum + (number(l.quantity) || 0) * (byId(l.productId).cost ?? 0), 0))}</strong>
+                  {/* Продукта из черновика может уже не быть в справочнике: такие строки в сумму не входят. */}
+                  <strong className="num hd">{money(savedDraft.lines.reduce((sum, l) => sum + (number(l.quantity) || 0) * (products.data!.find((p) => p.id === l.productId)?.cost ?? 0), 0))}</strong>
                   <span className="g-tag g-tag--amber">Черновик</span>
                 </div>
               </li>

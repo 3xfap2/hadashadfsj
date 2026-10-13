@@ -30,7 +30,8 @@ export function Landing() {
 
   // По ссылке вида /#request страница открывается сразу на нужном разделе.
   useEffect(() => {
-    if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
+    // Не селектор: хвост вида #123 или #a=b (его добавляют рассылки) уронил бы querySelector и весь лендинг.
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
   }, []);
 
   const openDemo = async () => {

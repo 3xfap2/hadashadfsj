@@ -16,7 +16,7 @@ from ..fmt import InputError, fmt_dt, fmt_qty, parse_positive
 from ..keyboards import cancel_row, rows
 from ..storage import Session
 from ..texts import api_error_text, can_open
-from .util import show
+from .util import ack, show
 from .writeoff import OTHER_BATCH
 
 router = Router(name="opening")
@@ -41,16 +41,17 @@ async def cb_open(callback: CallbackQuery, state: FSMContext, api: ApiClient, to
         return
     batch_id = callback.data.removeprefix("op:")
     batch = next((b for b in await api.get_batches(token) if b["id"] == batch_id), None)
+    # Ответ на нажатие — через ack: после долгого запроса к API Telegram его уже не примет.
     if batch is None:
-        await callback.answer("Партия уже израсходована или списана.", show_alert=True)
+        await ack(callback, "Партия уже израсходована или списана.", show_alert=True)
         return
     if not can_open(batch):
-        await callback.answer("Эту партию вскрыть нельзя: она уже вскрыта или просрочена.", show_alert=True)
+        await ack(callback, "Эту партию вскрыть нельзя: она уже вскрыта или просрочена.", show_alert=True)
         return
     await state.clear()
     await state.set_state(OpenForm.quantity)
     await state.update_data(batch=batch)
-    await callback.answer()
+    await ack(callback)
     await callback.message.answer(
         question(batch), reply_markup=rows([("Всю партию", f"opall:{batch['id']}")], cancel_row())
     )

@@ -17,6 +17,13 @@ def split_text(text: str, limit: int = TELEGRAM_LIMIT) -> list[str]:
     """Режет длинный текст по строкам, чтобы уложиться в лимит Telegram."""
     chunks, current = [], ""
     for line in text.split("\n"):
+        # Одна строка длиннее лимита (например, «Нет на складе: …» через запятую) режется по символам.
+        while len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
         candidate = f"{current}\n{line}" if current else line
         if len(candidate) > limit and current:
             chunks.append(current)
@@ -45,11 +52,11 @@ async def send(message: Message, text: str, reply_markup: InlineKeyboardMarkup |
     await message.answer(chunks[-1], reply_markup=reply_markup)
 
 
-async def ack(callback: CallbackQuery, text: str | None = None) -> None:
+async def ack(callback: CallbackQuery, text: str | None = None, show_alert: bool = False) -> None:
     """Ответить на нажатие кнопки. Повторный или запоздалый ответ (после долгого запроса к API)
     Telegram отклоняет — это не повод ронять обработчик."""
     try:
-        await callback.answer(text)
+        await callback.answer(text, show_alert=show_alert)
     except TelegramBadRequest as exc:
         log.debug("Ответ на нажатие не принят: %s", exc)
 

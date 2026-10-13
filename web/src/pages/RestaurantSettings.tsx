@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { send, useApi, type RestaurantSettings as Settings } from '../api';
+import { problemText, send, useApi, type RestaurantSettings as Settings } from '../api';
 
 /** Настройки ресторана: название, часы смены и зал. Меняет управляющий. */
 export function RestaurantSettings({ onSaved }: { onSaved: () => void }) {
@@ -17,15 +17,20 @@ export function RestaurantSettings({ onSaved }: { onSaved: () => void }) {
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const response = await send('PUT', '/restaurant', form);
-    if (response.ok) {
-      setNote({ kind: 'ok', text: 'Сохранено. Зал и часы смены обновятся у сотрудников при следующем открытии кабинета.' });
-      onSaved();
-    } else {
-      const problem = await response.json().catch(() => ({}));
-      setNote({ kind: 'err', text: Object.values((problem.errors ?? {}) as Record<string, string[]>).flat().join(' ') || `Сервер ответил ошибкой ${response.status}.` });
+    // Обрыв связи бросает исключение: без finally кнопка осталась бы серой до перезагрузки страницы.
+    try {
+      const response = await send('PUT', '/restaurant', form);
+      if (response.ok) {
+        setNote({ kind: 'ok', text: 'Сохранено. Зал и часы смены обновятся у сотрудников при следующем открытии кабинета.' });
+        onSaved();
+      } else {
+        setNote({ kind: 'err', text: await problemText(response) });
+      }
+    } catch (e) {
+      setNote({ kind: 'err', text: (e as Error).message });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   return (

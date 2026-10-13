@@ -9,11 +9,12 @@ from ..keyboards import cancel_row, paged
 
 
 def product_cache(products: list[dict]) -> dict[str, dict]:
-    """Продукты для текущего диалога: id -> название, единица, норматив, цена, состав заготовки."""
+    """Продукты для текущего диалога: id -> название, единица, норматив, цена, состав заготовки,
+    срок после вскрытия (его нужно вернуть при правке продукта, иначе сервер его сотрёт)."""
     return {
         p["id"]: {
             "name": p["name"], "unit": p["unit"], "shelfLifeHours": p["shelfLifeHours"], "cost": p["cost"],
-            "prepRecipe": p.get("prepRecipe") or [],
+            "prepRecipe": p.get("prepRecipe") or [], "openedShelfLifeHours": p.get("openedShelfLifeHours"),
         }
         for p in products
     }

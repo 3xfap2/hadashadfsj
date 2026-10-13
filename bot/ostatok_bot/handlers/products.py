@@ -15,7 +15,7 @@ from ..keyboards import cancel_row, confirm, rows
 from ..storage import Session
 from ..texts import api_error_text, product_line, products_text
 from .pickers import page_from, product_cache, product_picker
-from .util import send, show
+from .util import ack, send, show
 
 router = Router(name="products")
 
@@ -139,13 +139,13 @@ async def cb_pick_start(
         return
     products = product_cache(await api.list_products(token))
     if not products:
-        await callback.answer("Продуктов пока нет.", show_alert=True)
+        await ack(callback, "Продуктов пока нет.", show_alert=True)
         return
     mode = "edit" if callback.data == "pr:edit" else "delete"
     await state.clear()
     await state.update_data(mode=mode, products=products)
     await state.set_state(ProductForm.pick)
-    await callback.answer()
+    await ack(callback)
     await callback.message.answer(PICK_PROMPTS[mode], reply_markup=product_picker(products, 0, "pr:e", "pr:pg"))
 
 
@@ -187,7 +187,8 @@ async def cb_keep(callback: CallbackQuery, state: FSMContext) -> None:
     await show(callback, text, keyboard)
 
 
-@router.message(ProductForm.name)
+# Команда на этом шаге — не название: она уходит своему обработчику.
+@router.message(ProductForm.name, ~F.text.startswith("/"))
 async def got_name(message: Message, state: FSMContext) -> None:
     name = (message.text or "").strip()
     if not name:

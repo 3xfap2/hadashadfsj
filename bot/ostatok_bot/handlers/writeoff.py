@@ -13,7 +13,7 @@ from ..fmt import fmt_qty
 from ..keyboards import confirm
 from ..storage import Session
 from ..texts import api_error_text, write_off_question
-from .util import show
+from .util import ack, show
 
 router = Router(name="writeoff")
 
@@ -32,13 +32,14 @@ async def cb_write_off(
         return
     batch_id = callback.data.removeprefix("wo:")
     batch = next((b for b in await api.get_batches(token) if b["id"] == batch_id), None)
+    # Ответ на нажатие — через ack: после долгого запроса к API Telegram его уже не примет.
     if batch is None:
-        await callback.answer("Партия уже списана или израсходована.", show_alert=True)
+        await ack(callback, "Партия уже списана или израсходована.", show_alert=True)
         return
     await state.clear()
     await state.set_state(WriteOff.confirm)
     await state.update_data(batch=batch)
-    await callback.answer()
+    await ack(callback)
     # id партии — в самой кнопке: подтверждение под старым сообщением не спишет партию, выбранную позже.
     await callback.message.answer(write_off_question(batch), reply_markup=confirm("Списать", f"woc:{batch['id']}"))
 

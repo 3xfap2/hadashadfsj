@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { post, useApi, type BatchRow, type HotOffer, type HotPlan, type Me, type OrderRow, type OrderSummary, type ProductRow, type StopListRow, type SupplyRow } from '../api';
+import { post, problemText, useApi, type BatchRow, type HotOffer, type HotPlan, type Me, type OrderRow, type OrderSummary, type ProductRow, type StopListRow, type SupplyRow } from '../api';
 import { clock, dayStart, duration, money, plural, portions, qty, today, until } from '../format';
 import { BatchLabel, Photo, PlusIcon, URGENT_HOURS, useCan } from '../ui';
 
@@ -23,10 +23,13 @@ export function Today() {
   const products = useApi<ProductRow[]>('/products', 60_000);
   const supplies = useApi<SupplyRow[]>('/supplies', 60_000);
   const [writingOff, setWritingOff] = useState(false);
+  const [writeOffError, setWriteOffError] = useState('');
   const canOrder = useCan('orders');
   const canStock = useCan('stock');
   const canTune = useCan('catalog');
   const canStaff = useCan('staff');
+  // Ссылка ведёт в «Меню и стоп-лист»: показываем её тем, кому этот раздел открыт.
+  const canMenu = useCan('menu');
 
   const error = offers.error ?? stopList.error ?? batches.error ?? orders.error ?? day.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить данные</h3><span>{error}</span></div>;
@@ -43,11 +46,16 @@ export function Today() {
 
   const writeOffExpired = async () => {
     setWritingOff(true);
+    setWriteOffError('');
     try {
-      await Promise.all(expired.map((b) => post(`/stock/batches/${b.id}/write-off`)));
+      const responses = await Promise.all(expired.map((b) => post(`/stock/batches/${b.id}/write-off`)));
+      // Партию могли списать с другого устройства (409, 404): такие отказы не мешают, о прочих — сказать.
+      const failed = responses.filter((r) => !r.ok && r.status !== 404 && r.status !== 409);
+      if (failed.length > 0) setWriteOffError(`Не списано партий: ${failed.length}. ${await problemText(failed[0])}`);
       await Promise.all([batches.reload(), stopList.reload(), offers.reload()]);
-    } catch {
+    } catch (e) {
       // Связь оборвалась: несписанные партии остались в списке, кнопку можно нажать ещё раз.
+      setWriteOffError((e as Error).message);
     } finally {
       setWritingOff(false);
     }
@@ -187,7 +195,7 @@ export function Today() {
           <section className="g-panel" aria-labelledby="stop-h">
             <div className="g-panel__head">
               <h2 id="stop-h">Стоп-лист</h2>
-              {canOrder && <Link className="end" to="/app/menu">Меню</Link>}
+              {canMenu && <Link className="end" to="/app/menu">Меню</Link>}
             </div>
             {stopped.length + low.length === 0 ? (
               <p className="g-empty"><strong>Стоп-лист пуст</strong>Все блюда в продаже.</p>
@@ -244,6 +252,7 @@ export function Today() {
                 </button>
               </div>
             )}
+            {writeOffError && <p className="g-error-text" role="alert">{writeOffError}</p>}
           </section>
         </div>
       </div>

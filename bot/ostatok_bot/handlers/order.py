@@ -331,7 +331,9 @@ async def cb_send(callback: CallbackQuery, state: FSMContext, api: ApiClient, to
         # Ошибка, которую ловят общие обработчики (401, 403…): не оставлять диалог в «отправляется».
         if await state.get_state() == OrderForm.sending.state:
             await state.set_state(OrderForm.confirm)
-    await state.clear()
+    # Пока шла отправка, сотрудник мог начать другой диалог: его не сбрасываем.
+    if await state.get_state() == OrderForm.confirm.state:
+        await state.clear()
     await show(callback, result_text(lambda: order_result_text(order), "Заказ отправлен, сервер ответил успехом."))
 
 
@@ -344,6 +346,9 @@ def orders_word(n: int) -> str:
 
 def start_of_day(now: datetime, tz: ZoneInfo) -> datetime:
     return now.astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+OTHER_TABLE = "После этого вы выбрали другой стол. Нажмите кнопку под последним вопросом."
 
 
 @router.message(Command("close"))
@@ -374,18 +379,24 @@ async def cb_close_pick(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer("Такого стола нет.", show_alert=True)
         return
     table = tables[index]
-    await state.update_data(table=table)
+    # Метка вопроса — в самой кнопке: «Закрыть стол» под старым вопросом не закроет стол, выбранный позже.
+    question = uuid.uuid4().hex[:8]
+    await state.update_data(table=table, question=question)
     await state.set_state(OrderForm.close_confirm)
     await show(
         callback,
         f"Закрыть {table['place']}? Открыто заказов на {fmt_money(table['total'])}.",
-        confirm("Закрыть стол", "or:clok"),
+        confirm("Закрыть стол", f"or:clok:{question}"),
     )
 
 
-@router.callback_query(OrderForm.close_confirm, F.data == "or:clok")
+@router.callback_query(OrderForm.close_confirm, F.data.startswith("or:clok:"))
 async def cb_close(callback: CallbackQuery, state: FSMContext, api: ApiClient, token: str) -> None:
-    place = (await state.get_data())["table"]["place"]
+    data = await state.get_data()
+    if callback.data.removeprefix("or:clok:") != data.get("question"):
+        await callback.answer(OTHER_TABLE, show_alert=True)
+        return
+    place = data["table"]["place"]
     await state.clear()
     try:
         closed = await api.close_table(token, place)

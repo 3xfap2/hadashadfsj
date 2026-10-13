@@ -19,7 +19,7 @@ export function Inventory() {
 
   const counted = stock.data.filter((s) => (actual[s.productId] ?? '').trim() !== '');
   const invalid = counted.filter((s) => !(number(actual[s.productId]) >= 0));
-  const differ = counted.filter((s) => !invalid.includes(s) && number(actual[s.productId]) !== s.fresh + s.expired);
+  const differ = counted.filter((s) => !invalid.includes(s) && Math.round((number(actual[s.productId]) - s.fresh - s.expired) * 1000) !== 0);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

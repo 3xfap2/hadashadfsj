@@ -30,6 +30,9 @@ def incoming_text(supply: dict, tz: ZoneInfo) -> str:
     if supply.get("supplier"):
         head += f", поставщик {supply['supplier']}"
     lines = [f"{head}\nПришла {fmt_dt(supply['receivedAt'], tz)}, ждёт подтверждения."]
+    if supply.get("createdAt"):
+        # Срок годности сервер считает от даты поставки, а не от приёмки.
+        lines.append(f"Дата поставки: {fmt_dt(supply['createdAt'], tz)}, сроки считаются от неё.")
     for n, item in enumerate(supply.get("items") or [], 1):
         lines.append(
             f"{n}. {item['productName']} — {fmt_qty(item['quantity'], item['unit'])}, срок {item['shelfLifeHours']} ч"

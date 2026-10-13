@@ -49,6 +49,7 @@ def item_line(item: dict, products: dict) -> str:
 
 # Такие номера выдаёт сама система: заготовкам, проверочным партиям и генератору событий.
 SYSTEM_PREFIXES = ("З-", "Т-", "Г-")
+MAX_NUMBER = 40  # предел сервера на номер поставки
 MAX_SUPPLIER = 120
 
 
@@ -101,11 +102,12 @@ async def cmd_supply(
     )
 
 
-@router.message(SupplyForm.number)
+# Команда на текстовом шаге — не номер и не поставщик: она уходит своему обработчику (/incoming, /order…).
+@router.message(SupplyForm.number, ~F.text.startswith("/"))
 async def got_number(message: Message, state: FSMContext) -> None:
     number = (message.text or "").strip()
-    if not number:
-        await message.answer("Номер не может быть пустым. Введите номер поставки.")
+    if not number or len(number) > MAX_NUMBER:
+        await message.answer(f"Номер поставки — от 1 до {MAX_NUMBER} символов. Введите номер поставки.")
         return
     if number.startswith(SYSTEM_PREFIXES):
         await message.answer("Номера на «З-», «Т-» и «Г-» заняты системой. Введите другой номер.")
@@ -123,7 +125,7 @@ async def got_number(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(SupplyForm.supplier)
+@router.message(SupplyForm.supplier, ~F.text.startswith("/"))
 async def got_supplier(message: Message, state: FSMContext) -> None:
     supplier = (message.text or "").strip()
     if not supplier or len(supplier) > MAX_SUPPLIER:

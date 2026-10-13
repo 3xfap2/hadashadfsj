@@ -212,7 +212,9 @@ async def test_prep_made(make):
     h.api.returns["make_prep"] = {"batchId": "b9", "supplyNumber": "З-0007", "quantity": 2,
                                   "expiresAt": "2026-10-13T09:00:00+00:00", "shortages": []}
     assert await h.press("Приготовить") == ["Готово: Основа том ям, 2 л. Партия З-0007, годна до 13.10 12:00."]
-    assert h.api.called("make_prep") == [("tok", "p-tomyum", 2)]
+    [call] = h.api.called("make_prep")
+    # Четвёртый аргумент — идентификатор попытки (GUID): повтор запроса сервер не задвоит.
+    assert call[:3] == ("tok", "p-tomyum", 2) and len(call[3]) == 36
 
 
 async def test_prep_409_shortage_and_400(make):

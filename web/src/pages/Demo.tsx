@@ -22,11 +22,17 @@ export function Demo() {
     if (!(ordersPerMinute >= 1 && ordersPerMinute <= 120)) return setError('Укажите от 1 до 120 заказов в минуту.');
     setBusy(true);
     setError('');
-    const response = await send('PUT', '/simulator', { running, ordersPerMinute });
-    if (!response.ok) setError(`Сервер ответил ошибкой ${response.status}.`);
-    await settings.reload();
-    setRate('');
-    setBusy(false);
+    // Обрыв связи бросает исключение: без finally кнопки остались бы серыми до перезагрузки страницы.
+    try {
+      const response = await send('PUT', '/simulator', { running, ordersPerMinute });
+      if (!response.ok) setError(`Сервер ответил ошибкой ${response.status}.`);
+      await settings.reload();
+      setRate('');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

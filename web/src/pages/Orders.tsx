@@ -57,12 +57,20 @@ export function Orders() {
   };
   const total = inCart.reduce((s, d) => s + lineSum(d), 0);
 
-  const change = (dishId: string, delta: number) =>
+  // Корзина, скидка или стол изменились — это уже другой заказ: прежний идентификатор попытки не годится,
+  // иначе сервер вернёт заказ, созданный до обрыва связи, а новые блюда молча не оформятся.
+  const newAttempt = () => {
+    attempt.current = null;
+  };
+
+  const change = (dishId: string, delta: number) => {
+    newAttempt();
     setCart((c) => {
       const next = { ...c, [dishId]: Math.max(0, (c[dishId] ?? 0) + delta) };
       if (!next[dishId]) delete next[dishId];
       return next;
     });
+  };
 
   // Открытые заказы за каждым столом: сумма и время последнего. После «Закрыть стол» он снова свободен.
   const served = new Map((orders.data?.tables ?? []).map((t) => [t.place, t]));
@@ -138,7 +146,7 @@ export function Orders() {
               const table = /^Стол (\d+)$/.exec(p)?.[1];
               const seen = served.get(p);
               return (
-                <button key={p} className="hall__table" type="button" aria-pressed={place === p} aria-label={p} onClick={() => setPlace(p)}>
+                <button key={p} className="hall__table" type="button" aria-pressed={place === p} aria-label={p} onClick={() => { if (p !== place) newAttempt(); setPlace(p); }}>
                   <strong className={table ? 'num' : 'hall__word'}>{table ?? p}</strong>
                   {seen ? (
                     <><span className="num hd">{money(seen.total)}</span>{seen.ready ? <span className="hall__ready small">готов</span> : <span className="num muted small">{clock(seen.last)}</span>}</>
@@ -185,7 +193,7 @@ export function Orders() {
                   quantity={cart[d.dishId] ?? 0}
                   onChange={(delta) => change(d.dishId, delta)}
                   discounted={Boolean(discounted[d.dishId])}
-                  onDiscount={() => setDiscounted((x) => ({ ...x, [d.dishId]: !x[d.dishId] }))}
+                  onDiscount={() => { newAttempt(); setDiscounted((x) => ({ ...x, [d.dishId]: !x[d.dishId] })); }}
                 />
               ))}
             </ul>

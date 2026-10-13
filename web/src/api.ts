@@ -238,6 +238,8 @@ export interface IncomingRow {
   number: string;
   supplier: string | null;
   receivedAt: string;
+  /** Дата поставки во внешней системе: от неё считается срок годности. */
+  createdAt: string;
   total: number;
   items: { productId: string; productName: string; unit: Unit; quantity: number; shelfLifeHours: number }[];
 }
@@ -595,7 +597,8 @@ export function get<T>(path: string): Promise<T> {
   if (running) return running as Promise<T>;
   const started: Promise<T> = request(path)
     .then((response) => {
-      if (!response.ok) throw new Error(`Сервер ответил ошибкой ${response.status}.`);
+      // 503 — база данных на минуту недоступна: это повод повторить, а не поломка.
+      if (!response.ok) throw new Error(response.status === 503 ? 'Сервер временно недоступен. Повторите позже.' : `Сервер ответил ошибкой ${response.status}.`);
       return response.json() as Promise<T>;
     })
     .then((data) => {
@@ -616,6 +619,13 @@ export function post(path: string, body?: unknown): Promise<Response> {
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+/** Текст отказа сервера: ошибки проверки (400), иначе detail, иначе код ответа. */
+export async function problemText(response: Response): Promise<string> {
+  const problem = await response.json().catch(() => ({}));
+  const messages = Object.values((problem.errors ?? {}) as Record<string, string[]>).flat();
+  return messages.join(' ') || problem.detail || `Сервер ответил ошибкой ${response.status}.`;
 }
 
 /** Запрос с телом JSON и произвольным методом: PUT и DELETE для справочников. */

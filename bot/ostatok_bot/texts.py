@@ -35,8 +35,11 @@ MOVEMENT_TYPES = {
     "PrepMade": "Заготовка",
     "Shortage": "Недостача",
     "Surplus": "Излишек",
+    "Opened": "Вскрытие",
 }
 INCOMING = {"Supply", "PrepMade", "Surplus"}
+# Вскрытие не меняет остаток: часть партии переходит во вскрытую, знак не ставится.
+NEUTRAL = {"Opened"}
 
 
 def stop_reason(reason: str | None, product: str | None) -> str:
@@ -206,7 +209,7 @@ def journal_text(movements: list[dict], tz: ZoneInfo) -> str:
     lines = []
     for m in latest:
         kind = MOVEMENT_TYPES.get(m["type"], m["type"])
-        sign = "+" if m["type"] in INCOMING else "−"
+        sign = "+" if m["type"] in INCOMING else "" if m["type"] in NEUTRAL else "−"
         line = f"{fmt_dt(m['at'], tz)} {kind}: {m['productName']} {sign}{fmt_qty(abs(m['quantity']), m['unit'])}"
         if m.get("note"):
             line += f" ({m['note']})"

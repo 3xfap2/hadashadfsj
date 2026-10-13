@@ -100,32 +100,43 @@ export function Products() {
       openedShelfLifeHours: number(form.opened) > 0 ? Math.round(number(form.opened)) : null,
       prepRecipe: form.prep.map((l) => ({ productId: l.productId, quantity: number(l.quantity) / small(byId(l.productId).unit) })),
     };
-    const response = await send(form.id ? 'PUT' : 'POST', form.id ? `/products/${form.id}` : '/products', body);
-    if (response.ok) {
-      const saved: ProductRow = await response.json();
-      await products.reload();
-      // Новый продукт заведён — форма готова к следующему: иначе его ввели бы поверх только что сохранённого.
-      setForm(form.id ? toForm(saved, products.data!) : emptyProduct);
-      setTried(false);
-      setNote({ kind: 'ok', text: form.id ? 'Продукт сохранён.' : `Продукт «${saved.name}» добавлен. Можно вводить следующий.` });
-    } else {
-      setNote({ kind: 'err', text: await problemText(response) });
+    // Обрыв связи бросает исключение: без finally кнопки остались бы серыми до перезагрузки страницы.
+    try {
+      const response = await send(form.id ? 'PUT' : 'POST', form.id ? `/products/${form.id}` : '/products', body);
+      if (response.ok) {
+        const saved: ProductRow = await response.json();
+        await products.reload();
+        // Новый продукт заведён — форма готова к следующему: иначе его ввели бы поверх только что сохранённого.
+        setForm(form.id ? toForm(saved, products.data!) : emptyProduct);
+        setTried(false);
+        setNote({ kind: 'ok', text: form.id ? 'Продукт сохранён.' : `Продукт «${saved.name}» добавлен. Можно вводить следующий.` });
+      } else {
+        setNote({ kind: 'err', text: await problemText(response) });
+      }
+    } catch (err) {
+      setNote({ kind: 'err', text: (err as Error).message });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   const remove = async () => {
     if (!form.id) return;
     setBusy(true);
-    const response = await send('DELETE', `/products/${form.id}`);
-    if (response.ok) {
-      await products.reload();
-      setForm(null);
-      setNote(null);
-    } else {
-      setNote({ kind: 'err', text: await problemText(response) });
+    try {
+      const response = await send('DELETE', `/products/${form.id}`);
+      if (response.ok) {
+        await products.reload();
+        setForm(null);
+        setNote(null);
+      } else {
+        setNote({ kind: 'err', text: await problemText(response) });
+      }
+    } catch (err) {
+      setNote({ kind: 'err', text: (err as Error).message });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   return (
@@ -375,9 +386,16 @@ export function Dishes() {
   const toggleStop = async () => {
     if (!current) return;
     setBusy(true);
-    await send('POST', `/dishes/${current.id}/${current.manuallyStopped ? 'resume' : 'stop'}`);
-    await Promise.all([dishes.reload(), menu.reload()]);
-    setBusy(false);
+    try {
+      const response = await send('POST', `/dishes/${current.id}/${current.manuallyStopped ? 'resume' : 'stop'}`);
+      // Отказ сервера показываем, а не глотаем: иначе кажется, что блюдо снято с продажи.
+      setNote(response.ok ? null : { kind: 'err', text: await problemText(response) });
+      await Promise.all([dishes.reload(), menu.reload()]);
+    } catch (err) {
+      setNote({ kind: 'err', text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const unused = products.data.filter((p) => !form.recipe.some((l) => l.productId === p.id));

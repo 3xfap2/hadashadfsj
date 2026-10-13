@@ -31,7 +31,7 @@ from ..storage import Session, Storage
 from ..texts import api_error_text
 from .pickers import product_cache
 from .submit import submit_supply, unfinished_supply_note
-from .supply import SYSTEM_PREFIXES, SupplyForm
+from .supply import MAX_NUMBER, SYSTEM_PREFIXES, SupplyForm
 from .util import send, show
 
 log = logging.getLogger(__name__)
@@ -40,7 +40,6 @@ router = Router(name="photo_supply")
 MAX_BYTES = 1_000_000   # предел сервера на файл
 MAX_SIDE = 1600         # длинная сторона снимка: крупнее не нужно для распознавания
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
-MAX_NUMBER = 40
 MANUAL = "примите поставку вручную: /supply"
 
 FILE_TOO_BIG = (

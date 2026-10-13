@@ -1,5 +1,5 @@
 import { isNative } from '../native';
-import { useState, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { post, postFile, type ImportRow, type SupplyRow } from '../api';
 import { money, plural, qty, shelfLife, unitName } from '../format';
@@ -37,11 +37,14 @@ export function SupplyImport() {
   const [result, setResult] = useState<Result>(null);
   // Строки прочитаны с фото: их нужно сверить с бумагой до приёмки.
   const [fromPhoto, setFromPhoto] = useState(false);
+  // Номер последнего выбранного файла: ответ по файлу, выбранному раньше (фото распознаётся до полминуты), отбрасывается.
+  const reading = useRef(0);
 
   const choose = async (e: ChangeEvent<HTMLInputElement>) => {
     const picked = e.target.files?.[0];
     e.target.value = '';
     if (!picked) return;
+    const mine = ++reading.current;
     const photo = picked.type.startsWith('image/');
     setBusy(true);
     setFromPhoto(photo);
@@ -50,17 +53,22 @@ export function SupplyImport() {
     setFileName(photo ? 'Фото накладной' : picked.name);
     // Фото с телефона весит несколько мегабайт: уменьшаем его перед отправкой, текст при этом остаётся читаемым.
     const file = photo ? await shrink(picked).catch(() => picked) : picked;
+    if (mine !== reading.current) return;
     // Номер поставки часто стоит в имени файла: postavka_P-0422.xlsx → П-0422.
     const inName = /[PП]-?(\d{2,})/i.exec(picked.name);
     setNumber(inName ? `П-${inName[1]}` : '');
     try {
       const response = await postFile('/supplies/import/preview', file);
-      if (response.ok) setRows(await response.json());
-      else setResult({ kind: 'err', title: 'Файл не прочитан', text: (await response.json().catch(() => ({}))).detail ?? `Сервер ответил ошибкой ${response.status}.` });
+      if (mine !== reading.current) return;
+      if (response.ok) {
+        const read: ImportRow[] = await response.json();
+        if (mine === reading.current) setRows(read);
+      } else setResult({ kind: 'err', title: 'Файл не прочитан', text: (await response.json().catch(() => ({}))).detail ?? `Сервер ответил ошибкой ${response.status}.` });
     } catch (err) {
+      if (mine !== reading.current) return;
       setResult({ kind: 'err', title: 'Файл не прочитан', text: (err as Error).message });
     }
-    setBusy(false);
+    if (mine === reading.current) setBusy(false);
   };
 
   const downloadTemplate = () => {

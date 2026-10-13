@@ -15,15 +15,19 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from ..access import commands_for, role_title
-from ..api import ApiClient, TooManyRequests, Unauthorized, ValidationFailed, restaurant_of
+from ..api import ApiClient, Forbidden, TooManyRequests, Unauthorized, ValidationFailed, restaurant_of
 from ..commands import show_role_commands
 from ..storage import Storage
-from ..texts import api_error_text
+from ..texts import FORBIDDEN, api_error_text
 
 log = logging.getLogger(__name__)
 router = Router(name="auth")
 
 RETRY = "Попробуйте ещё раз: /login"
+SUPPORT_REFUSED = (
+    "Под учётной записью поддержки бот сотрудников не работает: она открывает CRM. "
+    "Войдите логином сотрудника ресторана: /login"
+)
 
 
 class LoginForm(StatesGroup):
@@ -92,9 +96,19 @@ async def got_password(message: Message, state: FSMContext, api: ApiClient, db: 
         await state.clear()
         await message.answer(api_error_text(exc) + "\n" + RETRY)
         return
+    except Forbidden as exc:
+        # Пароль верный, но кабинет ресторана отключён: показать текст сервера, а не «недоступно для роли».
+        await state.clear()
+        await message.answer(api_error_text(exc, FORBIDDEN))
+        return
 
     try:
         me = await api.get_me(result.token)
+        if "support" in (me.get("sections") or []):
+            # Запись команды продукта открывает CRM всех ресторанов: её токен боту сотрудников не нужен
+            # и не должен лежать в его базе. Сообщение с паролем уже удалено выше.
+            await message.answer(SUPPORT_REFUSED)
+            return
         db.save_session(
             message.chat.id, result.token, result.expires_at,
             login=me.get("login", login), title=me.get("title", ""), role=me.get("role", ""),

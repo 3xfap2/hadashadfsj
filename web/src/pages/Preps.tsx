@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { post, useApi, type PrepResult, type PrepRow } from '../api';
 import { dueLong, duration, qty, shelfLife, unitName } from '../format';
+import { useCan } from '../ui';
 import { StockTabs } from './Stock';
 
 const number = (text: string) => Number(text.replace(',', '.'));
@@ -14,14 +15,23 @@ export function Preps() {
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [busy, setBusy] = useState(false);
+  // Этикетки — раздел склада: повару без склада ссылка вела бы обратно на «Сегодня».
+  const canLabels = useCan('stock');
+  // Попытка, на которую сервер не ответил (обрыв связи): повтор той же заготовки уходит с тем же идентификатором,
+  // и сервер не спишет сырьё второй раз. Другой продукт или количество — новая попытка.
+  const attempt = useRef<{ productId: string; quantity: number; id: string } | null>(null);
 
   if (preps.error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить заготовки</h3><span>{preps.error}</span></div>;
   if (!preps.data) return <p className="muted">Загружаем заготовки…</p>;
 
   const make = async (prep: PrepRow, quantity: number) => {
     setBusy(true);
+    const same = attempt.current?.productId === prep.productId && attempt.current.quantity === quantity;
+    if (!same) attempt.current = { productId: prep.productId, quantity, id: crypto.randomUUID() };
     try {
-      const response = await post('/preps', { productId: prep.productId, quantity });
+      const response = await post('/preps', { id: attempt.current!.id, productId: prep.productId, quantity });
+      // Сервер ответил — попытка закончена.
+      attempt.current = null;
       const outcome: Outcome = response.ok
         ? { kind: 'ok', result: await response.json() }
         : response.status === 409
@@ -90,7 +100,7 @@ export function Preps() {
                   <div className="g-note g-note--ok prep__note" role="status">
                     <span>
                       Приготовлено {qty(outcome.result.quantity, p.unit)}, партия {outcome.result.supplyNumber}, годна до {dueLong(outcome.result.expiresAt)}.{' '}
-                      <Link to={`/app/labels?batch=${outcome.result.batchId}`}>Напечатать этикетку</Link>
+                      {canLabels && <Link to={`/app/labels?batch=${outcome.result.batchId}`}>Напечатать этикетку</Link>}
                     </span>
                   </div>
                 )}

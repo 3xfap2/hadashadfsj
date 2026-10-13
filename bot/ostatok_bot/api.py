@@ -428,13 +428,14 @@ class ApiClient:
         return await self._request("POST", "/api/supplies/import/preview", token, content=data)
 
     async def list_incoming(self, token: str) -> list[dict]:
-        """Поставки от внешней системы, которые ждут подтверждения: id, number, supplier, receivedAt, total,
+        """Поставки от внешней системы, которые ждут подтверждения: id, number, supplier, receivedAt, createdAt, total,
         items (productName, unit, quantity, shelfLifeHours). На склад они попадают только после приёмки."""
         return await self._request("GET", "/api/supplies/incoming", token)
 
     async def accept_incoming(self, token: str, incoming_id: str) -> dict:
-        """Принять поставку: партии появляются на складе, срок годности считается от приёмки.
-        200 — поставка с партиями; 404 — уже решена или не найдена; 409 — поставка с таким номером уже принята."""
+        """Принять поставку: партии появляются на складе, срок годности считается от даты поставки (createdAt).
+        200 — поставка с партиями; 404 — уже решена или не найдена; 409 — поставка с таким номером уже принята
+        или срок годности истёк, пока она ждала (текст в detail: такую остаётся отклонить)."""
         return await self._request("POST", f"/api/supplies/incoming/{incoming_id}/accept", token)
 
     async def reject_incoming(self, token: str, incoming_id: str) -> None:
@@ -445,7 +446,7 @@ class ApiClient:
 
     async def get_orders_summary(self, token: str, since: datetime | None = None) -> dict:
         """Итоги с since (по умолчанию за сутки): orders, rejected, revenue и tables — столы с открытыми
-        заказами (place, total, last). Время передаётся в UTC: со смещением часового пояса сервер отвечает 500."""
+        заказами (place, total, last). Время передаётся в UTC (прежние версии сервера отвечали 500 на смещение)."""
         params = {"since": since.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")} if since else None
         return await self._request("GET", "/api/orders/summary", token, params=params)
 
@@ -511,7 +512,7 @@ class ApiClient:
         return await self._request("POST", "/api/stock/inventory", token, body)
 
     async def get_movements(self, token: str, take: int = 100) -> list[dict]:
-        """Журнал операций, новые сверху. type: Supply, Order, WriteOff, PrepUse, PrepMade, Shortage, Surplus."""
+        """Журнал операций, новые сверху. type: Supply, Order, WriteOff, PrepUse, PrepMade, Shortage, Surplus, Opened."""
         return await self._request("GET", "/api/movements", token, params={"take": take})
 
     async def get_stop_list(self, token: str) -> list[dict]:
@@ -523,11 +524,16 @@ class ApiClient:
         """План заготовок: что есть, сколько приготовить (suggested) и сколько можно (maxQuantity)."""
         return await self._request("GET", "/api/preps", token)
 
-    async def make_prep(self, token: str, product_id: str, quantity: float) -> dict:
+    async def make_prep(self, token: str, product_id: str, quantity: float, prep_id: str | None = None) -> dict:
         """Приготовить заготовку со списанием сырья. Возвращает результат и при 201 (партия batchId, supplyNumber,
-        expiresAt), и при 409 (shortages — чего не хватило, ничего не списано). 400 — не заготовка или неверное количество."""
-        body = {"productId": product_id, "quantity": plain(quantity)}
-        return await self._with_result_on_conflict("POST", "/api/preps", token, body, "shortages")
+        expiresAt), и при 409 (shortages — чего не хватило, ничего не списано). 400 — не заготовка или неверное количество.
+        prep_id — GUID попытки, как у заказа: повтор с ним сервер не задвоит, поэтому запрос повторяется и при таймауте."""
+        body: dict[str, Any] = {"productId": product_id, "quantity": plain(quantity)}
+        if prep_id:
+            body["id"] = prep_id
+        return await self._with_result_on_conflict(
+            "POST", "/api/preps", token, body, "shortages", idempotent=prep_id is not None
+        )
 
     # Аналитика и подсказки
 

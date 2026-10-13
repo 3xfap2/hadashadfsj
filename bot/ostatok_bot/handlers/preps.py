@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -106,7 +107,8 @@ async def cb_make(callback: CallbackQuery, state: FSMContext, api: ApiClient, to
     prep = data["current"]
     await state.clear()
     try:
-        result = await api.make_prep(token, prep["id"], data["quantity"])
+        # Идентификатор попытки: если ответ потерялся и клиент повторил запрос, сырьё не спишется второй раз.
+        result = await api.make_prep(token, prep["id"], data["quantity"], str(uuid.uuid4()))
     except ValidationFailed as exc:
         await show(callback, "Не приготовлено.\n" + api_error_text(exc) + "\nНачать заново: /preps")
         return

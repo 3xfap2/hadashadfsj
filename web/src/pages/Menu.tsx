@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { post, useApi, type BatchRow, type DishRow, type HotOffer, type Me, type ProductRow, type StockRow, type StopListRow } from '../api';
+import { post, problemText, useApi, type BatchRow, type DishRow, type HotOffer, type Me, type ProductRow, type StockRow, type StopListRow } from '../api';
 import { clock, dueLong, duration, money, plural, qty, recipeQty } from '../format';
 import { Photo, URGENT_HOURS, useCan } from '../ui';
 
@@ -33,6 +33,7 @@ export function Menu() {
   const [filter, setFilter] = useState<Filter>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stopError, setStopError] = useState('');
 
   const error = menu.error ?? dishes.error ?? products.error ?? stock.error ?? batches.error ?? offers.error;
   if (error) return <div className="g-note g-note--err" role="alert"><h3>Не удалось загрузить меню</h3><span>{error}</span></div>;
@@ -56,11 +57,15 @@ export function Menu() {
 
   const toggleStop = async (d: StopListRow) => {
     setBusy(true);
+    setStopError('');
     try {
-      await post(`/dishes/${d.dishId}/${d.reason === 'Manual' ? 'resume' : 'stop'}`);
+      const response = await post(`/dishes/${d.dishId}/${d.reason === 'Manual' ? 'resume' : 'stop'}`);
+      // Отказ сервера показываем у кнопки, а не глотаем молча.
+      if (!response.ok) setStopError(await problemText(response));
       await Promise.all([menu.reload(), offers.reload()]);
-    } catch {
+    } catch (e) {
       // Связь оборвалась: состояние блюда не изменилось, кнопку можно нажать ещё раз.
+      setStopError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -97,7 +102,7 @@ export function Menu() {
                 const reason = why(d);
                 return (
                   <li key={d.dishId}>
-                    <button className="dish-card" type="button" aria-pressed={selected?.dishId === d.dishId} onClick={() => setSelectedId(d.dishId)}>
+                    <button className="dish-card" type="button" aria-pressed={selected?.dishId === d.dishId} onClick={() => { setSelectedId(d.dishId); setStopError(''); }}>
                       <span className={`dish-card__photo${d.status === 'Stop' ? ' is-off' : ''}`}>
                         <Photo url={d.photoUrl} name={d.dishName} />
                         <span className={`${CHIPS[d.status][0]} ph-chip`}>{CHIPS[d.status][1]}</span>
@@ -156,6 +161,7 @@ export function Menu() {
                     {selected.reason === 'Manual' ? 'Вернуть в продажу' : 'Снять с продажи вручную'}
                   </button>}
                 </div>
+                {stopError && <p className="g-error-text" role="alert">{stopError}</p>}
               </div>
             </section>
           </aside>

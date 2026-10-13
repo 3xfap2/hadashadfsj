@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useSearchParams } from 'react-router-dom';
-import { post, useApi, type BatchRow, type ProductRow, type StockRow, type StopListRow } from '../api';
+import { post, problemText, useApi, type BatchRow, type ProductRow, type StockRow, type StopListRow } from '../api';
 import { dayMonthShort, dueLong, leftPrecise, money, qty, shelfLife, unitName } from '../format';
 import { isNative } from '../native';
 import { URGENT_HOURS, useCan } from '../ui';
@@ -56,6 +56,7 @@ export function Stock() {
   // Партия, которую вскрывают: сколько из неё вскрыто и что ответил сервер.
   const [opening, setOpening] = useState<{ id: string; quantity: string; error: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [writeOffError, setWriteOffError] = useState<{ id: string; text: string } | null>(null);
   // Партия, открытая по QR-коду с этикетки: её продукт раскрыт, строка выделена.
   const [params, setParams] = useSearchParams();
   const target = params.get('batch');
@@ -85,16 +86,22 @@ export function Stock() {
 
   const openBatch = async () => {
     if (!opening) return;
+    // Опечатку («1,5,», «1..5», «1 5») не отправляем: пустое количество сервер понимает как «вся партия».
+    const raw = opening.quantity.trim().replace(/,/g, '.');
+    const quantity = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+    const batch = batches.data?.find((b) => b.id === opening.id);
+    if (!(quantity > 0) || (batch && quantity > batch.remaining)) {
+      setOpening({ ...opening, error: batch ? `Введите число больше нуля, не больше ${qty(batch.remaining, batch.unit)}.` : 'Введите число больше нуля.' });
+      return;
+    }
     setBusy(true);
     try {
-      const response = await post(`/stock/batches/${opening.id}/open`, { quantity: Number(opening.quantity.replace(',', '.')) });
+      const response = await post(`/stock/batches/${opening.id}/open`, { quantity });
       if (response.ok) {
         setOpening(null);
         await Promise.all([stock.reload(), batches.reload(), stopList.reload()]);
       } else {
-        const problem = await response.json().catch(() => ({}));
-        const messages = Object.values((problem.errors ?? {}) as Record<string, string[]>).flat();
-        setOpening({ ...opening, error: messages.join(' ') || problem.detail || `Сервер ответил ошибкой ${response.status}.` });
+        setOpening({ ...opening, error: await problemText(response) });
       }
     } catch (e) {
       setOpening({ ...opening, error: (e as Error).message });
@@ -105,12 +112,16 @@ export function Stock() {
 
   const writeOff = async (batch: BatchRow, reason?: 'Spoiled' | 'Defective') => {
     setBusy(true);
+    setWriteOffError(null);
     try {
-      await post(`/stock/batches/${batch.id}/write-off`, reason ? { reason } : undefined);
+      const response = await post(`/stock/batches/${batch.id}/write-off`, reason ? { reason } : undefined);
+      // Отказ сервера (партию уже списали или распродали) показываем у строки, а не глотаем молча.
+      if (!response.ok) setWriteOffError({ id: batch.id, text: `Не списано. ${await problemText(response)}` });
       await Promise.all([stock.reload(), batches.reload(), stopList.reload()]);
       setAsking(null);
-    } catch {
+    } catch (e) {
       // Связь оборвалась: партия осталась в списке, списание можно повторить.
+      setWriteOffError({ id: batch.id, text: `Не списано. ${(e as Error).message}` });
     } finally {
       setBusy(false);
     }
@@ -259,6 +270,7 @@ export function Stock() {
                             <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => (b.status === 'Expired' ? writeOff(b) : setAsking(b.id))}>
                               Списать
                             </button>
+                            {writeOffError?.id === b.id && <span className="g-error-text" role="alert">{writeOffError.text}</span>}
                             </span>
                           )}
                         </li>
