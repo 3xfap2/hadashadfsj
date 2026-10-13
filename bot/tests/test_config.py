@@ -7,7 +7,7 @@ import pytest
 from ostatok_bot.app import start_health_server
 from ostatok_bot.config import Config
 
-VARS = ["BOT_TOKEN", "API_URL", "POLL_SECONDS", "DATA_DIR", "TIMEZONE", "PORT"]
+VARS = ["BOT_TOKEN", "API_URL", "POLL_SECONDS", "DATA_DIR", "TIMEZONE", "PORT", "WEBAPP_URL"]
 
 
 @pytest.fixture
@@ -25,6 +25,14 @@ def test_defaults(env):
     assert config.db_path == Path("data") / "bot.sqlite3"
     assert config.tz.key == "Europe/Moscow"
     assert config.port is None
+
+
+def test_webapp_url_follows_https_api_or_is_off(env):
+    assert Config.from_env().webapp_url is None  # http://localhost — Telegram мини-приложение не откроет
+    env.setenv("API_URL", "https://ostatok.onrender.com/")
+    assert Config.from_env().webapp_url == "https://ostatok.onrender.com/app"
+    env.setenv("WEBAPP_URL", "https://example.ru/app")
+    assert Config.from_env().webapp_url == "https://example.ru/app"
 
 
 def test_all_settings_from_env(env, tmp_path):

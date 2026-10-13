@@ -13,7 +13,8 @@ from urllib.request import getproxies
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiohttp import web
-from aiogram.exceptions import TelegramUnauthorizedError
+from aiogram.exceptions import TelegramAPIError, TelegramUnauthorizedError
+from aiogram.types import MenuButtonDefault, MenuButtonWebApp, WebAppInfo
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from .access import GUEST_COMMANDS
@@ -55,6 +56,16 @@ async def start_health_server(port: int) -> web.AppRunner:
 
 
 LOCK_FILE = "bot.lock"
+
+
+async def set_menu_button(bot: Bot, webapp_url: str | None) -> None:
+    """Кнопка слева от поля ввода открывает сайт «Остатка» как мини-приложение. Без https-адреса — обычное меню команд."""
+    button = MenuButtonWebApp(text="Открыть", web_app=WebAppInfo(url=webapp_url)) if webapp_url else MenuButtonDefault()
+    try:
+        await bot.set_chat_menu_button(menu_button=button)
+    except TelegramAPIError as exc:
+        # Без кнопки бот работает как раньше: это не повод не запускаться.
+        log.warning("Кнопку мини-приложения поставить не удалось: %s", exc)
 
 
 def lock_instance(data_dir: Path) -> IO:
@@ -109,6 +120,7 @@ async def main() -> None:
         except TelegramUnauthorizedError:
             raise SystemExit("Telegram не принял BOT_TOKEN. Проверьте токен у @BotFather.") from None
 
+        await set_menu_button(bot, config.webapp_url)
         monitor_task = asyncio.create_task(Monitor(api, db, bot, config.poll_seconds).run())
 
         if config.port:

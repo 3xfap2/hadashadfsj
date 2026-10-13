@@ -140,12 +140,14 @@ if (app.Configuration.GetValue<bool>("Proxy:TrustForwardedHeaders"))
 app.UseExceptionHandler();
 if (!app.Environment.IsDevelopment()) app.UseHsts();
 // Заголовки защиты: не угадывать тип содержимого, не встраивать API во фреймы, не передавать адрес страницы
-// другим сайтам (в адресе потока событий есть токен).
+// другим сайтам (в адресе потока событий есть токен). Страницы сайта встраивает только Telegram:
+// в веб-версии и на компьютере мини-приложение бота открывается во фрейме.
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
     headers.XContentTypeOptions = "nosniff";
-    headers.XFrameOptions = "DENY";
+    if (context.Request.Path.StartsWithSegments("/api")) headers.XFrameOptions = "DENY";
+    else headers.ContentSecurityPolicy = "frame-ancestors 'self' https://web.telegram.org";
     headers["Referrer-Policy"] = "no-referrer";
     // Ответы API с данными ресторана не должны оседать в кэше браузера и прокси; фото блюд кэшировать можно.
     // Файлы самого сайта кэшируются как обычно: в их именах есть отпечаток содержимого.

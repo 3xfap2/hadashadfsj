@@ -47,6 +47,8 @@ class Config:
     data_dir: Path
     tz: ZoneInfo
     port: int | None = None
+    # Мини-приложение: тот же сайт внутри Telegram. Только https — иначе Telegram его не откроет.
+    webapp_url: str | None = None
 
     @property
     def db_path(self) -> Path:
@@ -69,4 +71,11 @@ class Config:
             data_dir=Path(_env("DATA_DIR", "data")),
             tz=tz,
             port=_number("PORT", "0", integer=True) if _env("PORT") else None,
+            webapp_url=_webapp_url(_env("WEBAPP_URL"), _env("API_URL", "http://localhost:5078")),
         )
+
+
+def _webapp_url(explicit: str | None, api_url: str) -> str | None:
+    """Адрес мини-приложения: WEBAPP_URL, иначе кабинет на том же адресе, что API. Не https — мини-приложения нет."""
+    url = explicit or api_url.rstrip("/") + "/app"
+    return url if url.startswith("https://") else None
