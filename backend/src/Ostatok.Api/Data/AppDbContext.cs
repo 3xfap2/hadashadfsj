@@ -34,6 +34,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
     public DbSet<Inventory> Inventories => Set<Inventory>();
     public DbSet<CrmNote> CrmNotes => Set<CrmNote>();
     public DbSet<CrmTask> CrmTasks => Set<CrmTask>();
+    public DbSet<StaffMessage> StaffMessages => Set<StaffMessage>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
     {
@@ -232,6 +233,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
         {
             e.Property(m => m.Author).HasMaxLength(100);
             e.Property(m => m.Text).HasConversion(PersonalData.Converter);
+        });
+
+        model.Entity<StaffMessage>(e =>
+        {
+            e.Property(m => m.Author).HasMaxLength(60);
+            e.Property(m => m.Employee).HasMaxLength(60);
+            // Переписка с сотрудниками — те же личные данные, что и в чате с посетителями.
+            e.Property(m => m.Text).HasConversion(PersonalData.Converter);
+            e.HasIndex(m => new { m.RestaurantId, m.Employee });
         });
 
         model.Entity<User>(e =>

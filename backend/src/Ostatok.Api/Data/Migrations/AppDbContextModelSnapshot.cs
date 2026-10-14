@@ -836,6 +836,46 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("Restaurants");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.StaffMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Author")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Employee")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<bool>("FromOwner")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId", "Employee");
+
+                    b.ToTable("StaffMessages");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.StopLog", b =>
                 {
                     b.Property<long>("Id")
@@ -929,6 +969,9 @@ namespace Ostatok.Api.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<long>("LastReadAlertId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("LastReadMessageId")
                         .HasColumnType("bigint");
 
                     b.Property<string>("Login")
@@ -1240,6 +1283,15 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.StaffMessage", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.StopLog", b =>

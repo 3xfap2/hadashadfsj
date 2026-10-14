@@ -40,8 +40,17 @@ public static partial class StaffEndpoints
         staff.MapGet("", async (AppDbContext db, CancellationToken ct) =>
             await db.Users.OrderBy(u => u.Login).Select(u => new StaffResponse(u.Id, u.Login, u.Title, u.Role)).ToListAsync(ct));
 
-        staff.MapPost("", async (StaffRequest req, AppDbContext db, CancellationToken ct) =>
-        {
+        staff.MapPost("", CreateAsync);
+        // Смена роли или должности и сброс пароля, если сотрудник его забыл.
+        staff.MapPut("{id:guid}", UpdateAsync);
+        staff.MapDelete("{id:guid}", DeleteAsync);
+    }
+
+    // Те же действия выполняет владелец из своего кабинета (OwnerCabinet): там ресторан выбирается явно,
+    // а проверки — эти же, в пространстве данных выбранного ресторана.
+
+    internal static async Task<IResult> CreateAsync(StaffRequest req, AppDbContext db, CancellationToken ct)
+    {
             var (login, title) = ((req.Login ?? "").Trim().ToLowerInvariant(), (req.Title ?? "").Trim());
             var errors = new Errors()
                 .Check(LoginPattern().IsMatch(login), "login", LoginRule)
@@ -62,11 +71,10 @@ public static partial class StaffEndpoints
             db.Users.Add(user);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/users/{user.Id}", new StaffResponse(user.Id, user.Login, user.Title, user.Role));
-        });
+    }
 
-        // Смена роли или должности и сброс пароля, если сотрудник его забыл.
-        staff.MapPut("{id:guid}", async (Guid id, StaffUpdate req, ClaimsPrincipal principal, AppDbContext db, AuthOptions options, CancellationToken ct) =>
-        {
+    internal static async Task<IResult> UpdateAsync(Guid id, StaffUpdate req, ClaimsPrincipal principal, AppDbContext db, AuthOptions options, CancellationToken ct)
+    {
             var title = (req.Title ?? "").Trim();
             var errors = new Errors()
                 .Check(title is { Length: > 0 and <= 60 }, "title", "Укажите должность — до 60 символов.")
@@ -91,10 +99,10 @@ public static partial class StaffEndpoints
             if (!string.IsNullOrEmpty(req.Password)) user.PasswordHash = new PasswordHasher<User>().HashPassword(user, req.Password);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new StaffResponse(user.Id, user.Login, user.Title, user.Role));
-        });
+    }
 
-        staff.MapDelete("{id:guid}", async (Guid id, ClaimsPrincipal principal, AppDbContext db, AuthOptions options, CancellationToken ct) =>
-        {
+    internal static async Task<IResult> DeleteAsync(Guid id, ClaimsPrincipal principal, AppDbContext db, AuthOptions options, CancellationToken ct)
+    {
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
             if (user is null) return Results.NotFound();
             if (IsDemoAccount(user, options)) return DemoAccount();
@@ -105,7 +113,6 @@ public static partial class StaffEndpoints
             db.Users.Remove(user);
             await db.SaveChangesAsync(ct);
             return Results.NoContent();
-        });
     }
 
     /// <summary>Открытые учётные записи демо-ресторана: по ним систему смотрят без регистрации, поэтому менять их нельзя.</summary>

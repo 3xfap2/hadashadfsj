@@ -169,8 +169,11 @@ public static class AuthEndpoints
             var user = await db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Login == principal.Identity!.Name, ct);
             if (user is null) return Results.Unauthorized();
             var restaurant = await db.CurrentRestaurantAsync(ct);
+            // Владелец ресторанов видит ссылку на кабинет владельца, его сотрудники — переписку с ним.
+            string[] extra = await OwnerCabinet.IsOwnerAsync(db, user.Login, ct) ? ["owner"]
+                : await OwnerMessages.CanWriteToOwnerAsync(db, user.Login, ct) ? ["messages"] : [];
             return Results.Ok(new MeResponse(
-                user.Login, user.Title, user.Role, Access.Sections(user.Role, Access.IsVendor(user.Login, restaurant.Id, options)),
+                user.Login, user.Title, user.Role, Access.Sections(user.Role, Access.IsVendor(user.Login, restaurant.Id, options)).Concat(extra),
                 new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places(), restaurant.Name, restaurant.Id));
         })
         .WithTags("Вход")

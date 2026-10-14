@@ -12,6 +12,7 @@ import { Preps } from './pages/Preps';
 import { Stock } from './pages/Stock';
 import { Supplies } from './pages/Supplies';
 import { Today } from './pages/Today';
+import { MessagesLink } from './MessagesLink';
 
 // Экраны, которые открывают редко, подгружаются при первом заходе: вход и «Сегодня» открываются быстрее.
 const Analytics = lazy(() => import('./pages/Analytics').then((m) => ({ default: m.Analytics })));
@@ -26,6 +27,7 @@ const ShiftReport = lazy(() => import('./pages/ShiftReport').then((m) => ({ defa
 const Purchasing = lazy(() => import('./pages/Purchasing').then((m) => ({ default: m.Purchasing })));
 const Staff = lazy(() => import('./pages/Staff').then((m) => ({ default: m.Staff })));
 const SupplyImport = lazy(() => import('./pages/SupplyImport').then((m) => ({ default: m.SupplyImport })));
+const OwnerMessages = lazy(() => import('./pages/OwnerMessages').then((m) => ({ default: m.OwnerMessages })));
 
 const SECTIONS = [
   { id: 'today', path: '/app', title: 'Сегодня' },
@@ -103,6 +105,13 @@ export function Shell() {
         <div className="g-end">
           {allowed.includes('support') && <SupportLink />}
           {allowed.includes('support') && !isNative && <a className="muted" href="/crm/">CRM</a>}
+          {/* Значком, а не словами: в шапке управляющего и без того много разделов. */}
+          {allowed.includes('owner') && !isNative && (
+            <a className="alerts__bell" href="/owner/" aria-label="Кабинет владельца" title="Кабинет владельца: все рестораны">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21V9l6-4 6 4v12M15 21V12l6-3v12M2 21h20M7 13h4M7 17h4" /></svg>
+            </a>
+          )}
+          {allowed.includes('messages') && <MessagesLink />}
           <Alerts />
           <span className="muted">
             {me && <span className="shell__shift">Смена {me.shift.start}–{me.shift.end} · </span>}
@@ -121,6 +130,7 @@ export function Shell() {
         {me && <span className="muted">смена до {me.shift.end}</span>}
         <b className="num hd">{time}</b>
         {allowed.includes('support') && <SupportLink />}
+        {allowed.includes('messages') && <MessagesLink />}
         <Alerts />
       </header>
 
@@ -154,7 +164,8 @@ export function Shell() {
           <Route path="analytics/shift" element={<Guard section="analytics"><ShiftReport /></Guard>} />
           <Route path="catalog" element={<Guard section="catalog"><Products /></Guard>} />
           <Route path="catalog/dishes" element={<Guard section="catalog"><Dishes /></Guard>} />
-          <Route path="more" element={<More sections={extra} />} />
+          <Route path="messages" element={<Guard section="messages"><OwnerMessages /></Guard>} />
+          <Route path="more" element={<More sections={extra} owner={allowed.includes('owner') && !isNative} />} />
           <Route path="support" element={<ToCrm />} />
           <Route path="*" element={<p className="g-empty"><strong>Раздел в работе</strong>Скоро появится.</p>} />
         </Routes>}
@@ -224,7 +235,7 @@ export class Fence extends Component<{ children: ReactNode }, { failed: boolean 
   }
 }
 
-function More({ sections }: { sections: typeof SECTIONS }) {
+function More({ sections, owner }: { sections: typeof SECTIONS; owner: boolean }) {
   return (
     <>
       <div className="g-title"><h1>Ещё</h1></div>
@@ -233,6 +244,7 @@ function More({ sections }: { sections: typeof SECTIONS }) {
           {sections.map((s) => (
             <li key={s.path}><NavLink className="g-name" to={s.path}>{s.title}</NavLink></li>
           ))}
+          {owner && <li><a className="g-name" href="/owner/">Кабинет владельца</a></li>}
           <li><button className="g-btn" onClick={logout}>Выйти из кабинета</button></li>
         </ul>
       </section>

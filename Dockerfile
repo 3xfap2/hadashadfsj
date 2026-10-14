@@ -15,6 +15,14 @@ RUN npm ci
 COPY crm/ ./
 RUN npm run build
 
+# Кабинет владельца ресторанов — третье приложение по адресу /owner/, собирается так же, как CRM.
+FROM node:22-alpine AS owner
+WORKDIR /owner
+COPY owner/package*.json ./
+RUN npm ci
+COPY owner/ ./
+RUN npm run build
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS api
 WORKDIR /src
 COPY backend/src/Ostatok.Api/ ./
@@ -25,6 +33,7 @@ WORKDIR /app
 COPY --from=api /app ./
 COPY --from=web /web/dist ./wwwroot
 COPY --from=crm /crm/dist ./wwwroot/crm
+COPY --from=owner /owner/dist ./wwwroot/owner
 ENV ASPNETCORE_ENVIRONMENT=Production
 # Хостинг сообщает порт переменной PORT; локально — 8080.
 CMD ["sh", "-c", "ASPNETCORE_URLS=http://0.0.0.0:${PORT:-8080} exec dotnet Ostatok.Api.dll"]

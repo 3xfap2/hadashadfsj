@@ -204,6 +204,8 @@ api.MapSimulator();
 api.MapStaff();
 api.MapRestaurant();
 api.MapOwner();
+api.MapOwnerCabinet();
+api.MapOwnerMessages();
 api.MapSupportDesk();
 api.MapCrm();
 
@@ -226,6 +228,8 @@ await using (var scope = app.Services.CreateAsyncScope())
 // CRM команды продукта — второе приложение, в папке crm. Его маршрут точнее общего, поэтому адреса /crm/... достаются ему;
 // сам адрес /crm/ отдаёт UseDefaultFiles.
 app.MapFallbackToFile("crm/{*path:regex(^(?!.*[.][a-z0-9]+$).*$)}", "crm/index.html");
+// Кабинет владельца ресторанов — третье приложение, в папке owner; подключено так же, как CRM.
+app.MapFallbackToFile("owner/{*path:regex(^(?!.*[.][a-z0-9]+$).*$)}", "owner/index.html");
 // Страницы сайта — одно приложение: любой адрес, кроме API, открывает его главную страницу.
 app.MapFallbackToFile("{*path:regex(^(?!api/|openapi/|health$)(?!.*[.][a-z0-9]+$).*$)}", "index.html");
 

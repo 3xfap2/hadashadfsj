@@ -199,33 +199,7 @@ public static class InsightsEndpoints
         {
             days = Math.Clamp(days, 1, 90);
             var now = time.GetUtcNow();
-            var since = now.AddDays(-days);
-            // Партии, которые система создаёт сама (заготовки, проверка сроков, генератор), — не от поставщиков.
-            string[] own = [PrepService.Workshop, SimulatorEndpoints.CheckSupplier, Simulator.Supplier];
-            var batches = await db.Batches.AsNoTracking()
-                .Include(b => b.Product).Include(b => b.Supply)
-                .Where(b => b.Supply!.CreatedAt >= since && (b.Supply.Supplier == null || !own.Contains(b.Supply.Supplier)))
-                .ToListAsync(ct);
-            var moves = (await (
-                    from m in db.Movements
-                    join b in db.Batches on m.BatchId equals b.Id
-                    where b.Supply!.CreatedAt >= since && m.Type != MovementType.Supply && m.Type != MovementType.PrepMade && m.Type != MovementType.Surplus && m.Type != MovementType.Opened
-                    group m by new { m.BatchId, m.Type, m.Note } into g
-                    select new { g.Key.BatchId, g.Key.Type, g.Key.Note, Quantity = g.Sum(m => m.Quantity) }).ToListAsync(ct))
-                .ToLookup(m => m.BatchId);
-
-            var flows = batches.Select(b =>
-            {
-                decimal Sum(Func<MovementType, string?, bool> match) => moves[b.Id].Where(m => match(m.Type, m.Note)).Sum(m => m.Quantity);
-                bool WriteOff(MovementType type) => type == MovementType.WriteOff;
-                return new BatchFlow(b,
-                    Sold: Sum((type, _) => type is MovementType.Order or MovementType.PrepUse),
-                    Defective: Sum((type, note) => WriteOff(type) && note == WriteOffService.DefectiveNote),
-                    Spoiled: Sum((type, note) => WriteOff(type) && note == WriteOffService.SpoiledNote),
-                    // Всё остальное списание — по сроку: вручную или автоматически.
-                    Expired: Sum((type, note) => WriteOff(type) && note != WriteOffService.DefectiveNote && note != WriteOffService.SpoiledNote));
-            }).ToList();
-
+            var flows = await SupplierFlowsAsync(db.Batches, db.Movements, now.AddDays(-days), ct);
             var rows = SupplierReport.Build(flows, now);
             return new SupplierReportResponse(days, rows.Sum(r => r.Delivered), rows.Sum(r => r.Expired + r.Defective + r.Spoiled), rows);
         });
@@ -241,6 +215,40 @@ public static class InsightsEndpoints
                 orders.Where(o => o.Key == OrderStatus.Rejected).Sum(o => o.Count),
                 Math.Round(logs.Sum(l => StopTracker.Hours(l, since, now)), 1));
         });
+    }
+
+    /// <summary>
+    /// Что стало с каждой партией от поставщиков, привезённой начиная с since: сколько продано и сколько списано по каждой причине.
+    /// Источники партий и журнала передаются явно: кабинет владельца собирает их сразу по нескольким своим ресторанам.
+    /// </summary>
+    internal static async Task<List<BatchFlow>> SupplierFlowsAsync(
+        IQueryable<Batch> batchSource, IQueryable<Movement> movementSource, DateTimeOffset since, CancellationToken ct)
+    {
+        // Партии, которые система создаёт сама (заготовки, проверка сроков, генератор), — не от поставщиков.
+        string[] own = [PrepService.Workshop, SimulatorEndpoints.CheckSupplier, Simulator.Supplier];
+        var batches = await batchSource.AsNoTracking()
+            .Include(b => b.Product).Include(b => b.Supply)
+            .Where(b => b.Supply!.CreatedAt >= since && (b.Supply.Supplier == null || !own.Contains(b.Supply.Supplier)))
+            .ToListAsync(ct);
+        var moves = (await (
+                from m in movementSource
+                join b in batchSource on m.BatchId equals b.Id
+                where b.Supply!.CreatedAt >= since && m.Type != MovementType.Supply && m.Type != MovementType.PrepMade && m.Type != MovementType.Surplus && m.Type != MovementType.Opened
+                group m by new { m.BatchId, m.Type, m.Note } into g
+                select new { g.Key.BatchId, g.Key.Type, g.Key.Note, Quantity = g.Sum(m => m.Quantity) }).ToListAsync(ct))
+            .ToLookup(m => m.BatchId);
+
+        return batches.Select(b =>
+        {
+            decimal Sum(Func<MovementType, string?, bool> match) => moves[b.Id].Where(m => match(m.Type, m.Note)).Sum(m => m.Quantity);
+            bool WriteOff(MovementType type) => type == MovementType.WriteOff;
+            return new BatchFlow(b,
+                Sold: Sum((type, _) => type is MovementType.Order or MovementType.PrepUse),
+                Defective: Sum((type, note) => WriteOff(type) && note == WriteOffService.DefectiveNote),
+                Spoiled: Sum((type, note) => WriteOff(type) && note == WriteOffService.SpoiledNote),
+                // Всё остальное списание — по сроку: вручную или автоматически.
+                Expired: Sum((type, note) => WriteOff(type) && note != WriteOffService.DefectiveNote && note != WriteOffService.SpoiledNote));
+        }).ToList();
     }
 
     /// <summary>Потеря по журналу: списание или недостача, найденная при инвентаризации.</summary>
@@ -276,7 +284,7 @@ public static class InsightsEndpoints
     /// Цена стопа по блюдам за период [since, now]. Если задан from, скорость продаж считается за весь период,
     /// а простой и потери — только начиная с from: так отчёт за смену оценивает один день по спросу за две недели.
     /// </summary>
-    private static async Task<List<StopCostRow>> StopCostAsync(
+    internal static async Task<List<StopCostRow>> StopCostAsync(
         AppDbContext db, StockOptions options, DateTimeOffset since, DateTimeOffset now, CancellationToken ct, DateTimeOffset? from = null)
     {
         var stops = (await db.StopLogs.AsNoTracking().Where(l => l.StartedAt <= now && (l.EndedAt == null || l.EndedAt >= since)).ToListAsync(ct)).ToLookup(l => l.DishId);

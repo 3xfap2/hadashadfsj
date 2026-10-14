@@ -393,4 +393,26 @@ public class User : IOwned
     public int TokenVersion { get; set; }
     /// <summary>Номер последнего сигнала, который сотрудник прочитал: всё, что новее, для него непрочитано.</summary>
     public long LastReadAlertId { get; set; }
+    /// <summary>Номер последнего прочитанного сообщения владельца: всё, что новее, для сотрудника непрочитано.</summary>
+    public long LastReadMessageId { get; set; }
+}
+
+/// <summary>
+/// Сообщение в переписке владельца с сотрудником ресторана. Диалог — пара «ресторан + сотрудник»;
+/// сообщение владельца без сотрудника адресовано всем сотрудникам ресторана.
+/// </summary>
+public class StaffMessage : IOwned
+{
+    public Guid RestaurantId { get; set; }
+    public long Id { get; set; }
+    public DateTimeOffset At { get; set; }
+    /// <summary>Написал владелец; иначе — сотрудник из поля Employee.</summary>
+    public bool FromOwner { get; set; }
+    /// <summary>Логин того, кто написал.</summary>
+    public required string Author { get; set; }
+    /// <summary>Логин сотрудника, с которым идёт диалог; пусто — сообщение владельца всем сотрудникам ресторана.</summary>
+    public string? Employee { get; set; }
+    public required string Text { get; set; }
+    /// <summary>Когда владелец прочитал сообщение сотрудника. У сотрудника прочитанное считается по <see cref="User.LastReadMessageId"/>.</summary>
+    public DateTimeOffset? ReadAt { get; set; }
 }

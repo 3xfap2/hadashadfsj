@@ -84,7 +84,7 @@ public static class OwnerEndpoints
     }
 
     /// <summary>Рестораны сотрудника: тот, где заведена его учётная запись, и те, что он добавил сам. Отключённые не показываются.</summary>
-    private static IQueryable<Restaurant> OwnedAsync(AppDbContext db, ClaimsPrincipal principal)
+    internal static IQueryable<Restaurant> OwnedAsync(AppDbContext db, ClaimsPrincipal principal)
     {
         var login = principal.Identity!.Name;
         return db.Restaurants.Where(r => r.DisabledAt == null
