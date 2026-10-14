@@ -5,10 +5,12 @@ using Ostatok.Api.Domain;
 namespace Ostatok.Api.Features;
 
 public sealed record HotDishRequest(bool Pinned, bool Hidden);
+/// <param name="Note">Причина для официанта, необязательно: «повар Иван сегодня готовит фирменное».</param>
+public sealed record HotAddRequest(string? Note);
 
 /// <summary>
 /// Настройка горячих предложений: менеджер меняет правила расчёта и правит сам список —
-/// закрепляет блюдо наверху или убирает его из предложений.
+/// закрепляет блюдо наверху, убирает его из предложений или добавляет своё.
 /// </summary>
 public static class HotSettingsEndpoints
 {
@@ -40,8 +42,32 @@ public static class HotSettingsEndpoints
         {
             var dish = await db.Dishes.FindAsync([id], ct);
             if (dish is null) return Results.NotFound();
-            // Скрытое блюдо закрепить нельзя: скрытие важнее.
+            // Скрытое блюдо закрепить нельзя: скрытие важнее. Оно же снимает ручное добавление.
             (dish.HotPinned, dish.HotHidden) = (req.Pinned && !req.Hidden, req.Hidden);
+            if (req.Hidden) (dish.HotAdded, dish.HotNote) = (false, null);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
+        // Добавить блюдо в предложения вручную — например, повар сегодня готовит его особенно. Официант видит его
+        // с пометкой «добавлено управляющим» и причиной; в план спасения и суммы оно не входит.
+        settings.MapPut("/dishes/{id:guid}/added", async (Guid id, HotAddRequest req, AppDbContext db, CancellationToken ct) =>
+        {
+            var note = string.IsNullOrWhiteSpace(req.Note) ? null : req.Note.Trim();
+            var errors = new Errors().Check(note is not { Length: > 200 }, "note", "Причина — до 200 символов.");
+            if (errors.Any) return errors.ToResult();
+            var dish = await db.Dishes.FindAsync([id], ct);
+            if (dish is null) return Results.NotFound();
+            (dish.HotAdded, dish.HotNote, dish.HotHidden) = (true, note, false);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
+        settings.MapDelete("/dishes/{id:guid}/added", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        {
+            var dish = await db.Dishes.FindAsync([id], ct);
+            if (dish is null) return Results.NotFound();
+            (dish.HotAdded, dish.HotNote) = (false, null);
             await db.SaveChangesAsync(ct);
             return Results.NoContent();
         });

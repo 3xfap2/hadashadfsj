@@ -275,8 +275,15 @@ namespace Ostatok.Api.Data.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<bool>("HotAdded")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("HotHidden")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("HotNote")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<bool>("HotPinned")
                         .HasColumnType("boolean");

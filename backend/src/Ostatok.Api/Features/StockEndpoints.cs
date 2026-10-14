@@ -57,8 +57,11 @@ public static class StockEndpoints
     {
         var stock = api.MapGroup("/stock").WithTags("Склад");
 
-        stock.MapGet("", async (AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
+        // Остатки — в кэше чтений (см. ReadCache): их перечитывает каждый открытый экран склада.
+        stock.MapGet("", (HttpContext http, ReadCache cache, Tenant tenant, AppDbContext db, TimeProvider time, ClaimsPrincipal user) =>
+            cache.GetAsync(http, tenant.Id, $"stock|{user.SeesCosts()}", async () =>
         {
+            var ct = CancellationToken.None;
             var now = time.GetUtcNow();
             var costs = user.SeesCosts();
             var totals = await db.Batches
@@ -72,16 +75,20 @@ public static class StockEndpoints
                     FreshValue = g.Sum(b => b.ExpiresAt > now ? b.Remaining * b.UnitCost : 0m),
                     Batches = g.Count(),
                     NearestExpiry = g.Min(b => b.ExpiresAt),
+                    // Ближайший срок годной партии: в этот миг годный остаток станет просроченным без записи в базу.
+                    NextExpiry = g.Min(b => b.ExpiresAt > now ? (DateTimeOffset?)b.ExpiresAt : null),
                 })
                 .ToDictionaryAsync(r => r.ProductId, ct);
 
             // Продукты без остатка тоже в списке: по ним видно, чего на складе нет совсем.
-            return (await db.Products.OrderBy(p => p.Name).ToListAsync(ct)).Select(p =>
+            var rows = (await db.Products.OrderBy(p => p.Name).ToListAsync(ct)).Select(p =>
             {
                 var t = totals.GetValueOrDefault(p.Id);
                 return new StockRow(p.Id, p.Name, p.Unit, t?.Fresh ?? 0, t?.Expired ?? 0, costs ? t?.FreshValue ?? 0 : null, t?.Batches ?? 0, t?.NearestExpiry);
-            });
-        });
+            }).ToList();
+            return (rows, totals.Values.Min(t => t.NextExpiry));
+        }))
+        .Produces<List<StockRow>>();
 
         stock.MapGet("/batches", async (AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct, Guid? productId = null) =>
         {
@@ -110,14 +117,20 @@ public static class StockEndpoints
                 _ => Results.NoContent(),
             }).RequireRoles(Access.Stock);
 
-        api.MapGet("/stop-list", async (AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct) =>
+        // Стоп-лист запрашивает каждый терминал официанта: ответ берётся из кэша чтений и считается заново
+        // только после изменения данных ресторана или когда истекает ближайшая партия (см. ReadCache).
+        // Решение о продаже по нему не принимается: заказ сам читает партии под FOR UPDATE (OrderService).
+        api.MapGet("/stop-list", (HttpContext http, ReadCache cache, Tenant tenant, AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user) =>
+            cache.GetAsync(http, tenant.Id, $"stop-list|{user.SeesCosts()}", async () =>
         {
+            var ct = CancellationToken.None;
             var now = time.GetUtcNow();
             var costs = user.SeesCosts();
             var totals = await db.LoadTotalsAsync(now, ct);
-            var batches = (await db.LoadFreshBatchesAsync(now, ct)).ToLookup(b => b.ProductId);
+            var fresh = await db.LoadFreshBatchesAsync(now, ct);
+            var batches = fresh.ToLookup(b => b.ProductId);
             var perHour = await db.LoadConsumptionPerHourAsync(now, options, ct);
-            return (await db.LoadDishesAsync(ct))
+            var rows = (await db.LoadDishesAsync(ct))
                 .Select(d =>
                 {
                     var a = Availability.Of(d, totals);
@@ -126,8 +139,11 @@ public static class StockEndpoints
                     return new StopListRow(d.Id, d.Name, d.PhotoUrl, d.Price, a.Status, a.Portions, limiting.Id, limiting.Name, a.Reason, forecast,
                         costs ? d.Recipe.Sum(r => r.Quantity * r.Product!.Cost) : null, d.Category);
                 })
-                .OrderByDescending(r => r.Status).ThenBy(r => r.Portions).ThenBy(r => r.DishName);
-        })
+                .OrderByDescending(r => r.Status).ThenBy(r => r.Portions).ThenBy(r => r.DishName)
+                .ToList();
+            return (rows, fresh.FirstOrDefault()?.ExpiresAt);
+        }))
+        .Produces<List<StopListRow>>()
         .WithTags("Стоп-лист");
 
         // batchId — история одной партии: приёмка, вскрытие, заказы и списания, которые её касались.

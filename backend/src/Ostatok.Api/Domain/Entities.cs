@@ -143,6 +143,10 @@ public class Dish : IOwned
     public bool HotPinned { get; set; }
     /// <summary>Менеджер убрал блюдо из горячих предложений.</summary>
     public bool HotHidden { get; set; }
+    /// <summary>Менеджер сам добавил блюдо в горячие предложения, даже если истекающих продуктов в нём нет.</summary>
+    public bool HotAdded { get; set; }
+    /// <summary>Причина ручного добавления для официанта: «повар Иван сегодня готовит фирменное».</summary>
+    public string? HotNote { get; set; }
     public List<RecipeItem> Recipe { get; set; } = [];
 }
 

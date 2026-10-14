@@ -54,34 +54,40 @@ public static class InsightsEndpoints
 {
     public const string ShortageReason = "Недостача по инвентаризации";
 
+    /// <summary>План горячих предложений и момент, когда он изменится сам: истечёт ближайшая годная партия.</summary>
+    private static async Task<(HotPlan Plan, HotRules Rules, DateTimeOffset? ChangesAt)> HotPlanAsync(
+        AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user)
+    {
+        var ct = CancellationToken.None;
+        var now = time.GetUtcNow();
+        var rules = await db.LoadHotRulesAsync(options, ct);
+        var batches = await db.LoadFreshBatchesAsync(now, ct);
+        var plan = HotOffers.Plan(
+            await db.LoadDishesAsync(ct), batches, await db.LoadTotalsAsync(now, ct),
+            now, rules, await db.LoadConsumptionPerHourAsync(now, options, ct), user.SeesCosts());
+        return (plan, rules, batches.FirstOrDefault()?.ExpiresAt);
+    }
+
     public static void MapInsights(this RouteGroupBuilder api)
     {
-        api.MapGet("/hot-offers", async (AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var now = time.GetUtcNow();
-            return HotOffers.Rank(
-                await db.LoadDishesAsync(ct),
-                await db.LoadFreshBatchesAsync(now, ct),
-                await db.LoadTotalsAsync(now, ct),
-                now, await db.LoadHotRulesAsync(options, ct),
-                await db.LoadConsumptionPerHourAsync(now, options, ct),
-                user.SeesCosts());
-        })
+        // Горячие предложения и план спасения — в кэше чтений, как и стоп-лист (см. ReadCache).
+        api.MapGet("/hot-offers", (HttpContext http, ReadCache cache, Tenant tenant, AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user) =>
+            cache.GetAsync(http, tenant.Id, $"hot-offers|{user.SeesCosts()}", async () =>
+            {
+                var (plan, _, changesAt) = await HotPlanAsync(db, time, options, user);
+                return (plan.Offers, changesAt);
+            }))
+        .Produces<List<HotOffer>>()
         .WithTags("Горячие предложения");
 
         // План спасения: сколько рублей истекающих продуктов уйдёт в блюда и что пристроить некуда.
-        api.MapGet("/hot-offers/plan", async (AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user, CancellationToken ct) =>
-        {
-            var now = time.GetUtcNow();
-            var rules = await db.LoadHotRulesAsync(options, ct);
-            var plan = HotOffers.Plan(
-                await db.LoadDishesAsync(ct),
-                await db.LoadFreshBatchesAsync(now, ct),
-                await db.LoadTotalsAsync(now, ct),
-                now, rules,
-                await db.LoadConsumptionPerHourAsync(now, options, ct), user.SeesCosts());
-            return new HotPlanSummary(plan.AtRiskValue, plan.PlannedValue, plan.Offers.Sum(o => o.Portions), plan.Leftovers, rules.HorizonHours);
-        })
+        api.MapGet("/hot-offers/plan", (HttpContext http, ReadCache cache, Tenant tenant, AppDbContext db, TimeProvider time, StockOptions options, ClaimsPrincipal user) =>
+            cache.GetAsync(http, tenant.Id, $"hot-plan|{user.SeesCosts()}", async () =>
+            {
+                var (plan, rules, changesAt) = await HotPlanAsync(db, time, options, user);
+                return (new HotPlanSummary(plan.AtRiskValue, plan.PlannedValue, plan.Offers.Sum(o => o.Portions), plan.Leftovers, rules.HorizonHours), changesAt);
+            }))
+        .Produces<HotPlanSummary>()
         .WithTags("Горячие предложения");
 
         api.MapGet("/purchase-suggestions", (AppDbContext db, TimeProvider time, StockOptions options, CancellationToken ct) =>
