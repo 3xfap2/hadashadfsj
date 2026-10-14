@@ -130,9 +130,12 @@ public sealed class Simulator(IServiceScopeFactory scopes, SimulatorState state,
 public sealed record ExpiryCheckRequest(Guid ProductId, int Minutes);
 
 /// <param name="WrittenOffAt">Когда партию списали; пусто, пока она на складе.</param>
+/// <param name="WrittenOffBy">Кто списал: логин сотрудника или «система» при автосписании.</param>
+/// <param name="AutoWriteOff">Включено ли в ресторане автосписание; по умолчанию нет — просрочку списывает человек.</param>
 public sealed record ExpiryCheckResponse(
     Guid BatchId, string SupplyNumber, Guid ProductId, string ProductName, Unit Unit,
-    decimal Quantity, decimal Remaining, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? WrittenOffAt);
+    decimal Quantity, decimal Remaining, DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? WrittenOffAt,
+    string? WrittenOffBy = null, bool AutoWriteOff = false, int AutoWriteOffAfterHours = 0);
 
 public static class SimulatorEndpoints
 {
@@ -154,7 +157,7 @@ public static class SimulatorEndpoints
         });
 
         // Проверка сроков: партия, которая истекает через несколько минут. На ней виден весь путь —
-        // сигнал, просрочка, стоп блюда, автосписание — без ожидания в сутки.
+        // сигнал, просрочка, стоп блюда, «под списание» и списание — без ожидания в сутки.
         simulator.MapPost("/expiry-check", async (ExpiryCheckRequest req, AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
         {
             var product = await db.Products.FindAsync([req.ProductId], ct);
@@ -199,9 +202,11 @@ public static class SimulatorEndpoints
 
         var writtenOff = await db.Movements
             .Where(m => m.BatchId == batch.Id && m.Type == MovementType.WriteOff)
-            .Select(m => (DateTimeOffset?)m.At).FirstOrDefaultAsync(ct);
+            .Select(m => new { m.At, m.Actor }).FirstOrDefaultAsync(ct);
+        var restaurant = await db.CurrentRestaurantAsync(ct);
         return new ExpiryCheckResponse(
             batch.Id, batch.Supply!.Number, batch.ProductId, batch.Product!.Name, batch.Product.Unit,
-            batch.Quantity, batch.Remaining, batch.Supply.CreatedAt, batch.ExpiresAt, writtenOff);
+            batch.Quantity, batch.Remaining, batch.Supply.CreatedAt, batch.ExpiresAt, writtenOff?.At,
+            writtenOff?.Actor, restaurant.AutoWriteOff, restaurant.AutoWriteOffAfterHours);
     }
 }

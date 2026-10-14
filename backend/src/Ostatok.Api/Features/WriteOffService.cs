@@ -37,11 +37,12 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
     }
 
     /// <summary>
-    /// Списывает партии, просроченные дольше отсрочки. Отсрочка не длиннее срока хранения самой партии
+    /// Автосписание — только в ресторанах, где его включили в настройках; по умолчанию просрочка ждёт человека «под списание».
+    /// Списывает партии, просроченные дольше отсрочки ресторана. Отсрочка не длиннее срока хранения самой партии
     /// (у вскрытой — срока после вскрытия): продукт, который хранится час, не лежит просроченным полсуток. Возвращает число списанных партий.
     /// Работает по всем ресторанам сразу: это фоновая задача, у неё нет «своего» ресторана.
     /// </summary>
-    public async Task<int> WriteOffExpiredAsync(TimeSpan grace, CancellationToken ct)
+    public async Task<int> WriteOffExpiredAsync(CancellationToken ct)
     {
         var now = time.GetUtcNow();
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -49,7 +50,9 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
             .FromSql($"""
                 SELECT b.* FROM "Batches" b
                 JOIN "Supplies" s ON s."Id" = b."SupplyId"
-                WHERE b."Remaining" > 0 AND b."ExpiresAt" <= {now} - LEAST({grace}, b."ExpiresAt" - COALESCE(b."OpenedAt", s."CreatedAt"))
+                JOIN "Restaurants" r ON r."Id" = b."RestaurantId"
+                WHERE r."AutoWriteOff" AND b."Remaining" > 0
+                  AND b."ExpiresAt" <= {now} - LEAST(make_interval(hours => r."AutoWriteOffAfterHours"), b."ExpiresAt" - COALESCE(b."OpenedAt", s."CreatedAt"))
                 FOR UPDATE OF b SKIP LOCKED
                 """)
             .IgnoreQueryFilters()
@@ -80,7 +83,10 @@ public sealed class WriteOffService(AppDbContext db, TimeProvider time)
     }
 }
 
-/// <summary>Раз в 20 секунд поднимает сигналы о сроках, записывает историю стоп-листа и списывает просрочку, которую не списали вручную за время отсрочки.</summary>
+/// <summary>
+/// Раз в 20 секунд поднимает сигналы о сроках, записывает историю стоп-листа и — в ресторанах с включённым автосписанием —
+/// списывает просрочку, которую не списали вручную за время отсрочки. Stock:AutoWriteOff в настройках сервера выключает автосписание целиком.
+/// </summary>
 public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions options, ILogger<ExpiryWorker> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stop)
@@ -95,7 +101,7 @@ public sealed class ExpiryWorker(IServiceScopeFactory scopes, StockOptions optio
                 if (options.AutoWriteOff)
                 {
                     var count = await scope.ServiceProvider.GetRequiredService<WriteOffService>()
-                        .WriteOffExpiredAsync(TimeSpan.FromHours(options.AutoWriteOffAfterHours), stop);
+                        .WriteOffExpiredAsync(stop);
                     if (count > 0) log.LogInformation("Автосписание: {Count} партий", count);
                 }
                 if (options.TrackStops)
