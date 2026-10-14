@@ -6,3 +6,5 @@
 backend/tests
 web/android
 web/apk
+
+.claude
