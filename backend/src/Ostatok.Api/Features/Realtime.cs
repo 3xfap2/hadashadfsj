@@ -9,14 +9,17 @@ namespace Ostatok.Api.Features;
 /// <summary>
 /// Рассылка «данные изменились» всем открытым кабинетам. Сообщение не несёт самих данных:
 /// экран, получив его, перечитывает то, что показывает, — так он всегда совпадает с сервером.
+/// Тот же сигнал сбрасывает кэш чтений сервера (<see cref="ReadCache"/>): перечитанное придёт уже из базы.
 /// </summary>
-public sealed class EventBus
+public sealed class EventBus(ReadCache cache)
 {
     private readonly ConcurrentDictionary<Guid, (Guid Restaurant, Channel<string> Channel)> _subscribers = new();
 
     /// <summary>Сообщает кабинетам ресторана об изменении; без ресторана (фоновая задача по всем сразу) — всем.</summary>
     public void Publish(Guid? restaurant = null)
     {
+        // Сначала кэш: экран, получив сообщение, не должен прочитать прежний ответ.
+        cache.Invalidate(restaurant);
         foreach (var (owner, channel) in _subscribers.Values)
             if (restaurant is null || owner == restaurant) channel.Writer.TryWrite("changed");
     }

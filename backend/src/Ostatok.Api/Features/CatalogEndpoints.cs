@@ -15,7 +15,7 @@ public sealed record ProductResponse(Guid Id, string Name, Unit Unit, int ShelfL
 public sealed record DishRequest(string? Name, decimal Price, List<RecipeItemDto>? Recipe, string? PhotoUrl = null, string? Category = null);
 public sealed record DishResponse(
     Guid Id, string Name, decimal Price, string? PhotoUrl, IEnumerable<RecipeItemDto> Recipe, string? Category, bool ManuallyStopped,
-    bool HotPinned, bool HotHidden);
+    bool HotPinned, bool HotHidden, bool HotAdded = false, string? HotNote = null);
 
 public static class CatalogEndpoints
 {
@@ -59,7 +59,7 @@ public static class CatalogEndpoints
             return Results.Ok(ToResponse(product));
         }).RequireRoles(Access.Catalog);
 
-        products.MapDelete("{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        products.MapDelete("{id:guid}", async (Guid id, AppDbContext db, EventBus bus, CancellationToken ct) =>
         {
             var used = await db.Batches.AnyAsync(b => b.ProductId == id, ct)
                 || await db.Dishes.AnyAsync(d => d.Recipe.Any(r => r.ProductId == id), ct)
@@ -68,6 +68,8 @@ public static class CatalogEndpoints
             if (used)
                 return Results.Problem("Продукт используется в поставках, техкартах или инвентаризациях, удалить его нельзя.", statusCode: StatusCodes.Status409Conflict);
             var deleted = await db.Products.Where(p => p.Id == id).ExecuteDeleteAsync(ct);
+            // Удаление одной командой идёт мимо SaveChanges: об изменении (и сбросе кэша) сообщается явно.
+            if (deleted > 0) bus.Publish(db.TenantId);
             return deleted == 0 ? Results.NotFound() : Results.NoContent();
         }).RequireRoles(Access.Catalog);
 
@@ -101,11 +103,12 @@ public static class CatalogEndpoints
             return Results.Ok(ToResponse(dish));
         }).RequireRoles(Access.Catalog);
 
-        dishes.MapDelete("{id:guid}", async (Guid id, AppDbContext db, CancellationToken ct) =>
+        dishes.MapDelete("{id:guid}", async (Guid id, AppDbContext db, EventBus bus, CancellationToken ct) =>
         {
             if (await db.Orders.AnyAsync(o => o.Items.Any(i => i.DishId == id), ct))
                 return Results.Problem("По блюду уже есть заказы, удалить его нельзя.", statusCode: StatusCodes.Status409Conflict);
             var deleted = await db.Dishes.Where(d => d.Id == id).ExecuteDeleteAsync(ct);
+            if (deleted > 0) bus.Publish(db.TenantId);
             return deleted == 0 ? Results.NotFound() : Results.NoContent();
         }).RequireRoles(Access.Catalog);
 
@@ -236,7 +239,7 @@ public static class CatalogEndpoints
         new(p.Id, p.Name, p.Unit, p.ShelfLifeHours, costs ? p.Cost : null, p.PrepRecipe.Select(i => new RecipeItemDto(i.ProductId, i.Quantity)), p.OpenedShelfLifeHours);
 
     private static DishResponse ToResponse(Dish d) =>
-        new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)), d.Category, d.ManuallyStopped, d.HotPinned, d.HotHidden);
+        new(d.Id, d.Name, d.Price, d.PhotoUrl, d.Recipe.Select(r => new RecipeItemDto(r.ProductId, r.Quantity)), d.Category, d.ManuallyStopped, d.HotPinned, d.HotHidden, d.HotAdded, d.HotNote);
 
     private static IResult NameTaken(string what) =>
         Results.Problem($"{what} с таким названием уже есть.", statusCode: StatusCodes.Status409Conflict);

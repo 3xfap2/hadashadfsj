@@ -27,10 +27,13 @@ public sealed record HotDiscount(int Percent, decimal Price, decimal? FloorPrice
 
 /// <param name="Portions">Сколько порций стоит продать, чтобы израсходовать истекающие продукты.</param>
 /// <param name="ValueAtRisk">Сколько рублей продуктов блюдо спасает от списания; пусто, если цены показывать нельзя.</param>
+/// <param name="Manual">Блюдо добавил управляющий; если истекающих продуктов в нём нет, порций плана и ингредиентов у него нет.</param>
+/// <param name="Note">Причина, которую управляющий указал при добавлении.</param>
 public sealed record HotOffer(
     Guid DishId, string DishName, string? PhotoUrl, decimal Price, decimal Score,
     int Portions, int AvailablePortions, decimal? ValueAtRisk,
-    IReadOnlyList<HotIngredient> Ingredients, string Reason, HotDiscount? Discount, bool Pinned);
+    IReadOnlyList<HotIngredient> Ingredients, string Reason, HotDiscount? Discount, bool Pinned,
+    bool Manual = false, string? Note = null);
 
 /// <summary>Истекающий продукт, который план не смог пристроить: блюд с ним в продаже нет или на них не хватает остальных продуктов.</summary>
 public sealed record HotLeftover(Guid ProductId, string ProductName, Unit Unit, decimal Quantity, double HoursLeft, decimal? Value);
@@ -53,7 +56,9 @@ public sealed record HotPlan(IReadOnlyList<HotOffer> Offers, decimal? AtRiskValu
 /// рецептов: порции разных блюд вместе не требуют больше, чем лежит на складе, и рубли не пересекаются. Блюдо, которому ничего
 /// не досталось, не предлагается; продукт, который не пристроен ни в одно блюдо, остаётся в плане отдельной строкой.
 /// Горизонт, вес срочности, деление на √N и потолок скидки задаёт менеджер (<see cref="HotRules"/>);
-/// он же может закрепить блюдо первым или убрать его из списка.
+/// он же может закрепить блюдо первым, убрать его из списка или добавить своё блюдо с причиной.
+/// Добавленное вручную блюдо без истекающих продуктов стоит после расчётных и в план не входит: оно ничего не спасает,
+/// поэтому не забирает продукты у блюд плана и не меняет суммы. Блюдо в стопе не предлагается и так.
 /// Официанту и повару закупочные цены не показываются (costs = false): список и порядок те же, но без сумм в рублях.
 ///
 /// Скидка предлагается, только если при обычном спросе партия не успеет продаться до конца срока:
@@ -173,6 +178,17 @@ public static class HotOffers
                 Discount(dish, ingredients, perHour, rules, costs),
                 dish.HotPinned));
         }
+
+        // Блюда, добавленные управляющим: расчётное получает пометку и причину, остальные встают в конец списка.
+        // Закреплённое добавленное блюдо поднимается наверх вместе с закреплёнными расчётными (сортировка устойчивая).
+        foreach (var (dish, portions) in onSale.Where(x => x.Dish.HotAdded && !x.Dish.HotHidden))
+        {
+            var reason = dish.HotNote is { } note ? $"Добавлено управляющим: {note}" : "Добавлено управляющим";
+            var index = offers.FindIndex(o => o.DishId == dish.Id);
+            if (index >= 0) offers[index] = offers[index] with { Manual = true, Note = dish.HotNote };
+            else offers.Add(new HotOffer(dish.Id, dish.Name, dish.PhotoUrl, dish.Price, 0, 0, portions, 0, [], reason, null, dish.HotPinned, true, dish.HotNote));
+        }
+        offers = offers.OrderByDescending(o => o.Pinned).ToList();
 
         var leftovers = atRisk
             .Where(g => free[g.Key] > 0)

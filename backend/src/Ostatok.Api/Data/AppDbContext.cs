@@ -89,6 +89,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(d => d.Name).HasMaxLength(120);
             e.Property(d => d.PhotoUrl).HasMaxLength(300);
             e.Property(d => d.Category).HasMaxLength(60);
+            e.Property(d => d.HotNote).HasMaxLength(200);
             e.HasIndex(d => new { d.RestaurantId, d.Name }).IsUnique();
             e.HasMany(d => d.Recipe).WithOne().HasForeignKey(r => r.DishId);
         });

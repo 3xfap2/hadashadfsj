@@ -95,6 +95,36 @@ public class HotOffersTests
     }
 
     [Fact]
+    public void Добавленное_вручную_блюдо_видно_с_причиной_но_не_меняет_план()
+    {
+        var k = new Kitchen();
+        var (chicken, beef, fish) = (k.Product("Курица", cost: 400), k.Product("Говядина", cost: 900), k.Product("Рыба", cost: 800));
+        k.Stock(chicken, 1, 6).Stock(beef, 1, 200).Stock(fish, 0.1m, 200);
+        k.Dish("Суп", (chicken, 0.25m));
+        var without = HotOffers.Plan(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules());
+
+        // Стейк ничего не спасает — его добавил управляющий. Рыбы нет на порцию: блюдо в стопе и не предлагается.
+        var steak = k.Dish("Стейк", (beef, 0.3m));
+        (steak.HotAdded, steak.HotNote) = (true, "Повар Иван сегодня на гриле");
+        k.Dish("Рыба на гриле", (fish, 0.2m)).HotAdded = true;
+        k.Dishes[0].HotAdded = true;
+        var plan = HotOffers.Plan(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules());
+
+        Assert.Equal([("Суп", true, 4), ("Стейк", true, 0)], plan.Offers.Select(o => (o.DishName, o.Manual, o.Portions)));
+        var added = plan.Offers[1];
+        Assert.Equal((3, "Повар Иван сегодня на гриле", "Добавлено управляющим: Повар Иван сегодня на гриле"), (added.AvailablePortions, added.Note, added.Reason));
+        Assert.Empty(added.Ingredients);
+        Assert.Null(added.Discount);
+        Assert.Equal((without.AtRiskValue, without.PlannedValue), (plan.AtRiskValue, plan.PlannedValue));
+
+        // Закреплённое добавленное блюдо поднимается наверх; скрытое не показывается вовсе.
+        steak.HotPinned = true;
+        Assert.Equal(["Стейк", "Суп"], HotOffers.Rank(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules()).Select(o => o.DishName));
+        steak.HotHidden = true;
+        Assert.Equal(["Суп"], HotOffers.Rank(k.Dishes, k.Batches, k.Totals, Kitchen.Now, new HotRules()).Select(o => o.DishName));
+    }
+
+    [Fact]
     public void Общий_неистекающий_продукт_не_обещается_двум_блюдам_сразу()
     {
         var k = new Kitchen();

@@ -2398,4 +2398,145 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
 
         Assert.Equal([AlertKind.DishStopped], await Alerts(expiring));
     }
+
+    private sealed record Health(string Status, CacheStats Cache);
+
+    private async Task<CacheStats> CacheStats() => (await Get<Health>("/health")).Cache;
+
+    private static string CacheState(HttpResponseMessage response) => response.Headers.GetValues("X-Cache").Single();
+
+    [Fact]
+    public async Task Повторный_стоп_лист_берётся_из_кэша_а_запись_сбрасывает_его_сразу()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.2m));
+        await Supply(new SupplyItemRequest(product.Id, 1, 48));
+
+        var before = await CacheStats();
+        Assert.Equal(5, (await StopListRow(dish)).Portions);
+        var again = await Api.GetAsync("/api/stop-list");
+        var after = await CacheStats();
+        // Второй запрос в базу не ходил: промах один — первый запрос после записи.
+        Assert.Equal((before.Misses + 1, before.Hits + 1, "hit"), (after.Misses, after.Hits, CacheState(again)));
+
+        // Тот же ответ клиенту, у которого он уже есть, — 304 без тела.
+        using var conditional = new HttpRequestMessage(HttpMethod.Get, "/api/stop-list");
+        conditional.Headers.IfNoneMatch.Add(again.Headers.ETag!);
+        Assert.Equal(HttpStatusCode.NotModified, (await Api.SendAsync(conditional)).StatusCode);
+
+        // Заказ, поставка и списание видны в следующем же запросе: каждая зафиксированная запись сбрасывает кэш ресторана.
+        (await Order(dish)).EnsureSuccessStatusCode();
+        Assert.Equal(4, (await StopListRow(dish)).Portions);
+        await Supply(new SupplyItemRequest(product.Id, 1, 48));
+        Assert.Equal(9, (await StopListRow(dish)).Portions);
+        var fresh = (await Batches(product)).Single(b => b.Remaining == 1);
+        (await Api.PostAsJsonAsync($"/api/stock/batches/{fresh.Id}/write-off", new WriteOffRequest(WriteOffCause.Spoiled), ApiFixture.Json)).EnsureSuccessStatusCode();
+        Assert.Equal(4, (await StopListRow(dish)).Portions);
+        Assert.Equal(4m * 0.2m, (await Get<List<StockRow>>("/api/stock")).Single(r => r.ProductId == product.Id).Fresh);
+        // Удаление блюда идёт одной командой мимо SaveChanges — кэш сбрасывается и тогда.
+        var removed = await Dish((product, 0.1m));
+        Assert.Contains(await Get<List<StopListRow>>("/api/stop-list"), r => r.DishId == removed.Id);
+        (await Api.DeleteAsync($"/api/dishes/{removed.Id}")).EnsureSuccessStatusCode();
+        Assert.DoesNotContain(await Get<List<StopListRow>>("/api/stop-list"), r => r.DishId == removed.Id);
+    }
+
+    [Fact]
+    public async Task Одновременные_запросы_после_сброса_считают_стоп_лист_один_раз()
+    {
+        await Product();
+        var before = await CacheStats();
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => Api.GetAsync("/api/stop-list")));
+
+        var after = await CacheStats();
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        Assert.Equal((before.Misses + 1, before.Hits + 19), (after.Misses, after.Hits));
+    }
+
+    [Fact]
+    public async Task Кэш_не_смешивает_рестораны_и_роли()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.2m));
+        await Supply(new SupplyItemRequest(product.Id, 1, 48));
+        var (neighbours, _, _) = await fx.NewRestaurantAsync("Соседи по кэшу");
+        Assert.Contains(await Get<List<StopListRow>>("/api/stop-list"), r => r.DishId == dish.Id);
+        Assert.Empty(await Get<List<StopListRow>>(neighbours, "/api/stop-list"));
+
+        // Запись соседей сбрасывает только их кэш: стоп-лист демо-ресторана по-прежнему из памяти.
+        var created = await neighbours.PostAsJsonAsync("/api/products", new ProductRequest("Своя мука", Unit.Kg, 240, 50), ApiFixture.Json);
+        var flour = await Read<ProductResponse>(created);
+        (await neighbours.PostAsJsonAsync("/api/dishes", new DishRequest("Свои блины", 300, [new RecipeItemDto(flour.Id, 0.1m)]))).EnsureSuccessStatusCode();
+        Assert.Equal("Свои блины", (await Get<List<StopListRow>>(neighbours, "/api/stop-list")).Single().DishName);
+        var demo = await Api.GetAsync("/api/stop-list");
+        Assert.Equal("hit", CacheState(demo));
+        Assert.DoesNotContain(await Read<List<StopListRow>>(demo), r => r.DishName == "Свои блины");
+
+        // Официант и шеф-повар получают каждый свою запись: закупочная цена официанту не видна, даже если шеф запросил первым.
+        Assert.Equal(200, (await StopListRow(dish)).Cost);
+        Assert.Null((await Get<List<StopListRow>>(fx.Waiter, "/api/stop-list")).Single(r => r.DishId == dish.Id).Cost);
+        Assert.Null((await Get<List<StockRow>>(fx.Waiter, "/api/stock")).Single(r => r.ProductId == product.Id).FreshValue);
+        Assert.All(await Get<List<HotOffer>>(fx.Waiter, "/api/hot-offers"), o => Assert.Null(o.ValueAtRisk));
+        Assert.Equal(200, (await StopListRow(dish)).Cost);
+    }
+
+    [Fact]
+    public async Task Истечение_партии_видно_в_стоп_листе_без_записи_в_базу()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.2m));
+        await Supply(new SupplyItemRequest(product.Id, 1, 1));
+        fx.Time.Advance(TimeSpan.FromMinutes(59) + TimeSpan.FromSeconds(55));
+        Assert.Equal((DishStatus.Low, 5), ((await StopListRow(dish)).Status, (await StopListRow(dish)).Portions));
+
+        // Прошло 10 секунд — меньше срока жизни записи, в базе ничего не менялось. Запись жила только до срока партии.
+        fx.Time.Advance(TimeSpan.FromSeconds(10));
+        var row = await StopListRow(dish);
+        Assert.Equal((DishStatus.Stop, StopReason.Expired), (row.Status, row.Reason));
+        Assert.Equal(0m, (await Get<List<StockRow>>("/api/stock")).Single(r => r.ProductId == product.Id).Fresh);
+    }
+
+    [Fact]
+    public async Task Управляющий_добавляет_своё_блюдо_в_горячие_предложения()
+    {
+        var product = await Product(shelfLifeHours: 240);
+        var dish = await Dish((product, 0.2m));
+        await Supply(new SupplyItemRequest(product.Id, 1, null));
+        var planBefore = await Get<HotPlanSummary>("/api/hot-offers/plan");
+        Assert.DoesNotContain(await Get<List<HotOffer>>("/api/hot-offers"), o => o.DishId == dish.Id);
+        string Url(Guid id) => $"/api/hot-offers/dishes/{id}/added";
+
+        (await Api.PutAsJsonAsync(Url(dish.Id), new HotAddRequest("  Повар Иван сегодня готовит фирменное "))).EnsureSuccessStatusCode();
+
+        var offer = (await Get<List<HotOffer>>(fx.Waiter, "/api/hot-offers")).Single(o => o.DishId == dish.Id);
+        Assert.Equal((true, "Повар Иван сегодня готовит фирменное", 0, 5), (offer.Manual, offer.Note, offer.Portions, offer.AvailablePortions));
+        Assert.Equal("Добавлено управляющим: Повар Иван сегодня готовит фирменное", offer.Reason);
+        Assert.Empty(offer.Ingredients);
+        // План спасения и его суммы не меняются: блюдо ничего не спасает.
+        var planAfter = await Get<HotPlanSummary>("/api/hot-offers/plan");
+        Assert.Equal((planBefore.PlannedValue, planBefore.Portions), (planAfter.PlannedValue, planAfter.Portions));
+        Assert.Equal((true, "Повар Иван сегодня готовит фирменное"), (await Get<List<DishResponse>>("/api/dishes")).Where(d => d.Id == dish.Id).Select(d => (d.HotAdded, d.HotNote)).Single());
+
+        // Блюдо в стопе не предлагается; вернулось в продажу — снова в списке.
+        (await Api.PostAsync($"/api/dishes/{dish.Id}/stop", null)).EnsureSuccessStatusCode();
+        Assert.DoesNotContain(await Get<List<HotOffer>>(fx.Waiter, "/api/hot-offers"), o => o.DishId == dish.Id);
+        (await Api.PostAsync($"/api/dishes/{dish.Id}/resume", null)).EnsureSuccessStatusCode();
+        Assert.Contains(await Get<List<HotOffer>>(fx.Waiter, "/api/hot-offers"), o => o.DishId == dish.Id);
+
+        // Убрать: блюда больше нет; без причины добавляется с одной пометкой.
+        (await Api.DeleteAsync(Url(dish.Id))).EnsureSuccessStatusCode();
+        Assert.DoesNotContain(await Get<List<HotOffer>>(fx.Waiter, "/api/hot-offers"), o => o.DishId == dish.Id);
+        (await Api.PutAsJsonAsync(Url(dish.Id), new HotAddRequest(null))).EnsureSuccessStatusCode();
+        Assert.Equal(("Добавлено управляющим", null), (await Get<List<HotOffer>>("/api/hot-offers")).Where(o => o.DishId == dish.Id).Select(o => (o.Reason, o.Note)).Single());
+
+        // Скрытие важнее: скрытое блюдо официант не видит, а ручное добавление снимается.
+        (await Api.PutAsJsonAsync($"/api/hot-offers/dishes/{dish.Id}", new HotDishRequest(Pinned: false, Hidden: true))).EnsureSuccessStatusCode();
+        Assert.DoesNotContain(await Get<List<HotOffer>>(fx.Waiter, "/api/hot-offers"), o => o.DishId == dish.Id);
+        Assert.False((await Get<List<DishResponse>>("/api/dishes")).Single(d => d.Id == dish.Id).HotAdded);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await Api.PutAsJsonAsync(Url(dish.Id), new HotAddRequest(new string('а', 201)))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Api.PutAsJsonAsync(Url(Guid.NewGuid()), new HotAddRequest(null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await fx.Waiter.PutAsJsonAsync(Url(dish.Id), new HotAddRequest(null))).StatusCode);
+        (await Api.PutAsJsonAsync($"/api/hot-offers/dishes/{dish.Id}", new HotDishRequest(Pinned: false, Hidden: false))).EnsureSuccessStatusCode();
+    }
 }

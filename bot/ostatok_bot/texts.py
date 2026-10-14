@@ -230,7 +230,10 @@ def hot_offers_text(offers: list[dict] | None) -> str:
         n = o["portions"]
         pinned = " (закреплено)" if o.get("pinned") else ""
         head = f"{o['dishName']}{pinned} — продать {n} {plural(n, 'порцию', 'порции', 'порций')}"
-        if o.get("valueAtRisk") is not None:
+        if o.get("manual") and not n:
+            # Блюдо добавил управляющий и ничего не спасает: порций плана нет, пометка с причиной — в reason.
+            head = f"{o['dishName']}{pinned}"
+        elif o.get("valueAtRisk") is not None:
             head += f", под угрозой списания {fmt_money(o['valueAtRisk'])}"
         lines = [head]
         if o.get("reason"):

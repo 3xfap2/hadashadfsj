@@ -14,6 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Ключ шифрования личных данных; отдельной настройки может не быть — тогда он выводится из секрета токенов.
 PersonalData.Configure(builder.Configuration["Crypto:Key"] ?? builder.Configuration["Auth:Key"] ?? "");
 
+builder.Services.AddSingleton<ReadCache>();
 builder.Services.AddSingleton<EventBus>();
 builder.Services.AddScoped<Tenant>();
 builder.Services.AddSingleton<PublishChanges>();
@@ -183,7 +184,8 @@ app.Use(async (context, next) =>
 });
 
 app.MapOpenApi();
-app.MapGet("/health", () => Results.Ok(new { status = "ok" })).ExcludeFromDescription();
+// Счётчики кэша чтений — без данных ресторанов, поэтому открыты, как и сама проверка.
+app.MapGet("/health", (ReadCache cache) => Results.Ok(new { status = "ok", cache = cache.Stats() })).ExcludeFromDescription();
 app.MapAuth();
 app.MapLeads();
 app.MapChats();
