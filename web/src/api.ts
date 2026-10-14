@@ -66,6 +66,11 @@ export interface ExpiryCheck {
   createdAt: string;
   expiresAt: string;
   writtenOffAt: string | null;
+  /** Кто списал: логин сотрудника или «система» при автосписании. */
+  writtenOffBy: string | null;
+  /** Автосписание включено в настройках ресторана; по умолчанию нет — просрочку списывает человек. */
+  autoWriteOff: boolean;
+  autoWriteOffAfterHours: number;
 }
 
 export interface StopListRow {
@@ -239,16 +244,22 @@ export interface SupplyRow {
   items: { productName: string; unit: Unit; quantity: number }[];
 }
 
-/** Поставка от внешней системы: ждёт, пока её примут или отклонят. */
+/** Поставка от внешней системы: ждёт, пока её примут или отклонят; решённые — в истории (/supplies/incoming/history). */
 export interface IncomingRow {
   id: string;
   number: string;
   supplier: string | null;
+  supplierInn: string | null;
   receivedAt: string;
   /** Дата поставки во внешней системе: от неё считается срок годности. */
   createdAt: string;
   total: number;
-  items: { productId: string; productName: string; unit: Unit; quantity: number; shelfLifeHours: number }[];
+  /** Partial — принята частично. */
+  status: 'Pending' | 'Accepted' | 'Rejected' | 'Partial';
+  decidedAt: string | null;
+  decidedBy: string | null;
+  /** quantity — заказано, accepted — принято (null, пока не решено или если отклонена). */
+  items: { id: number; productId: string; productName: string; unit: Unit; quantity: number; shelfLifeHours: number; accepted: number | null }[];
 }
 
 export interface ImportRow {
@@ -318,6 +329,7 @@ export interface SimulatorSettings {
 }
 
 export interface Shortage {
+  productId: string;
   productName: string;
   unit: Unit;
   required: number;
@@ -427,6 +439,18 @@ export interface RestaurantSettings {
   shiftEnd: string;
   tables: number;
   hasBar: boolean;
+  /** Списывать просрочку без человека; по умолчанию выключено — партия ждёт «под списание». */
+  autoWriteOff: boolean;
+  /** Через сколько часов после истечения срока спишется сама (0–168). */
+  autoWriteOffAfterHours: number;
+  /** Выдан ли ключ интеграции для поставок извне (сам ключ виден только при выдаче). */
+  hasIntegrationKey: boolean;
+}
+
+/** Ключ интеграции ресторана: показывается один раз, в базе хранится только хеш. */
+export interface IntegrationKey {
+  key: string;
+  restaurantId: string;
 }
 
 export interface StaffRow {

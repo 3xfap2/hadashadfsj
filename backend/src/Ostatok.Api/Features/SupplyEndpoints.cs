@@ -11,20 +11,37 @@ namespace Ostatok.Api.Features;
 /// Цена за единицу из файла поставки. Если указана, после приёмки становится закупочной ценой продукта;
 /// при ручном вводе не передаётся, и цена в справочнике остаётся прежней.
 /// </param>
-public sealed record SupplyItemRequest(Guid ProductId, decimal Quantity, int? ShelfLifeHours, decimal? Cost = null);
+/// <param name="ProductName">
+/// Для поставки извне: продукт можно указать точным названием из справочника ресторана вместо ProductId
+/// (ProductId тогда не передаётся). Регистр букв не важен.
+/// </param>
+/// <param name="ExpiresAt">Для поставки извне: «годен до» вместо срока хранения в часах.</param>
+public sealed record SupplyItemRequest(Guid ProductId, decimal Quantity, int? ShelfLifeHours, decimal? Cost = null, string? ProductName = null, DateTimeOffset? ExpiresAt = null);
 
 /// <param name="Id">Идентификатор поставки во внешней системе; повторная отправка с тем же Id не создаст дубль.</param>
 /// <param name="CreatedAt">Дата создания поставки; по умолчанию — текущее время.</param>
-public sealed record SupplyRequest(Guid? Id, string? Number, DateTimeOffset? CreatedAt, List<SupplyItemRequest>? Items, string? Supplier = null);
+/// <param name="SupplierInn">ИНН поставщика: 10 или 12 цифр. Обязателен, когда поставку присылает внешняя система по ключу.</param>
+public sealed record SupplyRequest(Guid? Id, string? Number, DateTimeOffset? CreatedAt, List<SupplyItemRequest>? Items, string? Supplier = null, string? SupplierInn = null);
 
 public sealed record SupplyBatchResponse(Guid BatchId, Guid ProductId, string ProductName, Unit Unit, decimal Quantity, decimal Remaining, DateTimeOffset ExpiresAt);
 /// <param name="Total">Стоимость поставки по закупочным ценам из справочника; пусто для ролей, которым цены не видны.</param>
 public sealed record SupplyResponse(Guid Id, string Number, string? Supplier, DateTimeOffset CreatedAt, decimal? Total, IEnumerable<SupplyBatchResponse> Items);
 
-public sealed record IncomingItemResponse(Guid ProductId, string ProductName, Unit Unit, decimal Quantity, int ShelfLifeHours);
-/// <summary>Поставка от внешней системы, которая ждёт подтверждения.</summary>
+/// <param name="Id">Строка поставки: по ней указывается принятое количество при частичной приёмке.</param>
+/// <param name="Quantity">Сколько заказано (прислал поставщик).</param>
+/// <param name="Accepted">Сколько принято; пусто, пока поставка ждёт решения или если её отклонили.</param>
+public sealed record IncomingItemResponse(Guid ProductId, string ProductName, Unit Unit, decimal Quantity, int ShelfLifeHours, long Id = 0, decimal? Accepted = null);
+/// <summary>Поставка от внешней системы: ждёт подтверждения или уже решена (в истории).</summary>
 /// <param name="CreatedAt">Дата создания поставки: от неё считается срок годности партий.</param>
-public sealed record IncomingResponse(Guid Id, string Number, string? Supplier, DateTimeOffset ReceivedAt, decimal Total, IEnumerable<IncomingItemResponse> Items, DateTimeOffset CreatedAt);
+public sealed record IncomingResponse(
+    Guid Id, string Number, string? Supplier, DateTimeOffset ReceivedAt, decimal Total, IEnumerable<IncomingItemResponse> Items, DateTimeOffset CreatedAt,
+    string? SupplierInn = null, IncomingStatus Status = IncomingStatus.Pending, DateTimeOffset? DecidedAt = null, string? DecidedBy = null);
+
+/// <param name="Id">Строка поставки (IncomingItemResponse.Id).</param>
+/// <param name="Accepted">Сколько принято: от 0 до заказанного; 0 — строка не принята.</param>
+public sealed record AcceptLine(long Id, decimal Accepted);
+/// <param name="Items">Принятое количество по строкам. Строки, которых нет в списке, принимаются целиком; без тела принимается вся поставка.</param>
+public sealed record AcceptIncomingRequest(List<AcceptLine>? Items);
 
 public static class SupplyEndpoints
 {
@@ -98,7 +115,9 @@ public static class SupplyEndpoints
         {
             var now = time.GetUtcNow();
             var createdAt = req.CreatedAt?.ToUniversalTime() ?? now;
+            (req, var unknown) = await ResolveAsync(req, createdAt, db, ct);
             var (errors, products) = await CheckAsync(req, db, ct);
+            foreach (var message in unknown) errors.Add("items", message);
             if (errors.Check(createdAt <= now, "createdAt", "Дата поставки не может быть в будущем.").Any) return errors.ToResult();
 
             var supply = new Supply { Id = req.Id ?? Guid.NewGuid(), Number = req.Number!.Trim(), Supplier = Clean(req.Supplier), CreatedAt = createdAt };
@@ -128,16 +147,42 @@ public static class SupplyEndpoints
         incoming.MapGet("", async (AppDbContext db, CancellationToken ct) =>
             (await Waiting(db).Include(s => s.Items).ThenInclude(i => i.Product).OrderBy(s => s.ReceivedAt).ToListAsync(ct)).Select(ToResponse));
 
-        incoming.MapPost("", async (SupplyRequest req, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        // История решений: принятые, принятые частично и отклонённые поставки. Отклонённая остаётся в базе, на склад она ничего не добавила.
+        incoming.MapGet("/history", async (AppDbContext db, CancellationToken ct, int take = 50) =>
+            (await db.IncomingSupplies.Where(s => s.Status != IncomingStatus.Pending)
+                .Include(s => s.Items).ThenInclude(i => i.Product)
+                .OrderByDescending(s => s.DecidedAt)
+                .Take(Math.Clamp(take, 1, 200))
+                .ToListAsync(ct))
+            .Select(ToResponse));
+
+        // Присылает сотрудник склада (кабинет, бот — по своему входу) или внешняя система по ключу интеграции ресторана
+        // в заголовке X-Api-Key. Ключ открывает только этот метод и только для своего ресторана: ресторан определяется ключом.
+        incoming.MapPost("", async (SupplyRequest req, HttpContext http, Tenant tenant, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
+            var byKey = http.User.Identity?.IsAuthenticated != true;
+            if (byKey)
+            {
+                if (await IntegrationKey.FindRestaurantAsync(db, http.Request.Headers[IntegrationKey.Header], ct) is not { } restaurant)
+                    return Results.Problem($"Нужен действующий ключ интеграции ресторана в заголовке {IntegrationKey.Header}. Ключ выдаёт управляющий в разделе «Ресторан».",
+                        statusCode: StatusCodes.Status401Unauthorized);
+                tenant.Id = restaurant;
+            }
+            else if (!Access.Stock.Any(r => http.User.IsInRole(r.ToString()))) return Results.Forbid();
+
             var now = time.GetUtcNow();
             var createdAt = req.CreatedAt?.ToUniversalTime() ?? now;
+            (req, var unknown) = await ResolveAsync(req, createdAt, db, ct);
             var (errors, products) = await CheckAsync(req, db, ct);
-            if (errors.Check(createdAt <= now, "createdAt", "Дата поставки не может быть в будущем.").Any) return errors.ToResult();
+            foreach (var message in unknown) errors.Add("items", message);
+            errors.Check(createdAt <= now, "createdAt", "Дата поставки не может быть в будущем.")
+                .Check(!byKey || !string.IsNullOrWhiteSpace(req.Supplier), "supplier", "Укажите название поставщика.")
+                .Check(!byKey || req.SupplierInn is not null, "supplierInn", "Укажите ИНН поставщика: 10 или 12 цифр.");
+            if (errors.Any) return errors.ToResult();
 
             var supply = new IncomingSupply
             {
-                Id = req.Id ?? Guid.NewGuid(), Number = req.Number!.Trim(), Supplier = Clean(req.Supplier), ReceivedAt = now, CreatedAt = createdAt,
+                Id = req.Id ?? Guid.NewGuid(), Number = req.Number!.Trim(), Supplier = Clean(req.Supplier), SupplierInn = req.SupplierInn?.Trim(), ReceivedAt = now, CreatedAt = createdAt,
                 Items = req.Items!.Select(i => new IncomingItem { ProductId = i.ProductId, Product = products[i.ProductId], Quantity = i.Quantity, ShelfLifeHours = i.ShelfLifeHours }).ToList(),
             };
             if (await TakenAsync(db, supply.Id, supply.Number, ct)
@@ -152,13 +197,19 @@ public static class SupplyEndpoints
                 Detail = $"{supply.Supplier ?? "Поставщик не указан"} · позиций: {supply.Items.Count}",
             });
             await db.SaveChangesAsync(ct);
-            return Results.Accepted($"/api/supplies/incoming/{supply.Id}", ToResponse(supply));
-        }).Produces<IncomingResponse>(StatusCodes.Status202Accepted);
+            // Внешней системе — только квитанция: закупочные цены и справочник ресторана ей не показываются.
+            return byKey
+                ? Results.Accepted($"/api/supplies/incoming/{supply.Id}", new { supply.Id, supply.Number, supply.Status, Items = supply.Items.Count })
+                : Results.Accepted($"/api/supplies/incoming/{supply.Id}", ToResponse(supply));
+        })
+        .AllowAnonymous()
+        .Produces<IncomingResponse>(StatusCodes.Status202Accepted);
 
         // Приёмка: продукты появляются на складе. Срок годности партий отсчитывается от даты создания поставки,
         // как у поставки, внесённой в кабинете: пока она ждала подтверждения, продукт старел.
         // У поставок, полученных до появления этой даты, срок по-прежнему считается от приёмки.
-        incoming.MapPost("{id:guid}/accept", async (Guid id, AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
+        // Частичная приёмка: по строкам указано, сколько принято (0 — строка не принята); на склад встаёт только принятое.
+        incoming.MapPost("{id:guid}/accept", async (Guid id, AcceptIncomingRequest? req, AppDbContext db, TimeProvider time, ClaimsPrincipal user, CancellationToken ct) =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             if (!await LockWaitingAsync(db, id, ct)) return Results.NotFound();
@@ -166,13 +217,22 @@ public static class SupplyEndpoints
             if (await TakenAsync(db, waiting.Id, waiting.Number, ct))
                 return Results.Problem($"Поставка с номером {waiting.Number} уже принята. Отклоните эту.", statusCode: StatusCodes.Status409Conflict);
 
+            var lines = (req?.Items ?? []).GroupBy(l => l.Id).ToDictionary(g => g.Key, g => Math.Round(g.Last().Accepted, 3));
+            foreach (var item in waiting.Items) item.Accepted = lines.GetValueOrDefault(item.Id, item.Quantity);
+            var errors = new Errors()
+                .Check(lines.Keys.All(k => waiting.Items.Any(i => i.Id == k)), "items", "В приёмке есть строка не из этой поставки.")
+                .Check(waiting.Items.All(i => i.Accepted >= 0 && i.Accepted <= i.Quantity), "items", "Принятое количество — от 0 до заказанного.")
+                .Check(waiting.Items.Any(i => i.Accepted > 0), "items", "Ничего не принято. Если поставку не берёте, отклоните её.");
+            if (errors.Any) return errors.ToResult();
+
             var now = time.GetUtcNow();
             var actor = user.Identity?.Name ?? "";
             var supply = new Supply { Id = waiting.Id, Number = waiting.Number, Supplier = waiting.Supplier, CreatedAt = waiting.CreatedAt ?? now };
-            if (Fill(supply, waiting.Items.Select(i => (i.Product!, i.Quantity, i.ShelfLifeHours, i.Product!.Cost)), now) is { } expired)
-                return Results.Problem($"{expired} Отклоните поставку.", statusCode: StatusCodes.Status409Conflict);
+            if (Fill(supply, waiting.Items.Where(i => i.Accepted > 0).Select(i => (i.Product!, i.Accepted!.Value, i.ShelfLifeHours, i.Product!.Cost)), now) is { } expired)
+                return Results.Problem($"{expired} Отклоните поставку или не принимайте эту строку.", statusCode: StatusCodes.Status409Conflict);
             Store(db, supply, now, actor);
-            (waiting.Status, waiting.DecidedAt, waiting.DecidedBy) = (IncomingStatus.Accepted, now, actor);
+            var status = waiting.Items.All(i => i.Accepted == i.Quantity) ? IncomingStatus.Accepted : IncomingStatus.Partial;
+            (waiting.Status, waiting.DecidedAt, waiting.DecidedBy) = (status, now, actor);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return Results.Ok(ToResponse(supply));
@@ -212,6 +272,7 @@ public static class SupplyEndpoints
         var errors = new Errors()
             .Check(!string.IsNullOrWhiteSpace(req.Number) && req.Number.Length <= 40, "number", "Укажите номер поставки до 40 символов.")
             .Check((req.Supplier?.Length ?? 0) <= 120, "supplier", "Название поставщика — до 120 символов.")
+            .Check(req.SupplierInn is null || req.SupplierInn.Trim() is { Length: 10 or 12 } inn && inn.All(char.IsAsciiDigit), "supplierInn", "ИНН поставщика — 10 цифр у организации или 12 у предпринимателя.")
             .Check(items.Count > 0, "items", "В поставке должен быть хотя бы один продукт.")
             // Номера с такими началами выдаёт сама система: заготовкам, проверочным партиям и генератору.
             .Check(!(req.Number ?? "").TrimStart().StartsWith("З-") && !(req.Number ?? "").TrimStart().StartsWith("Т-") && !(req.Number ?? "").TrimStart().StartsWith("Г-"),
@@ -221,10 +282,43 @@ public static class SupplyEndpoints
             .Check(items.All(i => i.ShelfLifeHours is null or (> 0 and <= 100_000)), "items", "Срок хранения — от 1 до 100 000 часов.")
             .Check(items.All(i => i.Cost is null || Math.Round(i.Cost.Value, 2) is > 0 and <= 10_000_000), "items", "Цена продукта — от 1 копейки до 10 000 000 ₽.");
 
-        var ids = items.Select(i => i.ProductId).Distinct().ToArray();
+        // Строка с названием, которого нет в справочнике, уже получила свою ошибку в ResolveAsync.
+        var ids = items.Select(i => i.ProductId).Where(id => id != Guid.Empty).Distinct().ToArray();
         var products = await db.Products.Include(p => p.PrepRecipe).Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, ct);
-        errors.Check(products.Count == ids.Length, "items", "В поставке есть неизвестный продукт.");
+        errors.Check(products.Count == ids.Length, "items", "В поставке есть неизвестный продукт: такого productId нет в справочнике ресторана.")
+            .Check(items.All(i => i.ProductId != Guid.Empty || !string.IsNullOrWhiteSpace(i.ProductName)), "items", "Укажите продукт каждой строки: productId или productName.");
         return (errors, products);
+    }
+
+    /// <summary>
+    /// Поставка извне: продукт по точному названию из справочника вместо идентификатора, «годен до» вместо срока в часах.
+    /// Возвращает запрос с подставленными идентификаторами и сроками и тексты ошибок по названиям, которых нет в справочнике.
+    /// </summary>
+    private static async Task<(SupplyRequest Request, List<string> Unknown)> ResolveAsync(SupplyRequest req, DateTimeOffset createdAt, AppDbContext db, CancellationToken ct)
+    {
+        var unknown = new List<string>();
+        if (req.Items is null) return (req, unknown);
+        var byName = req.Items.Any(i => i.ProductId == Guid.Empty && !string.IsNullOrWhiteSpace(i.ProductName))
+            ? (await db.Products.Select(p => new { p.Id, p.Name }).ToListAsync(ct))
+                .DistinctBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(p => p.Name, p => p.Id, StringComparer.OrdinalIgnoreCase)
+            : [];
+        var items = req.Items.Select(i =>
+        {
+            if (i.ProductId == Guid.Empty && !string.IsNullOrWhiteSpace(i.ProductName))
+            {
+                if (byName.TryGetValue(i.ProductName.Trim(), out var id)) i = i with { ProductId = id };
+                else unknown.Add($"Продукта «{i.ProductName.Trim()}» нет в справочнике ресторана. Укажите название точно как в справочнике.");
+            }
+            if (i.ExpiresAt is { } expiresAt)
+            {
+                var hours = (int)Math.Floor((expiresAt - createdAt).TotalHours);
+                if (hours < 1) unknown.Add($"«Годен до» должен быть хотя бы на час позже даты поставки ({i.ProductName ?? i.ProductId.ToString()}).");
+                else i = i with { ShelfLifeHours = hours };
+            }
+            return i;
+        }).ToList();
+        return (req with { Items = items }, unknown);
     }
 
     /// <summary>Собирает партии поставки. Возвращает текст ошибки, если срок какой-то партии уже истёк.</summary>
@@ -293,8 +387,8 @@ public static class SupplyEndpoints
 
     private static IncomingResponse ToResponse(IncomingSupply s) => new(
         s.Id, s.Number, s.Supplier, s.ReceivedAt, s.Items.Sum(i => i.Quantity * i.Product!.Cost),
-        s.Items.Select(i => new IncomingItemResponse(i.ProductId, i.Product!.Name, i.Product.Unit, i.Quantity, i.ShelfLifeHours ?? i.Product.ShelfLifeHours)),
-        s.CreatedAt ?? s.ReceivedAt);
+        s.Items.OrderBy(i => i.Id).Select(i => new IncomingItemResponse(i.ProductId, i.Product!.Name, i.Product.Unit, i.Quantity, i.ShelfLifeHours ?? i.Product.ShelfLifeHours, i.Id, i.Accepted)),
+        s.CreatedAt ?? s.ReceivedAt, s.SupplierInn, s.Status, s.DecidedAt, s.DecidedBy);
 
     private static SupplyResponse ToResponse(Supply s, bool costs = true) => new(
         s.Id, s.Number, s.Supplier, s.CreatedAt, costs ? s.Batches.Sum(b => b.Quantity * b.UnitCost) : null,

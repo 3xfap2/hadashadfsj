@@ -11,14 +11,15 @@ const KINDS: Record<Kind, { chip: string; word: string; color: string }> = {
   hot: { chip: 'g-tag g-tag--red', word: 'Срочно', color: 'var(--red)' },
   soon: { chip: 'g-tag g-tag--amber', word: 'Скоро', color: 'var(--amber)' },
   ok: { chip: 'plain', word: 'В порядке', color: 'var(--h)' },
-  expired: { chip: 'g-tag g-tag--red', word: 'Просрочено', color: 'var(--red)' },
+  // Просрочка сама не списывается: партия видна на складе «под списание», пока её не спишет человек.
+  expired: { chip: 'g-tag g-tag--red', word: 'Под списание', color: 'var(--red)' },
   low: { chip: 'g-tag g-tag--amber', word: 'Мало', color: 'var(--amber)' },
 };
 const FILTERS: { id: Kind | 'all'; label: string }[] = [
   { id: 'all', label: 'Все' },
   { id: 'hot', label: 'Срочно' },
   { id: 'soon', label: 'Скоро' },
-  { id: 'expired', label: 'Просрочено' },
+  { id: 'expired', label: 'Под списание' },
   { id: 'low', label: 'Мало' },
 ];
 const ORDER: Kind[] = ['expired', 'hot', 'soon', 'low', 'ok'];
@@ -147,7 +148,7 @@ export function Stock() {
       let next: string;
       if (fresh.length === 0 && own.length > 0) {
         kind = 'expired';
-        next = `годной нет · ждёт списания ${money(expiredValue)}`;
+        next = `годной нет · под списание ${money(expiredValue)}`;
       } else if (fresh.length === 0) {
         kind = 'low';
         next = stopped.length > 0 ? `нет на складе: ${stopped[0].dishName.toLowerCase()} в стопе` : 'нет на складе';
@@ -267,7 +268,7 @@ export function Stock() {
                                 Вскрыть
                               </button>
                             )}
-                            <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => (b.status === 'Expired' ? writeOff(b) : setAsking(b.id))}>
+                            <button className={`g-btn g-btn--sm${b.status === 'Expired' ? ' g-btn--primary' : ''}`} type="button" disabled={busy} onClick={() => (b.status === 'Expired' ? writeOff(b) : setAsking(b.id))}>
                               Списать
                             </button>
                             {writeOffError?.id === b.id && <span className="g-error-text" role="alert">{writeOffError.text}</span>}

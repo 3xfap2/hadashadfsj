@@ -364,6 +364,10 @@ namespace Ostatok.Api.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<decimal?>("Accepted")
+                        .HasPrecision(14, 3)
+                        .HasColumnType("numeric(14,3)");
+
                     b.Property<Guid>("IncomingSupplyId")
                         .HasColumnType("uuid");
 
@@ -385,6 +389,8 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.ToTable("IncomingItem", t =>
                         {
+                            t.HasCheckConstraint("CK_IncomingItems_Accepted", "\"Accepted\" IS NULL OR (\"Accepted\" >= 0 AND \"Accepted\" <= \"Quantity\")");
+
                             t.HasCheckConstraint("CK_IncomingItems_Quantity", "\"Quantity\" >= 0.001");
                         });
                 });
@@ -424,6 +430,10 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<string>("Supplier")
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
+
+                    b.Property<string>("SupplierInn")
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)");
 
                     b.HasKey("Id");
 
@@ -793,6 +803,12 @@ namespace Ostatok.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AutoWriteOff")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("AutoWriteOffAfterHours")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -801,6 +817,10 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.Property<bool>("HasBar")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("IntegrationKeyHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<int>("LastCheckNumber")
                         .HasColumnType("integer");
@@ -837,6 +857,9 @@ namespace Ostatok.Api.Data.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("IntegrationKeyHash")
+                        .IsUnique();
 
                     b.HasIndex("OwnerLogin");
 

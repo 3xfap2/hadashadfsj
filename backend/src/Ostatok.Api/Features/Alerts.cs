@@ -39,7 +39,8 @@ public sealed class AlertService(AppDbContext db, TimeProvider time, StockOption
             db.Alerts.Add(new Alert
             {
                 At = now, Kind = kind, BatchId = batch.Id, ExpiresAt = batch.ExpiresAt,
-                Title = kind == AlertKind.BatchExpired ? $"{batch.Product}: срок годности истёк" : $"{batch.Product}: срок годности истекает",
+                // Просроченная партия сама не списывается: она ждёт человека «под списание», пока автосписание не включено в настройках.
+                Title = kind == AlertKind.BatchExpired ? $"Под списание: {batch.Product} — срок годности истёк" : $"{batch.Product}: срок годности истекает",
                 Detail = $"{Ru.Qty(batch.Remaining, batch.Unit)} из поставки {batch.Supply}",
             });
             created++;

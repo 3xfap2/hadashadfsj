@@ -35,6 +35,15 @@ public class Restaurant
     public string? OwnerLogin { get; set; }
     /// <summary>Когда команда продукта отключила ресторан; пусто — ресторан работает.</summary>
     public DateTimeOffset? DisabledAt { get; set; }
+    /// <summary>
+    /// Списывать просрочку без человека. По умолчанию выключено: просроченная партия остаётся на складе «под списание»
+    /// и её списывает сотрудник — так он видит, что выбрасывает.
+    /// </summary>
+    public bool AutoWriteOff { get; set; }
+    /// <summary>Сколько часов просрочка ждёт ручного списания, прежде чем спишется сама (если автосписание включено).</summary>
+    public int AutoWriteOffAfterHours { get; set; } = 12;
+    /// <summary>SHA-256 ключа интеграции, с которым внешняя система присылает поставки. Сам ключ не хранится.</summary>
+    public string? IntegrationKeyHash { get; set; }
 
     /// <summary>Места, откуда приходят заказы: столы и бар.</summary>
     public IEnumerable<string> Places() =>
@@ -75,7 +84,8 @@ public class Supply : IOwned
     public List<Batch> Batches { get; set; } = [];
 }
 
-public enum IncomingStatus { Pending, Accepted, Rejected }
+/// <summary>Partial — принята частично: по части строк привезли меньше заказанного или не приняли совсем.</summary>
+public enum IncomingStatus { Pending, Accepted, Rejected, Partial }
 
 /// <summary>
 /// Поставка, которую прислала внешняя система. На склад она не попадает, пока сотрудник не подтвердит её в кабинете:
@@ -87,6 +97,8 @@ public class IncomingSupply : IOwned
     public Guid Id { get; set; }
     public required string Number { get; set; }
     public string? Supplier { get; set; }
+    /// <summary>ИНН поставщика: 10 цифр у организации, 12 — у предпринимателя.</summary>
+    public string? SupplierInn { get; set; }
     public DateTimeOffset ReceivedAt { get; set; }
     /// <summary>Дата создания поставки во внешней системе: от неё считается срок годности. Пусто у поставок, полученных до появления поля.</summary>
     public DateTimeOffset? CreatedAt { get; set; }
@@ -105,6 +117,8 @@ public class IncomingItem
     public Product? Product { get; set; }
     public decimal Quantity { get; set; }
     public int? ShelfLifeHours { get; set; }
+    /// <summary>Сколько принято при приёмке: от 0 до заказанного. Пусто, пока поставка ждёт решения или отклонена.</summary>
+    public decimal? Accepted { get; set; }
 }
 
 /// <summary>Партия: один продукт из одной поставки со своим сроком годности.</summary>

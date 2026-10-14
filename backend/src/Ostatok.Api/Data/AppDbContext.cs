@@ -62,13 +62,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(s => s.Number).HasMaxLength(40);
             e.Property(s => s.Supplier).HasMaxLength(120);
             e.Property(s => s.DecidedBy).HasMaxLength(60);
+            e.Property(s => s.SupplierInn).HasMaxLength(12);
             e.HasIndex(s => new { s.RestaurantId, s.Status });
             e.HasMany(s => s.Items).WithOne().HasForeignKey(i => i.IncomingSupplyId);
         });
         model.Entity<IncomingItem>(e =>
         {
             e.HasOne(i => i.Product).WithMany().HasForeignKey(i => i.ProductId).OnDelete(DeleteBehavior.Restrict);
-            e.ToTable(t => t.HasCheckConstraint("CK_IncomingItems_Quantity", "\"Quantity\" >= 0.001"));
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_IncomingItems_Quantity", "\"Quantity\" >= 0.001");
+                t.HasCheckConstraint("CK_IncomingItems_Accepted", "\"Accepted\" IS NULL OR (\"Accepted\" >= 0 AND \"Accepted\" <= \"Quantity\")");
+            });
         });
 
         model.Entity<Batch>(e =>
@@ -141,6 +146,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(r => r.ShiftEnd).HasMaxLength(5);
             e.Property(r => r.OwnerLogin).HasMaxLength(60);
             e.HasIndex(r => r.OwnerLogin);
+            e.Property(r => r.IntegrationKeyHash).HasMaxLength(64);
+            e.HasIndex(r => r.IntegrationKeyHash).IsUnique();
         });
 
         model.Entity<PrepItem>(e =>

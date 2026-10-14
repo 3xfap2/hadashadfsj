@@ -122,7 +122,7 @@ def keeper(h):
 
 async def test_incoming_list_with_buttons(keeper):
     assert await keeper.send("/incoming") == ["Ждёт подтверждения одна поставка.", WAITING_TEXT]
-    assert keeper.buttons() == ["Принять", "Отклонить"]
+    assert keeper.buttons() == ["Принять", "Отклонить", "Принять частично"]
 
 
 async def test_incoming_empty(keeper):

@@ -6,6 +6,10 @@
 
 Сроки партий и стоп-лист бот сравнивает сам. Из сигналов сервера (/api/alerts) берутся только остальные
 виды: поставка ждёт подтверждения и виды, которых бот ещё не знает, — их текст показывается как есть.
+
+Управляющему бот ещё и напоминает: о партиях «под списание» (срок истёк, сами они со склада не уходят)
+и о партиях, которые истекают в ближайшие часы. Одно напоминание на партию; если партию так и не списали —
+повтор не чаще раза в REMIND_REPEAT. Другим ролям эти напоминания не уходят.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from aiogram.types import InlineKeyboardMarkup
 
 from .api import ApiClient, ApiError, ApiUnavailable, Unauthorized
 from .commands import show_guest_commands
-from .fmt import fmt_hours_left, fmt_qty
+from .fmt import fmt_hours_left, fmt_money, fmt_qty, plural
 from .keyboards import write_off_keyboard
 from .storage import Session, Storage, utcnow
 from .texts import SESSION_EXPIRED, stop_reason
@@ -40,6 +44,13 @@ ALERTS_TAKE = 30
 MAX_ALERTS = 5
 # Дольше этого по просьбе Telegram (429) не ждём: опрос остальных ресторанов важнее.
 MAX_RETRY_AFTER = 30
+
+# Напоминания управляющему: кому, о каких партиях «скоро» и как часто повторять про несписанную просрочку.
+REMIND_ROLE = "Manager"
+REMIND_SOON_HOURS = 6
+REMIND_REPEAT = timedelta(hours=4)
+# Больше кнопок «Списать» в одном напоминании не ставим: остальное — на сайте.
+REMIND_BUTTONS = 8
 
 EventKind = Literal["dish_stop", "dish_resumed", "batch_expiring", "batch_expired", "supply_waiting", "alert"]
 
@@ -81,7 +92,7 @@ def diff(previous: dict | None, stop_list: list[dict], batches: list[dict]) -> l
             continue
         what = f"{batch['productName']}, {fmt_qty(batch['remaining'], batch['unit'])}, поставка {batch['supplyNumber']}"
         if now == "Expired":
-            events.append(Event("batch_expired", f"Просрочено: {what}", batch))
+            events.append(Event("batch_expired", f"Под списание: {what} — срок годности истёк", batch))
         elif now == "ExpiringSoon":
             events.append(
                 Event("batch_expiring", f"Скоро истекает: {what}, {fmt_hours_left(batch['hoursLeft'])}", batch)
@@ -112,6 +123,48 @@ def alert_events(alerts: list[dict], last_id: int | None) -> list[Event]:
         else:
             events.append(Event("alert", text))
     return events
+
+
+def reminders(batches: list[dict], reminded: dict, now: datetime) -> tuple[list[dict], list[dict], dict]:
+    """Партии, о которых напомнить управляющему сейчас: (под списание, истекают скоро, новое состояние напоминаний).
+    Состояние — {id партии: {"kind": "due" | "soon", "at": когда напомнили}}; списанные и израсходованные из него уходят."""
+    due, soon, state = [], [], {}
+    for batch in batches:
+        if not batch.get("remaining"):
+            continue
+        was = reminded.get(batch["id"]) if isinstance(reminded, dict) else None
+        try:
+            last = datetime.fromisoformat(was["at"]) if isinstance(was, dict) else None
+        except (KeyError, TypeError, ValueError):
+            last = None
+        if batch.get("status") == "Expired":
+            if last is not None and was.get("kind") == "due" and now - last < REMIND_REPEAT:
+                state[batch["id"]] = was
+            else:
+                due.append(batch)
+                state[batch["id"]] = {"kind": "due", "at": now.isoformat()}
+        elif (batch.get("hoursLeft") or 0) <= REMIND_SOON_HOURS:
+            if last is not None:
+                state[batch["id"]] = was
+            else:
+                soon.append(batch)
+                state[batch["id"]] = {"kind": "soon", "at": now.isoformat()}
+    return due, soon, state
+
+
+def reminder_text(due: list[dict], soon: list[dict]) -> str:
+    """Напоминание управляющему: что под списание и на сколько рублей, где списать; что истекает в ближайшие часы."""
+    lines = ["Напоминание управляющему."]
+    if due:
+        values = [b.get("value") for b in due]
+        total = f" на {fmt_money(sum(values))}" if all(v is not None for v in values) else ""
+        lines.append(f"Под списание — {len(due)} {plural(len(due), 'партия', 'партии', 'партий')}{total}. Срок годности истёк, в заказы они не идут:")
+        lines += [f"• {b['productName']}, {fmt_qty(b['remaining'], b['unit'])}, поставка {b['supplyNumber']}" for b in due]
+        lines.append("Достаньте их и спишите — кнопкой ниже или на сайте: Склад → партия «Под списание» → «Списать».")
+    if soon:
+        lines.append(f"Истекают в ближайшие {REMIND_SOON_HOURS} ч:")
+        lines += [f"• {b['productName']}, {fmt_qty(b['remaining'], b['unit'])}, {fmt_hours_left(b['hoursLeft'])}" for b in soon]
+    return "\n".join(lines)
 
 
 def render(events: list[Event], can_write_off: bool = True) -> tuple[str, InlineKeyboardMarkup | None]:
@@ -171,6 +224,8 @@ class Monitor:
         data = None
         token = None
         logged_out: set[int] = set()
+        # Первым опрос идёт токеном управляющего: ему видны закупочные суммы, они нужны в напоминании.
+        sessions = sorted(sessions, key=lambda s: s.role != REMIND_ROLE)
         for session in sessions:
             try:
                 data = (await self._api.get_stop_list(session.token), await self._api.get_batches(session.token))
@@ -193,6 +248,11 @@ class Monitor:
         if saved and now - datetime.fromisoformat(saved["at"]) <= self._stale_after:
             previous = saved["snapshot"]
         events = diff(previous, *data)
+        # Напоминания — со второго опроса ресторана: первый только запоминает. После простоя они не теряются:
+        # повторы отсчитываются по каждой партии.
+        reminded = (saved or {}).get("reminded") or {}
+        due, soon, reminded = reminders(data[1], reminded, now) if saved is not None else ([], [], reminded)
+        reminded_ids = {b["id"] for b in due + soon}
 
         # Сигналы хранятся на сервере, поэтому их не теряем и после простоя: отсчёт по id, а не по времени.
         last_id = saved.get("alertId") if saved else None
@@ -206,15 +266,27 @@ class Monitor:
             if session.chat_id in logged_out:
                 continue
             visible = visible_events(events, session)
+            remind = session.role == REMIND_ROLE and bool(due or soon)
+            if remind:
+                # Партию из напоминания не повторяем отдельной строкой об изменении.
+                visible = [e for e in visible if not (e.batch and e.batch["id"] in reminded_ids)]
             # Опрос шёл токеном одного чата; токен остальных мог быть отозван (сотрудника удалили, сменили роль).
-            if visible and (session.token == token or await self._still_signed_in(session)):
+            if (visible or remind) and (session.token == token or await self._still_signed_in(session)):
                 text, keyboard = render(visible, can_write_off=session.allows("stock"))
+                if remind:
+                    # Одно сообщение за опрос: изменения, затем напоминание; кнопки «Списать» — и по нему.
+                    text = "\n\n".join(t for t in (text, reminder_text(due, soon)) if t)
+                    expired = [e.batch for e in visible if e.kind == "batch_expired" and e.batch] + due
+                    if expired and session.allows("stock"):
+                        keyboard = write_off_keyboard(expired[:REMIND_BUTTONS])
                 attempted += 1
                 delivered += await self._send(session, text, keyboard)
         # Состояние продвигается, только когда события дошли хотя бы до одного адресата (или слать было
         # некому): если Telegram не принял ни одного сообщения, следующий опрос пришлёт их снова.
         if delivered or not attempted:
-            self._storage.save_state(key, {"at": now.isoformat(), "snapshot": snapshot(*data), "alertId": last_id})
+            self._storage.save_state(
+                key, {"at": now.isoformat(), "snapshot": snapshot(*data), "alertId": last_id, "reminded": reminded}
+            )
         return events
 
     def _load_state(self, key: str) -> dict | None:

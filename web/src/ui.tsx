@@ -28,12 +28,12 @@ export function Photo({ url, name }: { url: string | null; name: string }) {
 export function BatchLabel({ batch }: { batch: BatchRow }) {
   const expired = batch.status === 'Expired';
   const kind = expired || batch.hoursLeft < URGENT_HOURS ? 'red' : batch.status === 'ExpiringSoon' ? 'amber' : '';
-  const left = expired ? 'просрочено' : duration(batch.hoursLeft);
+  const left = expired ? 'под списание' : duration(batch.hoursLeft);
   return (
     <span
       className={`g-lbl${kind ? ` g-lbl--${kind}` : ''}`}
       role="img"
-      aria-label={`${expired ? 'Просрочено' : 'Истекает'}: годен ${until(batch.expiresAt)}, ${left}`}
+      aria-label={`${expired ? 'Срок истёк' : 'Истекает'}: годен ${until(batch.expiresAt)}, ${left}`}
     >
       <span className="g-lbl__d" aria-hidden="true">{weekday(batch.expiresAt)}</span>
       <span className="g-lbl__b" aria-hidden="true">

@@ -365,6 +365,28 @@ body {
   &__sum {
     font-weight: 700;
   }
+
+  // Блюдо в корзине, которое уже не собрать.
+  &--bad {
+    background: var(--red-tint);
+    box-shadow: inset 3px 0 0 var(--red);
+  }
+
+  &__why {
+    color: var(--red);
+    font-size: 14px;
+    font-weight: 600;
+  }
+}
+
+.g .orders__blocked {
+  align-items: flex-start;
+
+  ul {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
 }
 
 .g .x {
@@ -757,10 +779,62 @@ body {
   border-color: var(--amber);
 }
 
+.sup--rejected {
+  opacity: 0.85;
+}
+
 .sup__decide {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+// «Сегодня»: просрочка ждёт человека — заметный блок с кнопкой списания.
+.g .writeoff-due {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 20px;
+
+  .writeoff-due__text {
+    flex: 1 1 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+// Строки поставки извне: «заказано» или поле «принято» при частичной приёмке.
+.sup__lines {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ink);
+
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px 12px;
+  }
+
+  li.short .num {
+    color: var(--red);
+  }
+}
+
+.sup__accept {
+  flex: 0 1 190px;
+
+  .g-input {
+    min-width: 0;
+  }
 }
 
 // ---------- Загрузка поставки из файла ----------
@@ -2416,6 +2490,14 @@ body {
     max-width: 760px;
   }
 
+  &__act {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-top: 6px;
+  }
+
   &__form {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 150px auto;
@@ -2737,6 +2819,42 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.rest-hours {
+  max-width: 160px;
+}
+
+// Ключ интеграции для поставок извне.
+.rest-key {
+  border-top: 1px solid var(--line);
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--h);
+  }
+
+  code {
+    overflow-wrap: anywhere;
+  }
+
+  &__value {
+    display: block;
+    padding: 10px 12px;
+    border-radius: var(--r-btn);
+    background: var(--bg);
+    color: var(--h);
+    font-size: 15px;
+    user-select: all;
+  }
+
+  &__acts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
 }
 
 @media (max-width: 900px) {

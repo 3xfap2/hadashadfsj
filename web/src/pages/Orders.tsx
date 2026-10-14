@@ -56,6 +56,16 @@ export function Orders() {
     return cheaper * (discountOf(d.dishId)?.price ?? d.price) + (cart[d.dishId] - cheaper) * d.price;
   };
   const total = inCart.reduce((s, d) => s + lineSum(d), 0);
+  // Блюдо из корзины, которое уже не собрать: пока официант оформлял, продукт закончился, протух или блюдо сняли с продажи.
+  // Стоп-лист обновляется сам, а после отказа сервера (409) отмечаются и блюда, которым не хватило продукта из ответа.
+  const lacking = result?.kind === 'rejected' ? new Set(result.order.shortages.map((s) => s.productId)) : null;
+  const problem = (d: StopListRow): string | null => {
+    if (d.status === 'Stop') return `в стопе: ${d.limitingProductName.toLowerCase()} — ${STOP_REASON[d.reason!]}`;
+    if (d.portions < cart[d.dishId]) return `осталось только ${portions(d.portions)}`;
+    if (lacking?.has(d.limitingProductId)) return `не хватает продукта: ${d.limitingProductName.toLowerCase()}`;
+    return null;
+  };
+  const blocked = inCart.filter((d) => problem(d) !== null);
 
   // Корзина, скидка или стол изменились — это уже другой заказ: прежний идентификатор попытки не годится,
   // иначе сервер вернёт заказ, созданный до обрыва связи, а новые блюда молча не оформятся.
@@ -70,6 +80,11 @@ export function Orders() {
       if (!next[dishId]) delete next[dishId];
       return next;
     });
+  };
+  const removeBlocked = () => {
+    newAttempt();
+    setCart((c) => Object.fromEntries(Object.entries(c).filter(([id]) => !blocked.some((d) => d.dishId === id))));
+    setResult(null);
   };
 
   // Открытые заказы за каждым столом: сумма и время последнего. После «Закрыть стол» он снова свободен.
@@ -208,13 +223,14 @@ export function Orders() {
             ) : (
               <ul>
                 {inCart.map((d) => (
-                  <li key={d.dishId} className="ord-row">
+                  <li key={d.dishId} className={`ord-row${problem(d) ? ' ord-row--bad' : ''}`}>
                     <span className="ord-row__text">
                       <span className="g-name">{d.dishName}</span>
                       <span className="muted num small">
                         {cart[d.dishId]} × {money(d.price)}
                         {discountOf(d.dishId) && ` · скидка ${discountOf(d.dishId)!.percent}% на ${portions(discountedPortions(d))}`}
                       </span>
+                      {problem(d) && <span className="ord-row__why">Не собрать: {problem(d)}</span>}
                     </span>
                     <span className="num r hd ord-row__sum">{money(lineSum(d))}</span>
                     <button className="x" type="button" aria-label={`Удалить ${d.dishName}`} onClick={() => change(d.dishId, -cart[d.dishId])}>
@@ -232,6 +248,19 @@ export function Orders() {
               </button>
             </div>
           </section>
+
+          {/* Отдельно от корзины: на телефоне корзина свёрнута в полосу, а убрать блюдо нужно и там. */}
+          {blocked.length > 0 && (
+            <section className="g-note g-note--err orders__blocked" role="alert">
+              <h3>{blocked.length === 1 ? 'Блюдо из заказа уже не собрать' : 'Блюда из заказа уже не собрать'}</h3>
+              <ul>
+                {blocked.map((d) => <li key={d.dishId}><strong className="hd">{d.dishName}</strong> — {problem(d)}</li>)}
+              </ul>
+              <button className="g-btn g-btn--sm" type="button" onClick={removeBlocked}>
+                Убрать из заказа{blocked.length > 1 ? ` (${blocked.length})` : ''}
+              </button>
+            </section>
+          )}
 
           <ResultNote result={result} />
 
@@ -317,7 +346,7 @@ function ResultNote({ result }: { result: Result }) {
     return (
       <section ref={note} className="g-note g-note--err" role="alert">
         <h3>Заказ не создан</h3>
-        <span className="hd">Не хватает продуктов. Ничего не списано.</span>
+        <span className="hd">Не хватает продуктов. Ничего не списано. Уберите отмеченные блюда из заказа и оформите снова.</span>
         <ul className="orders__lack">
           {order.shortages.map((s) => (
             <li key={s.productName}>

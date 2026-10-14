@@ -254,23 +254,25 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task Просрочка_списывается_автоматически_после_отсрочки_и_попадает_в_аналитику()
+    public async Task Просрочка_списывается_автоматически_после_отсрочки_если_это_включено_и_попадает_в_аналитику()
     {
         var product = await Product();
         // Срок хранения 20 часов — дольше отсрочки, поэтому партия ждёт списания все 12 часов.
         await Supply(new SupplyItemRequest(product.Id, 2, 20));
-        async Task AutoWriteOff()
+        await SetAutoWriteOff(true);
+        try
         {
-            await using var scope = fx.DemoScope();
-            await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
+            fx.Time.Advance(TimeSpan.FromHours(21));
+            await RunAutoWriteOff();
+            Assert.Equal(BatchStatus.Expired, (await Batches(product)).Single().Status);
+
+            fx.Time.Advance(TimeSpan.FromHours(12));
+            await RunAutoWriteOff();
         }
-
-        fx.Time.Advance(TimeSpan.FromHours(21));
-        await AutoWriteOff();
-        Assert.Equal(BatchStatus.Expired, (await Batches(product)).Single().Status);
-
-        fx.Time.Advance(TimeSpan.FromHours(12));
-        await AutoWriteOff();
+        finally
+        {
+            await SetAutoWriteOff(false);
+        }
 
         Assert.Empty(await Batches(product));
         var report = await Get<WriteOffReport>("/api/analytics/write-offs?days=7");
@@ -472,7 +474,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task Проверка_сроков_партия_на_минуты_проходит_путь_до_автосписания()
+    public async Task Проверка_сроков_партия_на_минуты_проходит_путь_до_автосписания_если_оно_включено()
     {
         var product = await Product(shelfLifeHours: 48);
         var dish = await Dish((product, 0.2m));
@@ -490,15 +492,21 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         // Срок вышел: блюдо в стопе, заказ отклоняется, но отсрочка (2 минуты — срок хранения партии) ещё идёт.
         Assert.Equal((DishStatus.Stop, StopReason.Expired), ((await StopListRow(dish)).Status, (await StopListRow(dish)).Reason));
         Assert.Equal(HttpStatusCode.Conflict, (await Order(dish)).StatusCode);
-        using (var scope = fx.DemoScope())
-            await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
-        Assert.Null((await Get<ExpiryCheckResponse>("/api/simulator/expiry-check")).WrittenOffAt);
+        await SetAutoWriteOff(true);
+        try
+        {
+            await RunAutoWriteOff();
+            Assert.Null((await Get<ExpiryCheckResponse>("/api/simulator/expiry-check")).WrittenOffAt);
 
-        fx.Time.Advance(TimeSpan.FromMinutes(2));
-        using (var scope = fx.DemoScope())
-            await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
+            fx.Time.Advance(TimeSpan.FromMinutes(2));
+            await RunAutoWriteOff();
+        }
+        finally
+        {
+            await SetAutoWriteOff(false);
+        }
         var after = await Get<ExpiryCheckResponse>("/api/simulator/expiry-check");
-        Assert.Equal((0m, fx.Time.GetUtcNow()), (after.Remaining, after.WrittenOffAt!.Value));
+        Assert.Equal((0m, fx.Time.GetUtcNow(), WriteOffService.System), (after.Remaining, after.WrittenOffAt!.Value, after.WrittenOffBy));
         Assert.Equal(StopReason.OutOfStock, (await StopListRow(dish)).Reason);
     }
 
@@ -1139,7 +1147,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
             return await scope.ServiceProvider.GetRequiredService<AlertService>().RaiseBatchAlertsAsync(default);
         }
         async Task<List<AlertResponse>> Mine() =>
-            (await Get<AlertsResponse>("/api/alerts?take=100")).Items.Where(a => a.Title.StartsWith(product.Name)).ToList();
+            (await Get<AlertsResponse>("/api/alerts?take=100")).Items.Where(a => a.Title.Contains(product.Name)).ToList();
 
         await Raise();
         Assert.Empty(await Mine());                              // до срока больше суток — сигнала нет
@@ -2267,11 +2275,14 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
     [Fact]
     public async Task Автосписание_без_просрочки_не_будит_кабинеты_а_вскрытое_ждёт_не_дольше_своего_срока()
     {
-        async Task<int> WriteOff()
-        {
-            await using var scope = fx.DemoScope();
-            return await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(TimeSpan.FromHours(12), default);
-        }
+        await SetAutoWriteOff(true);
+        try { await OpenedWaitsNoLongerThanItsLife(); }
+        finally { await SetAutoWriteOff(false); }
+    }
+
+    private async Task OpenedWaitsNoLongerThanItsLife()
+    {
+        Task<int> WriteOff() => RunAutoWriteOff();
         using var events = fx.Services.GetRequiredService<EventBus>().Subscribe(Restaurant.DemoId);
         await WriteOff();                               // просрочка, оставшаяся от других сценариев
         while (events.Reader.TryRead(out _)) { }
@@ -2538,5 +2549,175 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(HttpStatusCode.NotFound, (await Api.PutAsJsonAsync(Url(Guid.NewGuid()), new HotAddRequest(null))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await fx.Waiter.PutAsJsonAsync(Url(dish.Id), new HotAddRequest(null))).StatusCode);
         (await Api.PutAsJsonAsync($"/api/hot-offers/dishes/{dish.Id}", new HotDishRequest(Pinned: false, Hidden: false))).EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Автосписание включается в настройках ресторана управляющим; по умолчанию оно выключено.</summary>
+    private async Task SetAutoWriteOff(bool on)
+    {
+        using var manager = await fx.SignInAsync("manager");
+        var current = (await manager.GetFromJsonAsync<RestaurantSettings>("/api/restaurant", ApiFixture.Json))!;
+        (await manager.PutAsJsonAsync("/api/restaurant", current with { AutoWriteOff = on, AutoWriteOffAfterHours = 12 })).EnsureSuccessStatusCode();
+    }
+
+    private async Task<int> RunAutoWriteOff()
+    {
+        await using var scope = fx.DemoScope();
+        return await scope.ServiceProvider.GetRequiredService<WriteOffService>().WriteOffExpiredAsync(default);
+    }
+
+    [Fact]
+    public async Task Просрочка_по_умолчанию_не_списывается_сама_а_ждёт_человека_под_списание()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.5m));
+        await Supply(new SupplyItemRequest(product.Id, 3, 2));
+        using var manager = await fx.SignInAsync("manager");
+        var settings = (await manager.GetFromJsonAsync<RestaurantSettings>("/api/restaurant", ApiFixture.Json))!;
+        Assert.Equal((false, 12), (settings.AutoWriteOff, settings.AutoWriteOffAfterHours));
+
+        fx.Time.Advance(TimeSpan.FromHours(30));          // давно дольше любой отсрочки
+        await RunAutoWriteOff();
+
+        // Партия на складе «под списание»: в заказ не идёт, списывает её человек.
+        var batch = (await Batches(product)).Single();
+        Assert.Equal((BatchStatus.Expired, 3m), (batch.Status, batch.Remaining));
+        Assert.Equal(HttpStatusCode.Conflict, (await Order(dish)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Api.PostAsync($"/api/stock/batches/{batch.Id}/write-off", null)).StatusCode);
+        Assert.Empty(await Batches(product));
+        var movement = (await Get<List<MovementRow>>($"/api/movements?batchId={batch.Id}")).First();
+        Assert.Equal((MovementType.WriteOff, "demo", "Истёк срок годности"), (movement.Type, movement.Actor, movement.Note));
+        // Отсрочку проверяет сервер, автосписание включает только управляющий.
+        Assert.Equal(HttpStatusCode.BadRequest, (await manager.PutAsJsonAsync("/api/restaurant", settings with { AutoWriteOffAfterHours = 500 })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Api.PutAsJsonAsync("/api/restaurant", settings with { AutoWriteOff = true })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Блюдо_в_корзине_протухло_до_оформления_заказ_отбивается_с_причиной()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 0.5m));
+        await Supply(new SupplyItemRequest(product.Id, 2, 1));
+        // Официант положил блюдо в корзину: оно в продаже.
+        Assert.NotEqual(DishStatus.Stop, (await StopListRow(dish)).Status);
+
+        fx.Time.Advance(TimeSpan.FromMinutes(61));      // пока оформлял, партия истекла
+
+        var response = await Order(dish);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var shortage = Assert.Single((await Read<OrderResponse>(response)).Shortages);
+        Assert.Equal((product.Id, 0.5m, 0m), (shortage.ProductId, shortage.Required, shortage.Available));
+        Assert.Equal((DishStatus.Stop, StopReason.Expired), ((await StopListRow(dish)).Status, (await StopListRow(dish)).Reason));
+    }
+
+    private static SupplyRequest External(string number, params SupplyItemRequest[] items) =>
+        new(Guid.NewGuid(), number, null, items.ToList(), "ООО «Овощебаза»", "7701234567");
+
+    [Fact]
+    public async Task Поставка_прилетает_извне_по_ключу_ресторана_без_входа_сотрудника()
+    {
+        var product = await Product();
+        using var manager = await fx.SignInAsync("manager");
+        var issued = await Read<IntegrationKeyResponse>(await manager.PostAsync("/api/restaurant/integration-key", null));
+        var key = issued.Key;
+        Assert.Equal(Restaurant.DemoId, issued.RestaurantId);
+        Assert.True((await manager.GetFromJsonAsync<RestaurantSettings>("/api/restaurant", ApiFixture.Json))!.HasIntegrationKey);
+        // Ключ выдаёт только управляющий.
+        using var storekeeper = await fx.SignInAsync("storekeeper");
+        Assert.Equal(HttpStatusCode.Forbidden, (await storekeeper.PostAsync("/api/restaurant/integration-key", null)).StatusCode);
+
+        using var outside = fx.CreateClient();
+        outside.DefaultRequestHeaders.Add("X-Api-Key", key);
+        var number = $"ВН-{Guid.NewGuid():N}"[..20];
+        // Продукт — по точному названию из справочника (регистр не важен), срок — «годен до».
+        var sent = await outside.PostAsJsonAsync("/api/supplies/incoming", External(number,
+            new SupplyItemRequest(Guid.Empty, 4, null, ProductName: product.Name.ToUpperInvariant(), ExpiresAt: fx.Time.GetUtcNow().AddHours(30))), ApiFixture.Json);
+
+        Assert.Equal(HttpStatusCode.Accepted, sent.StatusCode);
+        // Внешней системе — квитанция без закупочных цен ресторана.
+        Assert.DoesNotContain("total", await sent.Content.ReadAsStringAsync());
+        var waiting = (await Get<List<IncomingResponse>>("/api/supplies/incoming")).Single(s => s.Number == number);
+        Assert.Equal(("ООО «Овощебаза»", "7701234567", 30), (waiting.Supplier, waiting.SupplierInn, waiting.Items.Single().ShelfLifeHours));
+        Assert.Empty(await Batches(product));
+
+        // Ключ открывает только присылку поставки: ни списка, ни приёмки, ни склада.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await outside.GetAsync("/api/supplies/incoming")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await outside.PostAsync($"/api/supplies/incoming/{waiting.Id}/accept", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await outside.GetAsync("/api/stock")).StatusCode);
+
+        // Без ключа, с чужим ключом, без ИНН или с неверным ИНН, с неизвестным продуктом — отказ с понятной причиной.
+        using var anonymous = fx.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync("/api/supplies/incoming", External("ВН-без-ключа", new SupplyItemRequest(product.Id, 1, null)))).StatusCode);
+        using var wrong = fx.CreateClient();
+        wrong.DefaultRequestHeaders.Add("X-Api-Key", "ost_неверный");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await wrong.PostAsJsonAsync("/api/supplies/incoming", External("ВН-чужой", new SupplyItemRequest(product.Id, 1, null)))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await outside.PostAsJsonAsync("/api/supplies/incoming", External("ВН-инн", new SupplyItemRequest(product.Id, 1, null)) with { SupplierInn = null })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await outside.PostAsJsonAsync("/api/supplies/incoming", External("ВН-инн", new SupplyItemRequest(product.Id, 1, null)) with { SupplierInn = "77012345" })).StatusCode);
+        var unknown = await outside.PostAsJsonAsync("/api/supplies/incoming", External("ВН-нет", new SupplyItemRequest(Guid.Empty, 1, null, ProductName: "Единорог")));
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        Assert.Contains("«Единорог» нет в справочнике", await unknown.Content.ReadAsStringAsync());
+
+        // Новый ключ заменяет прежний.
+        await manager.PostAsync("/api/restaurant/integration-key", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await outside.PostAsJsonAsync("/api/supplies/incoming", External("ВН-старый", new SupplyItemRequest(product.Id, 1, null)))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Ключ_другого_ресторана_привозит_поставку_только_ему()
+    {
+        var (owner, _, _) = await fx.NewRestaurantAsync("Склад по ключу");
+        var product = await Read<ProductResponse>(await owner.PostAsJsonAsync("/api/products", new ProductRequest("Томаты", Unit.Kg, 72, 200), ApiFixture.Json));
+        var key = (await Read<IntegrationKeyResponse>(await owner.PostAsync("/api/restaurant/integration-key", null))).Key;
+        using var outside = fx.CreateClient();
+        outside.DefaultRequestHeaders.Add("X-Api-Key", key);
+
+        (await outside.PostAsJsonAsync("/api/supplies/incoming", External("ВН-1", new SupplyItemRequest(Guid.Empty, 5, 48, ProductName: "томаты")))).EnsureSuccessStatusCode();
+
+        Assert.Equal(product.Id, (await owner.GetFromJsonAsync<List<IncomingResponse>>("/api/supplies/incoming", ApiFixture.Json))!.Single().Items.Single().ProductId);
+        Assert.DoesNotContain(await Get<List<IncomingResponse>>("/api/supplies/incoming"), s => s.Items.Any(i => i.ProductId == product.Id));
+    }
+
+    [Fact]
+    public async Task Поставку_можно_принять_частично_на_склад_встаёт_только_принятое()
+    {
+        var (a, b, c) = (await Product(), await Product(), await Product());
+        var request = External($"ВН-{Guid.NewGuid():N}"[..20],
+            new SupplyItemRequest(a.Id, 5, null), new SupplyItemRequest(b.Id, 4, null), new SupplyItemRequest(c.Id, 2, null));
+        (await Api.PostAsJsonAsync("/api/supplies/incoming", request)).EnsureSuccessStatusCode();
+        var lines = (await Get<List<IncomingResponse>>("/api/supplies/incoming")).Single(s => s.Id == request.Id).Items.ToList();
+        Assert.All(lines, l => Assert.Null(l.Accepted));
+        string Url(Guid id) => $"/api/supplies/incoming/{id}/accept";
+
+        // Больше заказанного и «ничего не принято» — ошибка, поставка ждёт дальше.
+        var tooMuch = await Api.PostAsJsonAsync(Url(request.Id!.Value), new AcceptIncomingRequest([new AcceptLine(lines[0].Id, 6)]));
+        var nothing = await Api.PostAsJsonAsync(Url(request.Id!.Value), new AcceptIncomingRequest(lines.Select(l => new AcceptLine(l.Id, 0)).ToList()));
+        Assert.Equal((HttpStatusCode.BadRequest, HttpStatusCode.BadRequest), (tooMuch.StatusCode, nothing.StatusCode));
+
+        // Томатов 3 из 5, картошку не приняли совсем, третья строка не указана — принята целиком.
+        using var storekeeper = await fx.SignInAsync("storekeeper");
+        var accepted = await storekeeper.PostAsJsonAsync(Url(request.Id!.Value),
+            new AcceptIncomingRequest([new AcceptLine(lines[0].Id, 3), new AcceptLine(lines[1].Id, 0)]));
+
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        Assert.Equal([3m], (await Batches(a)).Select(x => x.Remaining));
+        Assert.Empty(await Batches(b));
+        Assert.Equal([2m], (await Batches(c)).Select(x => x.Remaining));
+        var decided = (await Get<List<IncomingResponse>>("/api/supplies/incoming/history")).Single(s => s.Id == request.Id);
+        Assert.Equal((IncomingStatus.Partial, "storekeeper"), (decided.Status, decided.DecidedBy));
+        Assert.Equal([(5m, 3m), (4m, 0m), (2m, 2m)], decided.Items.Select(i => (i.Quantity, i.Accepted!.Value)));
+        Assert.DoesNotContain(await Get<List<IncomingResponse>>("/api/supplies/incoming"), s => s.Id == request.Id);
+
+        // Отклонённая остаётся в истории со статусом «Отклонена», на склад ничего не попало; принятая целиком — «Принята».
+        var rejected = External($"ВН-{Guid.NewGuid():N}"[..20], new SupplyItemRequest(a.Id, 7, null));
+        var whole = External($"ВН-{Guid.NewGuid():N}"[..20], new SupplyItemRequest(b.Id, 1, null));
+        (await Api.PostAsJsonAsync("/api/supplies/incoming", rejected)).EnsureSuccessStatusCode();
+        (await Api.PostAsJsonAsync("/api/supplies/incoming", whole)).EnsureSuccessStatusCode();
+        (await Api.PostAsync($"/api/supplies/incoming/{rejected.Id}/reject", null)).EnsureSuccessStatusCode();
+        (await Api.PostAsync(Url(whole.Id!.Value), null)).EnsureSuccessStatusCode();
+
+        var history = await Get<List<IncomingResponse>>("/api/supplies/incoming/history");
+        Assert.Equal(IncomingStatus.Rejected, history.Single(s => s.Id == rejected.Id).Status);
+        Assert.Equal((IncomingStatus.Accepted, 1m), (history.Single(s => s.Id == whole.Id).Status, history.Single(s => s.Id == whole.Id).Items.Single().Accepted!.Value));
+        Assert.Equal([3m], (await Batches(a)).Select(x => x.Remaining));
+        Assert.Equal(HttpStatusCode.Forbidden, (await fx.Waiter.GetAsync("/api/supplies/incoming/history")).StatusCode);
     }
 }
