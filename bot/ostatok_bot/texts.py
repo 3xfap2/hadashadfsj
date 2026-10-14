@@ -132,7 +132,7 @@ def product_batches_text(batches: list[dict], tz: ZoneInfo) -> str:
         return "Партий с остатком нет."
     lines = ["Партии:"]
     for b in batches:
-        state = "просрочена" if b.get("status") == "Expired" else f"годна до {fmt_dt(b['expiresAt'], tz)}"
+        state = "под списание (срок истёк)" if b.get("status") == "Expired" else f"годна до {fmt_dt(b['expiresAt'], tz)}"
         lines.append(f"• {fmt_qty(b['remaining'], b['unit'])}, {state}, поставка {b['supplyNumber']}{opened_mark(b)}")
     return "\n".join(lines)
 
@@ -151,7 +151,8 @@ def expiring_text(batches: list[dict]) -> str:
     soon = [b for b in batches if b["status"] != "Expired"]
     parts = []
     if expired:
-        parts.append("Просрочены:\n" + "\n".join(batch_line(b) for b in expired))
+        # Просрочка сама не списывается: партия ждёт человека «под списание».
+        parts.append("Под списание (срок истёк):\n" + "\n".join(batch_line(b) for b in expired))
     if soon:
         parts.append("Истекают в ближайшие сутки:\n" + "\n".join(batch_line(b) for b in soon))
     return "\n\n".join(parts)

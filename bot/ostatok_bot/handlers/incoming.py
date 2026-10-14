@@ -1,4 +1,5 @@
 """/incoming: поставки, которые прислала внешняя система. На склад они попадают только после приёмки.
+Принять можно целиком, частично (по каждой строке — сколько принято, 0 — строку не берут) или отклонить.
 Кнопки несут идентификатор поставки и не зависят от состояния диалога: работают и после перезапуска бота."""
 
 from __future__ import annotations
@@ -8,12 +9,13 @@ from zoneinfo import ZoneInfo
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from .. import access
-from ..api import ApiClient, Conflict, NotFound
-from ..fmt import fmt_dt, fmt_money, fmt_qty
-from ..keyboards import rows
+from ..api import ApiClient, Conflict, NotFound, ValidationFailed
+from ..fmt import InputError, fmt_dt, fmt_money, fmt_number, fmt_qty, parse_number
+from ..keyboards import cancel_row, rows
 from ..storage import Session
 from ..texts import api_error_text, supply_result_text
 from .util import send, show
@@ -25,10 +27,16 @@ SHOW_LIMIT = 10
 ACTION = "принимать поставки"
 
 
+class PartialAccept(StatesGroup):
+    amounts = State()
+
+
 def incoming_text(supply: dict, tz: ZoneInfo) -> str:
     head = f"Поставка {supply['number']}"
     if supply.get("supplier"):
         head += f", поставщик {supply['supplier']}"
+    if supply.get("supplierInn"):
+        head += f", ИНН {supply['supplierInn']}"
     lines = [f"{head}\nПришла {fmt_dt(supply['receivedAt'], tz)}, ждёт подтверждения."]
     if supply.get("createdAt"):
         # Срок годности сервер считает от даты поставки, а не от приёмки.
@@ -42,7 +50,35 @@ def incoming_text(supply: dict, tz: ZoneInfo) -> str:
 
 
 def decide_keyboard(incoming_id: str) -> InlineKeyboardMarkup:
-    return rows([("Принять", f"in:ok:{incoming_id}"), ("Отклонить", f"in:no:{incoming_id}")])
+    return rows(
+        [("Принять", f"in:ok:{incoming_id}"), ("Отклонить", f"in:no:{incoming_id}")],
+        [("Принять частично", f"in:part:{incoming_id}")],
+    )
+
+
+def partial_question(supply: dict) -> str:
+    lines = [f"Поставка {supply['number']}: сколько принято по каждой строке?"]
+    for n, item in enumerate(supply.get("items") or [], 1):
+        lines.append(f"{n}. {item['productName']} — заказано {fmt_qty(item['quantity'], item['unit'])}")
+    lines.append("Напишите числа через пробел по порядку строк, 0 — строку не берёте. Например: "
+                 + " ".join("0" if n == 2 else fmt_number(i["quantity"]) for n, i in enumerate(supply["items"], 1)))
+    return "\n".join(lines)
+
+
+def parse_amounts(text: str, items: list[dict]) -> list[float]:
+    """Принятое количество по строкам из ответа «3 0 2,5». Ошибка — InputError с понятным текстом."""
+    parts = text.replace(";", " ").split()
+    if len(parts) != len(items):
+        raise InputError(f"Нужно {len(items)} чисел — по одному на строку поставки, через пробел.")
+    amounts = []
+    for part, item in zip(parts, items):
+        value = parse_number(part)
+        if value < 0 or value > item["quantity"]:
+            raise InputError(f"{item['productName']}: принять можно от 0 до {fmt_qty(item['quantity'], item['unit'])}.")
+        amounts.append(value)
+    if not any(amounts):
+        raise InputError("Ничего не принято. Если поставку не берёте, отклоните её: /incoming")
+    return amounts
 
 
 def target(data: str) -> str:
@@ -82,6 +118,51 @@ async def cb_accept(callback: CallbackQuery, api: ApiClient, token: str, session
         await show(callback, api_error_text(exc), rows([("Отклонить", f"in:no:{incoming_id}")]))
         return
     await show(callback, supply_result_text(supply, tz))
+
+
+@router.callback_query(F.data.startswith("in:part:"))
+async def cb_partial(callback: CallbackQuery, state: FSMContext, api: ApiClient, token: str, session: Session) -> None:
+    if not await access.check(callback, session, "stock", ACTION):
+        return
+    incoming_id = target(callback.data)
+    supply = next((s for s in await api.list_incoming(token) if s["id"] == incoming_id), None)
+    if supply is None:
+        await show(callback, "Эту поставку уже приняли или отклонили. Список: /incoming")
+        return
+    await state.clear()
+    await state.set_state(PartialAccept.amounts)
+    await state.update_data(supply=supply)
+    await show(callback, partial_question(supply), rows(cancel_row()))
+
+
+@router.message(PartialAccept.amounts, F.text, ~F.text.startswith("/"))
+async def on_partial_amounts(message: Message, state: FSMContext, api: ApiClient, token: str, session: Session) -> None:
+    if not await access.check(message, session, "stock", ACTION):
+        return
+    supply = (await state.get_data())["supply"]
+    items = supply["items"]
+    try:
+        amounts = parse_amounts(message.text, items)
+    except InputError as exc:
+        await message.answer(f"{exc}\nПопробуйте ещё раз или нажмите «Отмена».", reply_markup=rows(cancel_row()))
+        return
+    await state.clear()
+    accepted = [{"id": item["id"], "accepted": amount} for item, amount in zip(items, amounts)]
+    try:
+        await api.accept_incoming(token, supply["id"], accepted)
+    except NotFound:
+        await message.answer("Эту поставку уже приняли или отклонили. Список: /incoming")
+        return
+    except (Conflict, ValidationFailed) as exc:
+        await message.answer(api_error_text(exc))
+        return
+    whole = all(amount == item["quantity"] for item, amount in zip(items, amounts))
+    lines = [f"Поставка {supply['number']} принята{'' if whole else ' частично'}. На склад встало только принятое:"]
+    lines += [
+        f"{item['productName']} — принято {fmt_qty(amount, item['unit'])} из {fmt_qty(item['quantity'], item['unit'])}"
+        for item, amount in zip(items, amounts)
+    ]
+    await message.answer("\n".join(lines))
 
 
 @router.callback_query(F.data.startswith("in:no:"))

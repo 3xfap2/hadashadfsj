@@ -432,11 +432,14 @@ class ApiClient:
         items (productName, unit, quantity, shelfLifeHours). На склад они попадают только после приёмки."""
         return await self._request("GET", "/api/supplies/incoming", token)
 
-    async def accept_incoming(self, token: str, incoming_id: str) -> dict:
+    async def accept_incoming(self, token: str, incoming_id: str, accepted: list[dict] | None = None) -> dict:
         """Принять поставку: партии появляются на складе, срок годности считается от даты поставки (createdAt).
-        200 — поставка с партиями; 404 — уже решена или не найдена; 409 — поставка с таким номером уже принята
+        accepted — частичная приёмка: [{"id": строка поставки, "accepted": сколько принято}], 0 — строку не берут;
+        без него поставка принимается целиком. 200 — поставка с партиями (только принятое); 400 — принятое вне
+        0…заказано или ничего не принято; 404 — уже решена или не найдена; 409 — поставка с таким номером уже принята
         или срок годности истёк, пока она ждала (текст в detail: такую остаётся отклонить)."""
-        return await self._request("POST", f"/api/supplies/incoming/{incoming_id}/accept", token)
+        body = {"items": accepted} if accepted is not None else None
+        return await self._request("POST", f"/api/supplies/incoming/{incoming_id}/accept", token, json=body)
 
     async def reject_incoming(self, token: str, incoming_id: str) -> None:
         """Отклонить поставку. 204; 404 — уже решена или не найдена."""

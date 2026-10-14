@@ -161,7 +161,7 @@ def test_expiring_text_and_filter():
     selected = texts.expiring_batches(batches)
     assert [b["id"] for b in selected] == ["b1", "b2", "b3"]
     assert texts.expiring_text(selected) == (
-        "Просрочены:\n"
+        "Под списание (срок истёк):\n"
         "Сливки 33% — 0,9 л на 342 ₽, просрочено 3 ч назад, поставка П-0413\n\n"
         "Истекают в ближайшие сутки:\n"
         "Лосось охлаждённый — 0,26 кг на 494 ₽, осталось 5 ч, поставка П-0414\n"

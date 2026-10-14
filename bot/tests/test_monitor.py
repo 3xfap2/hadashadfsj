@@ -48,7 +48,9 @@ def test_batch_becomes_expiring_soon():
 def test_batch_becomes_expired_with_write_off_button():
     before = state([], [batch("b1", "ExpiringSoon", 1)])
     events = diff(before, [], [batch("b1", "Expired", -1)])
-    assert [(e.kind, e.text) for e in events] == [("batch_expired", "Просрочено: Сливки 33%, 0,9 л, поставка П-0413")]
+    assert [(e.kind, e.text) for e in events] == [
+        ("batch_expired", "Под списание: Сливки 33%, 0,9 л, поставка П-0413 — срок годности истёк")
+    ]
     text, keyboard = render(events)
     assert keyboard.inline_keyboard[0][0].text == "Списать"
     assert keyboard.inline_keyboard[0][0].callback_data == "wo:b1"
@@ -172,9 +174,9 @@ async def test_roles_see_what_their_section_allows():
     waiter = bot.to(1)
     assert waiter == [("В стопе: Тартар из лосося — просрочен продукт «Лосось охлаждённый»", None)]
     keeper_text, keeper_markup = bot.to(2)[0]
-    assert "Просрочено: Сливки 33%" in keeper_text and keeper_markup.inline_keyboard[0][0].text == "Списать"
+    assert "Под списание: Сливки 33%" in keeper_text and keeper_markup.inline_keyboard[0][0].text == "Списать"
     cook_text, cook_markup = bot.to(3)[0]
-    assert "Просрочено: Сливки 33%" in cook_text and cook_markup is None   # видит партии, но не списывает
+    assert "Под списание: Сливки 33%" in cook_text and cook_markup is None   # видит партии, но не списывает
     assert bot.to(4)[0][1] is not None
 
 
