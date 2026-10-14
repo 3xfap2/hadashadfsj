@@ -197,7 +197,10 @@ public static class SupplyEndpoints
                 Detail = $"{supply.Supplier ?? "Поставщик не указан"} · позиций: {supply.Items.Count}",
             });
             await db.SaveChangesAsync(ct);
-            return Results.Accepted($"/api/supplies/incoming/{supply.Id}", ToResponse(supply));
+            // Внешней системе — только квитанция: закупочные цены и справочник ресторана ей не показываются.
+            return byKey
+                ? Results.Accepted($"/api/supplies/incoming/{supply.Id}", new { supply.Id, supply.Number, supply.Status, Items = supply.Items.Count })
+                : Results.Accepted($"/api/supplies/incoming/{supply.Id}", ToResponse(supply));
         })
         .AllowAnonymous()
         .Produces<IncomingResponse>(StatusCodes.Status202Accepted);

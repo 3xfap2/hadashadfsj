@@ -240,14 +240,6 @@ export function Orders() {
                 ))}
               </ul>
             )}
-            {blocked.length > 0 && (
-              <div className="orders__blocked" role="alert">
-                <span>{blocked.length === 1 ? 'Это блюдо уже не собрать' : 'Эти блюда уже не собрать'} — уберите {blocked.length === 1 ? 'его' : 'их'} из заказа.</span>
-                <button className="g-btn g-btn--sm" type="button" onClick={removeBlocked}>
-                  Убрать {blocked.length === 1 ? `«${blocked[0].dishName}»` : plural(blocked.length, 'блюдо', 'блюда', 'блюд')}
-                </button>
-              </div>
-            )}
             <div className="orders__total">
               <div className="muted"><span>Позиций</span><span className="num">{count}</span></div>
               <div className="orders__sum"><span>Сумма</span><span className="num">{money(total)}</span></div>
@@ -256,6 +248,19 @@ export function Orders() {
               </button>
             </div>
           </section>
+
+          {/* Отдельно от корзины: на телефоне корзина свёрнута в полосу, а убрать блюдо нужно и там. */}
+          {blocked.length > 0 && (
+            <section className="g-note g-note--err orders__blocked" role="alert">
+              <h3>{blocked.length === 1 ? 'Блюдо из заказа уже не собрать' : 'Блюда из заказа уже не собрать'}</h3>
+              <ul>
+                {blocked.map((d) => <li key={d.dishId}><strong className="hd">{d.dishName}</strong> — {problem(d)}</li>)}
+              </ul>
+              <button className="g-btn g-btn--sm" type="button" onClick={removeBlocked}>
+                Убрать из заказа{blocked.length > 1 ? ` (${blocked.length})` : ''}
+              </button>
+            </section>
+          )}
 
           <ResultNote result={result} />
 

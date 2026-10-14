@@ -2492,6 +2492,8 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
             new SupplyItemRequest(Guid.Empty, 4, null, ProductName: product.Name.ToUpperInvariant(), ExpiresAt: fx.Time.GetUtcNow().AddHours(30))), ApiFixture.Json);
 
         Assert.Equal(HttpStatusCode.Accepted, sent.StatusCode);
+        // Внешней системе — квитанция без закупочных цен ресторана.
+        Assert.DoesNotContain("total", await sent.Content.ReadAsStringAsync());
         var waiting = (await Get<List<IncomingResponse>>("/api/supplies/incoming")).Single(s => s.Number == number);
         Assert.Equal(("ООО «Овощебаза»", "7701234567", 30), (waiting.Supplier, waiting.SupplierInn, waiting.Items.Single().ShelfLifeHours));
         Assert.Empty(await Batches(product));

@@ -379,15 +379,14 @@ body {
   }
 }
 
-.orders__blocked {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--line);
-  color: var(--red);
-  font-weight: 600;
+.g .orders__blocked {
+  align-items: flex-start;
+
+  ul {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
 }
 
 .g .x {
