@@ -14,6 +14,9 @@ export function HotSettings() {
   const [form, setForm] = useState<HotRules | null>(null);
   const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // Своё блюдо: какое добавить и с какой причиной.
+  const [addId, setAddId] = useState('');
+  const [addNote, setAddNote] = useState('');
 
   useEffect(() => {
     if (!form && rules.data) setForm(rules.data);
@@ -56,7 +59,28 @@ export function HotSettings() {
     }
   };
 
+  // Добавить своё блюдо (PUT) или убрать добавленное (DELETE). Официант видит его с пометкой и причиной.
+  const setAdded = async (dishId: string, added: boolean, reason = '') => {
+    setBusy(true);
+    try {
+      const url = `/hot-offers/dishes/${dishId}/added`;
+      const response = added ? await send('PUT', url, { note: reason.trim() || null }) : await send('DELETE', url);
+      if (response.ok && added) {
+        setAddId('');
+        setAddNote('');
+      }
+      setNote(response.ok ? null : { kind: 'err', text: await problemText(response) });
+      await Promise.all([offers.reload(), dishes.reload()]);
+    } catch (e) {
+      setNote({ kind: 'err', text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const hidden = dishes.data.filter((d) => d.hotHidden);
+  const added = dishes.data.filter((d) => d.hotAdded);
+  const addable = dishes.data.filter((d) => !d.hotAdded);
   const balance = form.urgencyWeight === 50 ? 'поровну' : form.urgencyWeight < 50 ? 'важнее сумма потерь' : 'важнее срок';
 
   return (
@@ -121,17 +145,58 @@ export function HotSettings() {
                     <span className="hot-row__rank num">{i + 1}</span>
                     <Photo url={o.photoUrl} name={o.dishName} />
                     <div className="hot-row__text">
-                      <span className="g-name">{o.dishName}{o.pinned && <span className="g-tag g-tag--amber hot-row__pin">Закреплено</span>}</span>
-                      <span className="g-why">{o.reason}</span>
-                      <span className="muted small num">
-                        приоритет {Math.round(o.score).toLocaleString('ru-RU')} · {portions(o.portions)} · {money(o.valueAtRisk ?? 0)} под списание
-                        {o.discount && ` · скидка ${o.discount.percent}%`}
+                      <span className="g-name">
+                        {o.dishName}
+                        {o.pinned && <span className="g-tag g-tag--amber hot-row__pin">Закреплено</span>}
+                        {o.manual && <span className="g-tag hot-manual hot-row__pin">Добавлено управляющим</span>}
                       </span>
+                      <span className="g-why">{o.reason}</span>
+                      {o.ingredients.length > 0 ? (
+                        <span className="muted small num">
+                          приоритет {Math.round(o.score).toLocaleString('ru-RU')} · {portions(o.portions)} · {money(o.valueAtRisk ?? 0)} под списание
+                          {o.discount && ` · скидка ${o.discount.percent}%`}
+                        </span>
+                      ) : (
+                        <span className="muted small num">в продаже {portions(o.availablePortions)} · в план спасения не входит</span>
+                      )}
                     </div>
                     <div className="hot-row__acts">
                       <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => mark(o.dishId, !o.pinned, false)}>{o.pinned ? 'Открепить' : 'Закрепить первым'}</button>
-                      <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => mark(o.dishId, false, true)}>Скрыть</button>
+                      {o.manual && o.ingredients.length === 0
+                        ? <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => setAdded(o.dishId, false)}>Убрать</button>
+                        : <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => mark(o.dishId, false, true)}>Скрыть</button>}
                     </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="g-panel" aria-labelledby="hot-add-h">
+            <div className="g-panel__head"><h2 id="hot-add-h">Своё блюдо</h2><span className="end">официант увидит его среди горячих</span></div>
+            <form className="form-body" onSubmit={(e: FormEvent) => { e.preventDefault(); if (addId) void setAdded(addId, true, addNote); }} noValidate>
+              <div className="g-field">
+                <label htmlFor="h-add-dish">Блюдо из меню</label>
+                <select className="g-input" id="h-add-dish" value={addId} onChange={(e) => setAddId(e.target.value)}>
+                  <option value="">Выберите блюдо</option>
+                  {addable.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div className="g-field">
+                <label htmlFor="h-add-note">Причина <span className="muted">— необязательно</span></label>
+                <input className="g-input" id="h-add-note" maxLength={200} placeholder="Повар Иван сегодня готовит фирменное" value={addNote} onChange={(e) => setAddNote(e.target.value)} />
+                <span className="g-hint">Блюдо не входит в план спасения и суммы. Пока оно в стоп-листе, официант его не видит.</span>
+              </div>
+              <div>
+                <button className="g-btn g-btn--primary" type="submit" disabled={busy || !addId}>Добавить в горячие</button>
+              </div>
+            </form>
+            {added.length > 0 && (
+              <ul className="g-rows">
+                {added.map((d) => (
+                  <li key={d.id} className="hot-row hot-row--plain">
+                    <span className="g-name">{d.name}{d.hotNote && <span className="muted small"> — {d.hotNote}</span>}</span>
+                    <button className="g-btn g-btn--sm" type="button" disabled={busy} onClick={() => setAdded(d.id, false)}>Убрать</button>
                   </li>
                 ))}
               </ul>

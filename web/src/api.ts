@@ -41,6 +41,10 @@ export interface HotOffer {
   score: number;
   /** Менеджер закрепил блюдо первым в списке. */
   pinned: boolean;
+  /** Блюдо добавил управляющий; если истекающих продуктов в нём нет, ingredients пуст и portions = 0. */
+  manual: boolean;
+  /** Причина, указанная управляющим при добавлении. */
+  note: string | null;
 }
 
 export interface HotRules {
@@ -90,6 +94,9 @@ export interface DishRow {
   manuallyStopped: boolean;
   hotPinned: boolean;
   hotHidden: boolean;
+  /** Управляющий добавил блюдо в горячие предложения вручную. */
+  hotAdded: boolean;
+  hotNote: string | null;
 }
 
 export interface PurchaseRow {
@@ -587,7 +594,10 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
     throw new Error('Сессия истекла, войдите заново.');
   }
   // После записи уже летящие GET могут нести прежнее состояние: следующий запрос пойдёт на сервер заново.
-  if (init?.method && init.method !== 'GET') inflight.clear();
+  if (init?.method && init.method !== 'GET') {
+    inflight.clear();
+    if (response.ok) invalidate(path);
+  }
   return response;
 }
 
@@ -647,15 +657,40 @@ export function postFile(path: string, file: File): Promise<Response> {
   return request(path, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
 }
 
-// Все открытые на экране запросы: по сигналу сервера «данные изменились» они перечитываются.
-const liveReloads = new Set<() => void>();
+// Все открытые на экране запросы и их адреса: по сигналу сервера «данные изменились» они перечитываются.
+const liveReloads = new Map<() => void, string>();
 
 /** Перечитывает всё, что сейчас на экране: приложение зовёт это, когда его снова открыли. */
 export const reloadAll = () => {
   // Запрос, начатый до сигнала об изменении, мог прочитать старые данные.
   inflight.clear();
-  liveReloads.forEach((reload) => reload());
+  liveReloads.forEach((_path, reload) => reload());
 };
+
+// Что ещё меняет запись в ресурс, кроме него самого: поставка меняет остатки и стоп-лист, блюдо — стоп-лист и горячие.
+const RELATED: Record<string, string[]> = {
+  products: ['stock', 'stop-list'],
+  dishes: ['stop-list', 'hot-offers'],
+  'hot-offers': ['dishes'],
+  supplies: ['stock', 'stop-list', 'hot-offers'],
+  orders: ['stock', 'stop-list', 'hot-offers'],
+  stock: ['stop-list', 'hot-offers'],
+};
+
+const resourceOf = (path: string) => path.split(/[/?]/)[1] ?? '';
+
+/**
+ * Запись прошла — ответы GET того же ресурса (и связанных) больше не годятся: кэш по ним стирается сразу,
+ * а открытые на экране перечитываются, не дожидаясь события сервера. Событие по SSE придёт и перечитает остальное.
+ */
+function invalidate(path: string) {
+  const resource = resourceOf(path);
+  const stale = new Set([resource, ...(RELATED[resource] ?? [])]);
+  for (const key of cache.keys()) if (stale.has(resourceOf(key.slice(key.indexOf(' ') + 1)))) cache.delete(key);
+  liveReloads.forEach((live, reload) => {
+    if (stale.has(resourceOf(live))) reload();
+  });
+}
 
 /**
  * Подключается к потоку событий сервера (SSE). Сообщение не несёт данных — оно только говорит,
@@ -756,7 +791,7 @@ export function useApi<T>(path: string, refreshMs = 30_000) {
   useEffect(() => {
     void reload();
     const timer = setInterval(reload, refreshMs);
-    liveReloads.add(reload);
+    liveReloads.set(reload, path);
     return () => {
       clearInterval(timer);
       liveReloads.delete(reload);

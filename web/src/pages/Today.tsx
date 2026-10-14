@@ -262,6 +262,22 @@ export function Today() {
 
 function Offer({ offer }: { offer: HotOffer }) {
   const main = offer.ingredients[0];
+  // Блюдо добавил управляющий, истекающих продуктов в нём нет: показывается пометка и причина.
+  if (!main) {
+    return (
+      <li className="sell">
+        <Photo url={offer.photoUrl} name={offer.dishName} />
+        <div className="sell__text">
+          <span className="g-name">{offer.dishName}</span>
+          <span className="g-tag hot-manual">Добавлено управляющим</span>
+          {offer.note && <span className="g-why">{offer.note}</span>}
+        </div>
+        <div className="sell__nums">
+          <span className="num r hd sell__portions">{portions(offer.availablePortions)}</span>
+        </div>
+      </li>
+    );
+  }
   const urgent = main.hoursLeft < URGENT_HOURS;
   const tag = `${main.productName.toLowerCase()}, осталось ${duration(main.hoursLeft)}`;
   return (

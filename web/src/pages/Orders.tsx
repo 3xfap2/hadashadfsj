@@ -267,6 +267,8 @@ function DishRow(props: {
       text: `${expiring.productName.toLowerCase()}, осталось ${duration(expiring.hoursLeft)}`,
       note: first ? 'предложить первым' : undefined,
     };
+  } else if (offer?.manual) {
+    tag = { className: 'g-tag hot-manual', text: 'Добавлено управляющим', note: offer.note ?? undefined };
   } else if (dish.status === 'Low') {
     tag = { className: 'g-tag g-tag--amber', text: 'Заканчивается', note: `${dish.limitingProductName.toLowerCase()} на ${portions(dish.portions)}` };
   }

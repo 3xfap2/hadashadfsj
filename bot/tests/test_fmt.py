@@ -195,6 +195,12 @@ def test_hot_offers_text_uses_server_reason_and_keeps_order():
     assert texts.hot_offers_text([]) == "Горячих предложений сейчас нет."
 
 
+def test_hot_offer_added_by_manager_has_no_portions_line():
+    added = {**HOT_OFFER, "dishName": "Стейк", "portions": 0, "valueAtRisk": 0, "ingredients": [], "discount": None,
+             "manual": True, "note": "Повар Иван на гриле", "reason": "Добавлено управляющим: Повар Иван на гриле"}
+    assert texts.hot_offers_text([added]) == "Горячие предложения:\n\nСтейк\nДобавлено управляющим: Повар Иван на гриле"
+
+
 def test_purchase_text():
     item = {"productId": "p-salmon", "productName": "Лосось охлаждённый", "unit": "Kg", "quantity": 5.2,
             "fresh": 2.1, "perDay": 2.4, "hoursCovered": 20.0,
