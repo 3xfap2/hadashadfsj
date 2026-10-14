@@ -93,6 +93,27 @@ export function Today() {
         </section>
       )}
 
+      {expired.length > 0 && (
+        <section className="g-note g-note--err writeoff-due" aria-labelledby="due-h">
+          <div className="writeoff-due__text">
+            <h3 id="due-h">
+              Под списание: {plural(expired.length, 'партия', 'партии', 'партий')}{costs && <> на <span className="num">{money(expiredValue)}</span></>}
+            </h3>
+            <span>
+              Срок годности истёк: в заказы и заготовки эти продукты уже не идут. Достаньте их и спишите — сами они со склада не уходят.{' '}
+              {expired.map((b) => `${b.productName.toLowerCase()} ${qty(b.remaining, b.unit)}`).join(', ')}.
+            </span>
+            {!canStock && <span className="muted">Списывает кладовщик, шеф-повар или управляющий.</span>}
+            {writeOffError && <span className="g-error-text" role="alert">{writeOffError}</span>}
+          </div>
+          {canStock && (
+            <button className="g-btn g-btn--primary" type="button" disabled={writingOff} onClick={writeOffExpired}>
+              {writingOff ? 'Списываем…' : 'Списать всё просроченное'}
+            </button>
+          )}
+        </section>
+      )}
+
       <dl className="g-kpis">
         <div className={`g-kpi${stopped.length > 0 ? ' g-kpi--red' : ''}`}>
           <dt>В стопе</dt>
@@ -109,7 +130,7 @@ export function Today() {
           </dd>
         </div>
         <div className="g-kpi">
-          <dt>Просрочено</dt>
+          <dt>Под списание</dt>
           <dd className="v num">{costs ? money(expiredValue) : plural(expired.length, 'партия', 'партии', 'партий')}</dd>
           <dd className="n">{expired.map((b) => `${b.productName.toLowerCase()}, ${b.supplyNumber}`).join('; ') || 'просрочки нет'}</dd>
         </div>
@@ -244,15 +265,6 @@ export function Today() {
                 ))}
               </ul>
             )}
-            {expired.length > 0 && canStock && (
-              <div className="g-panel__foot">
-                <span className="muted">Просрочено: <b className="num hd">{money(expiredValue)}</b></span>
-                <button className="g-btn" type="button" disabled={writingOff} onClick={writeOffExpired}>
-                  {writingOff ? 'Списываем…' : 'Списать просроченное'}
-                </button>
-              </div>
-            )}
-            {writeOffError && <p className="g-error-text" role="alert">{writeOffError}</p>}
           </section>
         </div>
       </div>

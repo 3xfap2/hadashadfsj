@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Кабинет поставщика — отправка поставки</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!--
+      Отдельная «внешняя система» поставщика. Она не входит в кабинет ресторана и не читает его данные:
+      справочник продуктов вписан прямо сюда, а поставка уходит одним запросом POST /api/supplies/incoming
+      с ключом интеграции ресторана в заголовке X-Api-Key. Ресторан сервер определяет по ключу.
+    -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --panel: #f2f4f0;
+        --line: #e3e7df;
+        --h: #0e0f0c;
+        --ink: #454745;
+        --ink-2: #6a6c6a;
+        --brand: #163300;
+        --accent: #9fe870;
+        --red: #c62a1e;
+        --red-tint: #fdecea;
+        --hl: #e2f6d5;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.45 "Onest", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      }
+      header {
+        border-bottom: 1px solid var(--line);
+        padding: 14px 24px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 16px;
+      }
+      header strong { color: var(--brand); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+      header span { color: var(--ink-2); font-size: 14px; }
+      main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 20px; }
+      h1 { margin: 0; color: var(--h); font-size: 28px; line-height: 1.2; letter-spacing: -0.02em; }
+      h2 { margin: 0; color: var(--h); font-size: 18px; font-weight: 600; }
+      p { margin: 0; }
+      .lead { color: var(--ink-2); max-width: 680px; }
+      section { border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+      label { display: flex; flex-direction: column; gap: 6px; font-weight: 500; color: var(--h); font-size: 15px; }
+      .hint { color: var(--ink-2); font-size: 13px; font-weight: 400; }
+      input, select {
+        font: inherit;
+        color: var(--h);
+        height: 44px;
+        padding: 0 12px;
+        border: 1px solid #c9cec6;
+        border-radius: 8px;
+        background: var(--bg);
+        width: 100%;
+        min-width: 0;
+      }
+      input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+      .num { font-variant-numeric: tabular-nums; }
+      .lines { display: flex; flex-direction: column; gap: 10px; }
+      .line { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 44px; gap: 10px; align-items: end; }
+      .line .unit { display: flex; }
+      .line .unit input { border-radius: 8px 0 0 8px; }
+      .line .unit span { display: flex; align-items: center; padding: 0 10px; border: 1px solid #c9cec6; border-left: 0; border-radius: 0 8px 8px 0; background: var(--panel); white-space: nowrap; font-weight: 600; }
+      button {
+        font: inherit;
+        font-weight: 600;
+        height: 44px;
+        padding: 0 18px;
+        border-radius: 8px;
+        border: 1px solid #c9cec6;
+        background: var(--bg);
+        color: var(--brand);
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); border-color: var(--accent); color: var(--brand); }
+      button:disabled { opacity: 0.6; cursor: default; }
+      button.icon { width: 44px; padding: 0; color: var(--ink-2); }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+      .result { border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+      .result.ok { background: var(--hl); }
+      .result.err { background: var(--red-tint); box-shadow: inset 0 0 0 1px var(--red); }
+      .result h3 { margin: 0; font-size: 16px; color: var(--brand); }
+      .result.err h3 { color: var(--red); }
+      pre { margin: 0; padding: 12px; background: var(--panel); border-radius: 8px; overflow: auto; font-size: 13px; line-height: 1.4; max-height: 320px; white-space: pre-wrap; word-break: break-word; }
+      code { font-size: 14px; }
+      .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      @media (max-width: 600px) {
+        header { padding: 12px 16px; }
+        h1 { font-size: 24px; }
+        section { padding: 16px; }
+        .line { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; }
+        .line .product { grid-column: 1 / -1; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Кабинет поставщика</strong>
+      <span>кабинет поставщика · внешняя система, не часть «Остатка»</span>
+    </header>
+    <main>
+      <div>
+        <h1>Отправить поставку в ресторан</h1>
+        <p class="lead">
+          Поставка уходит в «Остаток» одним запросом <code>POST /api/supplies/incoming</code> с ключом интеграции ресторана.
+          В ресторане она появится как заявка: кладовщик или управляющий примет её целиком, частично или отклонит.
+        </p>
+      </div>
+
+      <form id="form" novalidate>
+        <section aria-labelledby="conn-h">
+          <h2 id="conn-h">Подключение</h2>
+          <div class="grid">
+            <label>
+              Ключ интеграции ресторана
+              <input id="key" autocomplete="off" spellcheck="false" placeholder="ost_…" required />
+              <span class="hint">Выдаёт управляющий в «Остатке»: раздел «Ресторан» → «Поставки извне».</span>
+            </label>
+            <label>
+              Адрес API
+              <input id="api" spellcheck="false" />
+              <span class="hint">По умолчанию — этот же сайт.</span>
+            </label>
+          </div>
+        </section>
+
+        <section aria-labelledby="doc-h" style="margin-top: 20px">
+          <h2 id="doc-h">Документ</h2>
+          <div class="grid">
+            <label>Поставщик<input id="supplier" value="ООО «Северная рыба»" required /></label>
+            <label>ИНН поставщика<input id="inn" class="num" inputmode="numeric" value="7801234567" maxlength="12" required /><span class="hint">10 цифр у организации, 12 — у ИП.</span></label>
+            <label>Номер накладной<input id="number" class="num" required /></label>
+          </div>
+
+          <h2>Товары</h2>
+          <div class="lines" id="lines"></div>
+          <div><button type="button" id="add">+ Добавить строку</button></div>
+        </section>
+
+        <div class="actions" style="margin-top: 20px">
+          <span class="hint" id="count"></span>
+          <button type="submit" class="primary" id="send">Отправить поставку</button>
+        </div>
+      </form>
+
+      <div id="result" aria-live="polite"></div>
+    </main>
+
+    <script>
+      // Справочник ресторана вписан в страницу: внешняя система не ходит в API «Остатка» ни за чем, кроме отправки поставки.
+      // Названия — как в справочнике демо-ресторана; сервер находит продукт по точному названию.
+      const PRODUCTS = [
+        ['Авокадо', 'шт'], ['Говяжья вырезка', 'кг'], ['Картофель', 'кг'], ['Креветки тигровые', 'кг'],
+        ['Куриное филе', 'кг'], ['Лосось охлаждённый', 'кг'], ['Моцарелла', 'кг'], ['Основа том ям', 'л'],
+        ['Пармезан', 'кг'], ['Паста феттучине', 'кг'], ['Салат романо', 'кг'], ['Сливки 33%', 'л'],
+        ['Соус цезарь', 'л'], ['Тесто для пиццы', 'кг'], ['Томаты', 'кг'], ['Яйцо куриное', 'шт'],
+      ];
+      const $ = (id) => document.getElementById(id);
+      const lines = $('lines');
+      let seq = 0;
+
+      // Ключ и адрес помнит только этот браузер — чтобы не вводить их перед каждой поставкой.
+      const remember = (name, value) => { try { localStorage.setItem('supplier.' + name, value); } catch {} };
+      const recall = (name) => { try { return localStorage.getItem('supplier.' + name) || ''; } catch { return ''; } };
+      $('key').value = recall('key');
+      $('api').value = recall('api') || location.origin;
+      const stamp = new Date();
+      $('number').value = 'ПС-' + String(stamp.getMonth() + 1).padStart(2, '0') + String(stamp.getDate()).padStart(2, '0') + '-' + String(stamp.getHours()).padStart(2, '0') + String(stamp.getMinutes()).padStart(2, '0') + String(stamp.getSeconds()).padStart(2, '0');
+
+      function addLine(name, quantity, hours) {
+        const n = ++seq;
+        const row = document.createElement('div');
+        row.className = 'line';
+        row.innerHTML = `
+          <label class="product">Продукт<select></select></label>
+          <label>Количество<span class="unit"><input class="num qty" inputmode="decimal" required /><span class="u"></span></span></label>
+          <label>Срок хранения<span class="unit"><input class="num life" inputmode="numeric" placeholder="норматив" /><span>ч</span></span></label>
+          <button type="button" class="icon" aria-label="Удалить строку ${n}">✕</button>`;
+        const select = row.querySelector('select');
+        for (const [title] of PRODUCTS) select.add(new Option(title, title));
+        select.value = name;
+        const unit = () => { row.querySelector('.u').textContent = PRODUCTS.find((p) => p[0] === select.value)[1]; };
+        select.addEventListener('change', unit);
+        unit();
+        row.querySelector('.qty').value = quantity;
+        row.querySelector('.life').value = hours;
+        row.querySelector('button').addEventListener('click', () => { row.remove(); count(); });
+        lines.appendChild(row);
+        count();
+      }
+      const count = () => { $('count').textContent = 'Строк: ' + lines.children.length; };
+
+      addLine('Томаты', '5', '');
+      addLine('Картофель', '10', '');
+      addLine('Сливки 33%', '2', '96');
+      $('add').addEventListener('click', () => addLine(PRODUCTS[0][0], '1', ''));
+
+      function show(kind, title, text, json) {
+        const box = document.createElement('div');
+        box.className = 'result ' + kind;
+        const h = document.createElement('h3');
+        h.textContent = title;
+        box.appendChild(h);
+        if (text) { const p = document.createElement('p'); p.textContent = text; box.appendChild(p); }
+        if (json !== undefined) { const pre = document.createElement('pre'); pre.textContent = JSON.stringify(json, null, 2); box.appendChild(pre); }
+        $('result').replaceChildren(box);
+      }
+
+      $('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const key = $('key').value.trim();
+        const api = $('api').value.trim().replace(/\/+$/, '') || location.origin;
+        if (!key) return show('err', 'Нужен ключ интеграции', 'Попросите управляющего ресторана выдать ключ и вставьте его в поле «Ключ интеграции».');
+        if (lines.children.length === 0) return show('err', 'Нет товаров', 'Добавьте хотя бы одну строку.');
+        remember('key', key);
+        remember('api', api);
+
+        const body = {
+          number: $('number').value.trim(),
+          supplier: $('supplier').value.trim(),
+          supplierInn: $('inn').value.trim(),
+          items: [...lines.children].map((row) => {
+            const life = row.querySelector('.life').value.trim();
+            return {
+              productName: row.querySelector('select').value,
+              quantity: Number(row.querySelector('.qty').value.replace(',', '.')),
+              shelfLifeHours: life ? Number(life) : null,
+            };
+          }),
+        };
+        $('send').disabled = true;
+        $('send').textContent = 'Отправляем…';
+        try {
+          const response = await fetch(api + '/api/supplies/incoming', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Api-Key': key },
+            body: JSON.stringify(body),
+          });
+          const answer = await response.json().catch(() => null);
+          if (response.status === 202) {
+            show('ok', `Поставка ${answer.number} отправлена — ресторан её получил`, 'Она ждёт приёмки. Ответ сервера (202 Accepted):', answer);
+            $('number').value = $('number').value.replace(/(\d+)$/, (d) => String(Number(d) + 1).padStart(d.length, '0'));
+          } else {
+            const messages = answer && answer.errors ? Object.values(answer.errors).flat().join(' ') : (answer && answer.detail) || '';
+            const titles = { 400: 'Поставка не принята: ошибка в данных', 401: 'Ключ не подошёл', 409: 'Такая поставка уже есть' };
+            show('err', titles[response.status] || `Сервер ответил ошибкой ${response.status}`, messages, answer ?? undefined);
+          }
+        } catch (err) {
+          show('err', 'Не удалось связаться с сервером', 'Проверьте адрес API и подключение. ' + err.message);
+        } finally {
+          $('send').disabled = false;
+          $('send').textContent = 'Отправить поставку';
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { post, useApi, type IncomingRow, type ProductRow, type SupplyRow } from '../api';
+import { post, problemText, useApi, type IncomingRow, type ProductRow, type SupplyRow } from '../api';
 import { dueLong, money, plural, qty, toLocalInput, unitName, weekdayLong } from '../format';
 import { PlusIcon, useCan } from '../ui';
 import { clearDraft, loadDraft, saveDraft, type DraftLine, type SupplyDraft } from '../supplyDraft';
@@ -14,7 +14,7 @@ export function Supplies() {
   const products = useApi<ProductRow[]>('/products', 300_000);
   const supplies = useApi<SupplyRow[]>('/supplies?take=200');
   const incoming = useApi<IncomingRow[]>('/supplies/incoming');
-  const [deciding, setDeciding] = useState({ id: '', busy: false, error: '' });
+  const decided = useApi<IncomingRow[]>('/supplies/incoming/history?take=200');
   const [draft, setDraft] = useState<SupplyDraft | null>(null);
   const [savedDraft, setSavedDraft] = useState(() => loadDraft());
   const [tried, setTried] = useState(false);
@@ -48,21 +48,12 @@ export function Supplies() {
   if (!draft || !products.data || !supplies.data) return <p className="muted">Загружаем поставки…</p>;
 
   const byId = (id: string) => products.data!.find((p) => p.id === id)!;
-  const decide = async (id: string, action: 'accept' | 'reject') => {
-    setDeciding({ id, busy: true, error: '' });
-    let error = '';
-    try {
-      const response = await post(`/supplies/incoming/${id}/${action}`);
-      if (!response.ok) {
-        const problem = await response.json().catch(() => ({}));
-        error = problem.detail || `Сервер ответил ошибкой ${response.status}.`;
-      }
-      await Promise.all([incoming.reload(), supplies.reload()]);
-    } catch (e) {
-      error = (e as Error).message;
-    }
-    setDeciding({ id, busy: false, error });
+  const reloadAll = async () => {
+    await Promise.all([incoming.reload(), supplies.reload(), decided.reload()]);
   };
+  // Решения по поставкам извне: по принятой видно «заказано / принято», отклонённая остаётся в истории, хотя на склад ничего не добавила.
+  const history = new Map((decided.data ?? []).map((d) => [d.id, d]));
+  const rejected = (decided.data ?? []).filter((d) => d.status === 'Rejected');
   const received = draft.date ? new Date(draft.date) : new Date();
   const update = (patch: Partial<SupplyDraft>) => setDraft({ ...draft, ...patch });
   const updateLine = (index: number, patch: Partial<DraftLine>) =>
@@ -232,20 +223,7 @@ export function Supplies() {
             <span className="muted small">за неделю · {supplies.data.filter((s) => new Date(s.createdAt).getTime() >= weekAgo).length}</span>
           </div>
           <ul className="sup-list">
-            {incoming.data?.map((s) => (
-              <li key={s.id} className="g-panel sup sup--waiting">
-                <div className="sup__top"><span className="g-name num">{s.number}</span><span className="num muted small">{dueLong(s.receivedAt)}</span></div>
-                {s.supplier && <span className="muted small">{s.supplier}</span>}
-                <span className="sup__items">{s.items.map((i) => `${i.productName} ${qty(i.quantity, i.unit)}`).join(' · ')}</span>
-                <div className="sup__bottom"><strong className="num hd">{money(s.total)}</strong><span className="g-tag g-tag--amber">Ждёт подтверждения</span></div>
-                <span className="muted small">Пришла из внешней системы. Поставка от {dueLong(s.createdAt)}: срок годности считается от этой даты, на склад попадёт после приёмки.</span>
-                {deciding.error && deciding.id === s.id && <span className="g-error-text" role="alert">{deciding.error}</span>}
-                <div className="sup__decide">
-                  <button className="g-btn g-btn--sm" type="button" disabled={deciding.busy} onClick={() => decide(s.id, 'reject')}>Отклонить</button>
-                  <button className="g-btn g-btn--sm g-btn--primary" type="button" disabled={deciding.busy} onClick={() => decide(s.id, 'accept')}>Принять</button>
-                </div>
-              </li>
-            ))}
+            {incoming.data?.map((s) => <IncomingCard key={s.id} supply={s} onDone={reloadAll} />)}
             {savedDraft && (
               <li className="g-panel sup">
                 <div className="sup__top"><span className="g-name num">{savedDraft.number || 'Без номера'}</span><span className="num muted small">на этом устройстве</span></div>
@@ -259,18 +237,140 @@ export function Supplies() {
               </li>
             )}
             {supplies.data.length === 0 && !savedDraft && !incoming.data?.length && <li className="g-empty"><strong>Поставок пока нет</strong>Первая появится здесь после приёмки.</li>}
-            {supplies.data.map((s) => (
-              <li key={s.id} className="g-panel sup">
-                <div className="sup__top"><span className="g-name num">{s.number}</span><span className="num muted small">{dueLong(s.createdAt)}</span></div>
-                {s.supplier && <span className="muted small">{s.supplier}</span>}
-                <span className="sup__items">{s.items.map((i) => `${i.productName} ${qty(i.quantity, i.unit)}`).join(' · ')}</span>
-                <div className="sup__bottom"><strong className="num hd">{money(s.total ?? 0)}</strong><span className="muted small">Принята · <Link to={`/app/labels?supply=${encodeURIComponent(s.number)}`}>этикетки</Link></span></div>
+            {rejected.map((d) => (
+              <li key={d.id} className="g-panel sup sup--rejected">
+                <div className="sup__top"><span className="g-name num">{d.number}</span><span className="num muted small">{dueLong(d.decidedAt ?? d.receivedAt)}</span></div>
+                <SupplierLine supply={d} />
+                <span className="sup__items">{d.items.map((i) => `${i.productName} ${qty(i.quantity, i.unit)}`).join(' · ')}</span>
+                <div className="sup__bottom"><span className="muted small">На склад ничего не добавлено{d.decidedBy ? ` · ${d.decidedBy}` : ''}</span><span className="g-tag g-tag--red">Отклонена</span></div>
               </li>
             ))}
+            {supplies.data.map((s) => {
+              const from = history.get(s.id);
+              return (
+                <li key={s.id} className="g-panel sup">
+                  <div className="sup__top"><span className="g-name num">{s.number}</span><span className="num muted small">{dueLong(s.createdAt)}</span></div>
+                  {from ? <SupplierLine supply={from} /> : s.supplier && <span className="muted small">{s.supplier}</span>}
+                  {from?.status === 'Partial' ? (
+                    <ul className="sup__lines">
+                      {from.items.map((i) => (
+                        <li key={i.id} className={i.accepted === i.quantity ? '' : 'short'}>
+                          <span>{i.productName}</span>
+                          <span className="num">{qty(i.accepted ?? 0, i.unit)} из {qty(i.quantity, i.unit)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <span className="sup__items">{s.items.map((i) => `${i.productName} ${qty(i.quantity, i.unit)}`).join(' · ')}</span>
+                  )}
+                  <div className="sup__bottom">
+                    <strong className="num hd">{money(s.total ?? 0)}</strong>
+                    <span className="muted small">
+                      {from?.status === 'Partial' ? <span className="g-tag g-tag--amber">Принята частично</span> : 'Принята'} · <Link to={`/app/labels?supply=${encodeURIComponent(s.number)}`}>этикетки</Link>
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </aside>
       </div>
     </>
+  );
+}
+
+function SupplierLine({ supply }: { supply: IncomingRow }) {
+  return (
+    <span className="muted small">
+      {supply.supplier ?? 'Поставщик не указан'}
+      {supply.supplierInn && <> · ИНН <span className="num">{supply.supplierInn}</span></>}
+    </span>
+  );
+}
+
+/**
+ * Поставка из внешней системы, которая ждёт решения: принять всё, принять частично (по каждой строке — сколько принято,
+ * 0 — строка не принята) или отклонить. На склад встаёт только принятое.
+ */
+function IncomingCard({ supply, onDone }: { supply: IncomingRow; onDone: () => Promise<void> }) {
+  const [accepted, setAccepted] = useState<Record<number, string> | null>(null);
+  const [state, setState] = useState({ busy: false, error: '' });
+  const bad = (line: IncomingRow['items'][number]) => {
+    const value = accepted ? number(accepted[line.id] ?? '') : line.quantity;
+    return !(value >= 0 && value <= line.quantity);
+  };
+
+  const decide = async (action: 'accept' | 'reject', body?: unknown) => {
+    setState({ busy: true, error: '' });
+    let error = '';
+    try {
+      const response = await post(`/supplies/incoming/${supply.id}/${action}`, body);
+      if (!response.ok) error = await problemText(response);
+      await onDone();
+    } catch (e) {
+      error = (e as Error).message;
+    }
+    setState({ busy: false, error });
+  };
+  const acceptPartly = () => {
+    if (!accepted || supply.items.some(bad)) return;
+    void decide('accept', { items: supply.items.map((i) => ({ id: i.id, accepted: number(accepted[i.id]) })) });
+  };
+
+  return (
+    <li className="g-panel sup sup--waiting">
+      <div className="sup__top"><span className="g-name num">{supply.number}</span><span className="num muted small">от {dueLong(supply.createdAt)}</span></div>
+      <SupplierLine supply={supply} />
+      <ul className="sup__lines">
+        {supply.items.map((i) => (
+          <li key={i.id}>
+            <span>{i.productName} <span className="muted small">· срок {i.shelfLifeHours} ч</span></span>
+            {accepted ? (
+              <span className={`g-field sup__accept${bad(i) ? ' g-field--error' : ''}`}>
+                <label className="sr" htmlFor={`acc-${i.id}`}>Принято: {i.productName}, заказано {qty(i.quantity, i.unit)}</label>
+                <span className="g-unit">
+                  <input
+                    className="g-input num"
+                    id={`acc-${i.id}`}
+                    inputMode="decimal"
+                    value={accepted[i.id] ?? ''}
+                    aria-invalid={bad(i)}
+                    onChange={(e) => setAccepted({ ...accepted, [i.id]: e.target.value })}
+                  />
+                  <span>из {qty(i.quantity, i.unit)}</span>
+                </span>
+              </span>
+            ) : (
+              <span className="num">{qty(i.quantity, i.unit)}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div className="sup__bottom"><strong className="num hd">{money(supply.total)}</strong><span className="g-tag g-tag--amber">Ждёт подтверждения</span></div>
+      <span className="muted small">
+        {accepted
+          ? 'Укажите, сколько принято по каждой строке: 0 — строку не берёте. На склад встанет только принятое.'
+          : `Пришла из внешней системы ${dueLong(supply.receivedAt)}. Срок годности считается от даты поставки, на склад она попадёт после приёмки.`}
+      </span>
+      {accepted && supply.items.some(bad) && <span className="g-error-text">Принятое количество — от 0 до заказанного.</span>}
+      {state.error && <span className="g-error-text" role="alert">{state.error}</span>}
+      <div className="sup__decide">
+        {accepted ? (
+          <>
+            <button className="g-btn g-btn--sm" type="button" disabled={state.busy} onClick={() => setAccepted(null)}>Отмена</button>
+            <button className="g-btn g-btn--sm g-btn--primary" type="button" disabled={state.busy} onClick={acceptPartly}>{state.busy ? 'Принимаем…' : 'Принять указанное'}</button>
+          </>
+        ) : (
+          <>
+            <button className="g-btn g-btn--sm" type="button" disabled={state.busy} onClick={() => decide('reject')}>Отклонить</button>
+            <button className="g-btn g-btn--sm" type="button" disabled={state.busy} onClick={() => setAccepted(Object.fromEntries(supply.items.map((i) => [i.id, String(i.quantity).replace('.', ',')])))}>
+              Принять частично
+            </button>
+            <button className="g-btn g-btn--sm g-btn--primary" type="button" disabled={state.busy} onClick={() => decide('accept')}>Принять всё</button>
+          </>
+        )}
+      </div>
+    </li>
   );
 }
 

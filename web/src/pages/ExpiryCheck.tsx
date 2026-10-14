@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { post, useApi, type DishRow, type ExpiryCheck as Check, type ProductRow, type StockRow, type StopListRow } from '../api';
+import { post, problemText, useApi, type DishRow, type ExpiryCheck as Check, type ProductRow, type StockRow, type StopListRow } from '../api';
 import { portions, qty } from '../format';
 
 const seconds = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -14,7 +14,8 @@ function left(ms: number): string {
 
 /**
  * Проверка сроков: партия, которая истекает через несколько минут. На ней за пару минут виден весь путь,
- * который обычная партия проходит за сутки: сигнал, просрочка, стоп блюда, автосписание.
+ * который обычная партия проходит за сутки: сигнал, срок истёк, блюдо в стопе, партия под списание, человек её списывает
+ * (или автосписание, если его включили в настройках ресторана).
  */
 export function ExpiryCheck() {
   const products = useApi<ProductRow[]>('/products', 300_000);
@@ -26,6 +27,7 @@ export function ExpiryCheck() {
   const [minutes, setMinutes] = useState('2');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [writeOffError, setWriteOffError] = useState('');
   const [now, setNow] = useState(Date.now);
 
   useEffect(() => {
@@ -69,8 +71,24 @@ export function ExpiryCheck() {
   const c = check.data;
   const expired = c ? now >= expiresAt : false;
   const createdAt = c ? new Date(c.createdAt).getTime() : 0;
-  // Просроченная партия ждёт списания столько же, сколько хранилась; проверка идёт раз в 20 секунд.
-  const writeOffAt = expiresAt + (expiresAt - createdAt);
+  // Если автосписание включено, просрочка ждёт человека отсрочку из настроек, но не дольше, чем хранилась; проверка идёт раз в 20 секунд.
+  const writeOffAt = c ? expiresAt + Math.min(c.autoWriteOffAfterHours * 3_600_000, expiresAt - createdAt) : 0;
+  const byHand = Boolean(c?.writtenOffBy && c.writtenOffBy !== 'система');
+
+  const writeOff = async () => {
+    if (!c) return;
+    setBusy(true);
+    setWriteOffError('');
+    try {
+      const response = await post(`/stock/batches/${c.batchId}/write-off`);
+      if (!response.ok) setWriteOffError(`Не списано. ${await problemText(response)}`);
+      await Promise.all([check.reload(), stock.reload(), stopList.reload()]);
+    } catch (e) {
+      setWriteOffError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const affected = c ? stopList.data.filter((d) => dishes.data!.find((x) => x.id === d.dishId)?.recipe.some((r) => r.productId === c.productId)) : [];
 
   return (
@@ -81,7 +99,8 @@ export function ExpiryCheck() {
       </div>
       <div className="form-body">
         <p className="muted check__lead">
-          Обычная партия живёт сутки и дольше. Здесь можно привезти партию на пару минут и увидеть весь путь: сигнал о сроке, просрочку, блюдо в стопе и автосписание.
+          Обычная партия живёт сутки и дольше. Здесь можно привезти партию на пару минут и увидеть весь путь: сигнал о сроке, срок истёк, блюдо в стопе,
+          партия «под списание» — и человек её списывает. Сама просрочка со склада не уходит, если автосписание не включено в настройках ресторана.
         </p>
         <div className="check__form">
           <div className="g-field">
@@ -114,7 +133,7 @@ export function ExpiryCheck() {
               ) : (
                 <strong>До конца срока <span className="num">{left(expiresAt - now)}</span></strong>
               )}
-              <span>{expired ? 'Партия осталась на складе, но в продажу больше не идёт. В колокольчике — сигнал «срок годности истёк».' : 'Блюда с этим продуктом — наверху «Продать в первую очередь». В колокольчике — сигнал «срок годности истекает».'}</span>
+              <span>{expired ? 'Партия осталась на складе, но в заказы и заготовки больше не идёт. В колокольчике — сигнал «Под списание».' : 'Блюда с этим продуктом — наверху «Продать в первую очередь». В колокольчике — сигнал «срок годности истекает».'}</span>
             </li>
             <li className={expired ? 'done' : ''}>
               <strong>Блюда с этим продуктом</strong>
@@ -128,15 +147,44 @@ export function ExpiryCheck() {
                 </span>
               ))}
             </li>
-            <li className={c.writtenOffAt ? 'done' : expired ? 'now' : ''}>
+            <li className={c.writtenOffAt || c.remaining === 0 ? 'done' : expired ? 'now' : ''}>
               {c.writtenOffAt ? (
-                <strong>Списана автоматически в <span className="num">{at(c.writtenOffAt)}</span></strong>
+                <strong>Партия была под списание до <span className="num">{at(c.writtenOffAt)}</span></strong>
               ) : c.remaining === 0 ? (
                 <strong>Партию продали раньше срока — списывать нечего</strong>
               ) : (
-                <strong>Автосписание {expired ? <>— около <span className="num">{at(writeOffAt + 20_000)}</span></> : 'после просрочки'}</strong>
+                <strong>Партия под списание{!expired && ' — после истечения срока'}</strong>
               )}
-              <span>{c.writtenOffAt ? 'Запись «Истёк срок годности (автосписание)» — в журнале склада и в аналитике списаний.' : 'Просроченная партия ждёт ручного списания столько же, сколько хранилась, но не дольше 12 часов. Потом система списывает её сама.'}</span>
+              <span>
+                {c.writtenOffAt || c.remaining === 0
+                  ? 'Пока партию не списали, она была видна на складе и на экране «Сегодня» со статусом «Под списание».'
+                  : 'Она на складе и на «Сегодня» со статусом «Под списание»: в заказ её взять нельзя, а списывает её человек — так он видит, что выбрасывает.'}
+              </span>
+              {expired && !c.writtenOffAt && c.remaining > 0 && (
+                <span className="check__act">
+                  <button className="g-btn g-btn--sm g-btn--primary" type="button" disabled={busy} onClick={writeOff}>Списать партию</button>
+                  {writeOffError && <span className="g-error-text" role="alert">{writeOffError}</span>}
+                </span>
+              )}
+            </li>
+            <li className={c.writtenOffAt ? 'done' : ''}>
+              {c.writtenOffAt ? (
+                <strong>
+                  {byHand ? <>Списал {c.writtenOffBy}</> : 'Списана автоматически'} в <span className="num">{at(c.writtenOffAt)}</span>
+                </strong>
+              ) : (
+                <strong>
+                  Списание: вручную
+                  {c.autoWriteOff && c.remaining > 0 && <> или автоматически {expired ? <>около <span className="num">{at(writeOffAt + 20_000)}</span></> : 'после отсрочки'}</>}
+                </strong>
+              )}
+              <span>
+                {c.writtenOffAt
+                  ? `Запись «Истёк срок годности${byHand ? '' : ' (автосписание)'}» — в журнале склада и в аналитике списаний.`
+                  : c.autoWriteOff
+                    ? `Автосписание включено в настройках ресторана: просрочка ждёт человека ${c.autoWriteOffAfterHours} ч (но не дольше, чем хранилась), потом списывается сама.`
+                    : 'Автосписание выключено (так по умолчанию). Его может включить управляющий в разделе «Ресторан».'}
+              </span>
             </li>
           </ol>
         )}
