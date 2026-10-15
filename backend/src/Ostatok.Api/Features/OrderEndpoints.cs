@@ -24,11 +24,12 @@ public sealed record OrderWriteOff(string ProductName, Unit Unit, string SupplyN
 /// <param name="WriteOffs">Из каких партий списаны продукты; заполняется в ответе на создание заказа.</param>
 /// <param name="Source">Внешняя система, приславшая заказ (название её ключа); пусто — заказ оформлен в кабинете.</param>
 /// <param name="Delivery">Заказ на доставку.</param>
+/// <param name="Alternatives">Чем заменить блюда, которые не собрать; заполняется в ответе на отклонённый заказ.</param>
 public sealed record OrderResponse(
     Guid Id, int Number, DateTimeOffset CreatedAt, OrderStatus Status, string Place, decimal Total,
     IEnumerable<OrderItemResponse> Items, IEnumerable<ShortageResponse> Shortages,
     IEnumerable<OrderWriteOff> WriteOffs, DateTimeOffset? ClosedAt, DateTimeOffset? ReadyAt,
-    string? Source = null, bool Delivery = false);
+    string? Source = null, bool Delivery = false, IEnumerable<DishReplacement>? Alternatives = null);
 
 /// <param name="Id">Номер заказа во внешней системе, до 64 символов. Повтор с тем же номером от того же ключа вернёт прежний заказ и ничего не спишет.</param>
 /// <param name="Items">Блюда (dishId из GET /api/integration/menu) и порции. Скидки горячих предложений к внешним заказам не применяются.</param>
@@ -41,9 +42,11 @@ public sealed record ExternalOrderItem(Guid DishId, string DishName, int Quantit
 /// <summary>Квитанция внешней системе: без складских данных ресторана (партий, остатков, закупочных цен).</summary>
 /// <param name="Unavailable">Блюда, которые сейчас не приготовить; заполнено, если заказ не принят.</param>
 /// <param name="Detail">Причина отказа текстом; пусто у принятого заказа.</param>
+/// <param name="Alternatives">Чем заменить блюда, которые не собрать: до трёх блюд в продаже на каждое; заполняется, если заказ не принят.</param>
 public sealed record ExternalOrderResponse(
     Guid Id, string ExternalId, int Number, OrderStatus Status, string Place, bool Delivery, string Source, decimal Total,
-    DateTimeOffset CreatedAt, IEnumerable<ExternalOrderItem> Items, IEnumerable<string> Unavailable, string? Detail);
+    DateTimeOffset CreatedAt, IEnumerable<ExternalOrderItem> Items, IEnumerable<string> Unavailable, string? Detail,
+    IEnumerable<DishReplacement>? Alternatives = null);
 
 /// <summary>Экран кухни: очередь заказов от старых к новым и несколько последних отданных.</summary>
 public sealed record KitchenBoard(IEnumerable<OrderResponse> Queue, IEnumerable<OrderResponse> Ready);
@@ -111,7 +114,7 @@ public static class OrderEndpoints
         })
         .RequireRoles(Access.Orders);
 
-        orders.MapPost("", async (OrderRequest req, OrderService service, AppDbContext db, ClaimsPrincipal user,
+        orders.MapPost("", async (OrderRequest req, OrderService service, AlternativeFinder finder, AppDbContext db, ClaimsPrincipal user,
             TimeProvider time, StockOptions options, CancellationToken ct) =>
         {
             // Повтор уже выполненного запроса: отвечаем тем же, что и в первый раз, не проверяя заказ заново.
@@ -133,7 +136,9 @@ public static class OrderEndpoints
 
             var paused = await db.Dishes.Where(d => ids.Contains(d.Id) && d.ManuallyStopped).Select(d => d.Name).ToListAsync(ct);
             if (paused.Count > 0)
-                return errors.Add("items", $"Снято с продажи: {string.Join(", ", paused)}. Уберите блюдо из заказа.").ToResult();
+                return Results.ValidationProblem(
+                    new Dictionary<string, string[]> { ["items"] = [$"Снято с продажи: {string.Join(", ", paused)}. Уберите блюдо из заказа."] },
+                    extensions: new Dictionary<string, object?> { ["alternatives"] = await finder.TryFindAsync(Quantities(items), new HashSet<Guid>(), ct) });
 
             // Размер скидки задаёт сервер: касса только просит её применить. Если горячее предложение
             // уже не действует, блюдо продаётся по полной цене.
@@ -165,10 +170,11 @@ public static class OrderEndpoints
                 var order = await Detailed(db).AsNoTracking().FirstAsync(o => o.Id == id, ct);
                 var response = ToResponse(order, writeOffs);
 
-                // Заказ с нехваткой не принят: 409 и перечень того, чего не хватило.
+                // Заказ с нехваткой не принят: 409, перечень того, чего не хватило, и чем заменить блюда.
                 return order.Status == OrderStatus.Accepted
                     ? Results.Created($"/api/orders/{id}", response)
-                    : Results.Json(response, statusCode: StatusCodes.Status409Conflict);
+                    : Results.Json(response with { Alternatives = await finder.TryFindAsync(ItemQuantities(order), MissingProducts(order), ct) },
+                        statusCode: StatusCodes.Status409Conflict);
             }
         })
         .Produces<OrderResponse>(StatusCodes.Status201Created)
@@ -177,7 +183,7 @@ public static class OrderEndpoints
 
         // Заказ извне — с сайта кафе или кассы — по ключу с правом orders. Идёт тем же OrderService, что и заказ официанта:
         // те же блокировки партий и тот же отказ при нехватке. Исполнитель в журнале — название ключа.
-        orders.MapPost("/external", async (ExternalOrderRequest req, HttpContext http, OrderService service, AppDbContext db, CancellationToken ct) =>
+        orders.MapPost("/external", async (ExternalOrderRequest req, HttpContext http, OrderService service, AlternativeFinder finder, AppDbContext db, CancellationToken ct) =>
         {
             var key = IntegrationKey.Current(http);
             var externalId = req.Id?.Trim() ?? "";
@@ -206,7 +212,11 @@ public static class OrderEndpoints
             var paused = await db.Dishes.Where(d => ids.Contains(d.Id) && d.ManuallyStopped).Select(d => d.Name).ToListAsync(ct);
             if (paused.Count > 0)
                 return Results.Problem($"Снято с продажи: {string.Join(", ", paused)}. Уберите блюдо из заказа.", statusCode: StatusCodes.Status409Conflict,
-                    title: "Заказ не принят", extensions: new Dictionary<string, object?> { ["unavailable"] = paused });
+                    title: "Заказ не принят", extensions: new Dictionary<string, object?>
+                    {
+                        ["unavailable"] = paused,
+                        ["alternatives"] = await finder.TryFindAsync(Quantities(items), new HashSet<Guid>(), ct),
+                    });
 
             // Источник заказа записывается тем же сохранением, что и сам заказ: OrderService о внешних системах не знает.
             void Mark(object? sender, SavingChangesEventArgs e)
@@ -238,14 +248,15 @@ public static class OrderEndpoints
                     accepted ? null : $"Не хватает продуктов для блюд: {string.Join(", ", unavailable)}. Ничего не списано.");
                 return accepted
                     ? Results.Created($"/api/orders/{order.Id}", response)
-                    : Results.Json(response, statusCode: StatusCodes.Status409Conflict);
+                    : Results.Json(response with { Alternatives = await finder.TryFindAsync(ItemQuantities(order), missing, ct) },
+                        statusCode: StatusCodes.Status409Conflict);
             }
         })
         .RequireKey(IntegrationKey.Orders)
         .Produces<ExternalOrderResponse>(StatusCodes.Status201Created)
         .Produces<ExternalOrderResponse>(StatusCodes.Status409Conflict)
         .WithSummary("Заказ извне: сайт кафе или касса по ключу")
-        .WithDescription("Нужен ключ с правом orders в заголовке X-Api-Key. Заказ проходит тот же путь, что и заказ официанта: годные партии блокируются, продукты списываются по FEFO одной транзакцией. 201 — принят и ушёл на кухню; 409 — блюдо снято с продажи или не хватает продуктов (перечень в unavailable, ничего не списано). Повтор с тем же id возвращает прежний заказ.");
+        .WithDescription("Нужен ключ с правом orders в заголовке X-Api-Key. Заказ проходит тот же путь, что и заказ официанта: годные партии блокируются, продукты списываются по FEFO одной транзакцией. 201 — принят и ушёл на кухню; 409 — блюдо снято с продажи или не хватает продуктов (перечень в unavailable, ничего не списано; в alternatives — чем заменить: до трёх блюд в продаже на каждое). Повтор с тем же id возвращает прежний заказ.");
     }
 
     /// <summary>Идентификатор заказа из ключа и номера во внешней системе: первые 16 байт SHA-256.</summary>
@@ -255,6 +266,13 @@ public static class OrderEndpoints
     /// <summary>Заказы, по которым гость ещё не расплатился. Стол не бывает открыт дольше суток, поэтому старые заказы зал не занимают.</summary>
     public static IQueryable<Order> OpenOrders(AppDbContext db, DateTimeOffset now) => db.Orders
         .Where(o => o.Status == OrderStatus.Accepted && o.ClosedAt == null && o.Place != "" && o.CreatedAt >= now.AddHours(-24));
+
+    private static Dictionary<Guid, int> Quantities(IEnumerable<OrderLine> lines) =>
+        lines.GroupBy(l => l.DishId).ToDictionary(g => g.Key, g => g.Sum(l => l.Quantity));
+
+    private static Dictionary<Guid, int> ItemQuantities(Order o) => o.Items.ToDictionary(i => i.DishId, i => i.Quantity);
+
+    private static HashSet<Guid> MissingProducts(Order o) => o.Shortages.Select(s => s.ProductId).ToHashSet();
 
     private static IQueryable<Order> Detailed(AppDbContext db) => db.Orders
         .Include(o => o.Items).ThenInclude(i => i.Dish)
@@ -273,4 +291,36 @@ public static class OrderEndpoints
 
     public static decimal LineTotal(OrderItem i) =>
         i.Price * (i.Quantity - i.DiscountQuantity) + Math.Round(i.Price * (100 - i.DiscountPercent) / 100) * i.DiscountQuantity;
+}
+
+/// <summary>
+/// Подбирает замены блюдам отклонённого заказа (<see cref="Alternatives"/>). Работает вне транзакции заказа и только читает:
+/// отказ уже записан, поэтому сбой подбора не должен его испортить — тогда отказ уходит без альтернатив.
+/// </summary>
+public class AlternativeFinder(AppDbContext db, TimeProvider time, StockOptions options, ILogger<AlternativeFinder> log)
+{
+    public async Task<IReadOnlyList<DishReplacement>> TryFindAsync(
+        IReadOnlyDictionary<Guid, int> order, IReadOnlySet<Guid> missingProducts, CancellationToken ct)
+    {
+        try
+        {
+            return await FindAsync(order, missingProducts, ct);
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested)
+        {
+            log.LogWarning(e, "Не удалось подобрать замены блюдам отклонённого заказа");
+            return [];
+        }
+    }
+
+    protected virtual async Task<IReadOnlyList<DishReplacement>> FindAsync(
+        IReadOnlyDictionary<Guid, int> order, IReadOnlySet<Guid> missingProducts, CancellationToken ct)
+    {
+        var now = time.GetUtcNow();
+        var dishes = await db.LoadDishesAsync(ct);
+        var stock = await db.LoadTotalsAsync(now, ct);
+        // Закупочные цены не нужны: из горячих предложений берутся только порядок и истекающий продукт.
+        var hot = HotOffers.Rank(dishes, await db.LoadFreshBatchesAsync(now, ct), stock, now, await db.LoadHotRulesAsync(options, ct), costs: false);
+        return Alternatives.For(dishes, stock, hot, order, missingProducts);
+    }
 }

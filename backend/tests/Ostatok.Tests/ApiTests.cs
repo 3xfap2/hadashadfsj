@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Ostatok.Api.Domain;
 using Ostatok.Api.Features;
@@ -2726,5 +2727,66 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal((IncomingStatus.Accepted, 1m), (history.Single(s => s.Id == whole.Id).Status, history.Single(s => s.Id == whole.Id).Items.Single().Accepted!.Value));
         Assert.Equal([3m], (await Batches(a)).Select(x => x.Remaining));
         Assert.Equal(HttpStatusCode.Forbidden, (await fx.Waiter.GetAsync("/api/supplies/incoming/history")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Отказ_из_за_нехватки_предлагает_замены_из_того_же_раздела_и_горячих()
+    {
+        // Свой раздел и необычные цены: блюда других тестов в подбор не попадают.
+        var section = $"Раздел {Guid.NewGuid():N}";
+        async Task<DishResponse> Dish(string name, decimal price, string? category, ProductResponse product, decimal quantity)
+        {
+            var response = await Api.PostAsJsonAsync("/api/dishes", new DishRequest($"{name} {Guid.NewGuid():N}", price, [new RecipeItemDto(product.Id, quantity)], Category: category));
+            response.EnsureSuccessStatusCode();
+            return await Read<DishResponse>(response);
+        }
+        var scarce = await Product();
+        var plenty = await Product();
+        var basil = await Product();
+        var failed = await Dish("Стейк", 77_770, section, scarce, 0.3m);
+        var same = await Dish("Котлета", 77_000, section, plenty, 0.1m);
+        var hot = await Dish("Паста", 70_000, $"Паста {Guid.NewGuid():N}", basil, 0.05m);
+        var stopped = await Dish("Лосось", 77_700, section, scarce, 0.2m);
+        await Supply(new SupplyItemRequest(plenty.Id, 5, 200), new SupplyItemRequest(basil.Id, 0.5m, 6));
+
+        var response = await Order(failed, quantity: 2);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var order = await Read<OrderResponse>(response);
+        var replacement = Assert.Single(order.Alternatives!);
+        Assert.Equal((failed.Id, 2), (replacement.DishId, replacement.Quantity));
+        Assert.Equal(same.Id, replacement.Options[0].DishId);
+        Assert.StartsWith("тот же раздел", replacement.Options[0].Reason);
+        var hotOption = replacement.Options.Single(o => o.DishId == hot.Id);
+        Assert.True(hotOption.Hot);
+        Assert.StartsWith("из горячих:", hotOption.Reason);
+        Assert.DoesNotContain(replacement.Options, o => o.DishId == stopped.Id || o.DishId == failed.Id);
+    }
+
+    [Fact]
+    public async Task Сбой_подбора_замен_не_портит_отказ()
+    {
+        await using var broken = fx.WithWebHostBuilder(b => b.ConfigureTestServices(s => s.AddScoped<AlternativeFinder, BrokenFinder>()));
+        using var waiter = broken.CreateClient();
+        waiter.DefaultRequestHeaders.Authorization = fx.Waiter.DefaultRequestHeaders.Authorization;
+        var product = await Product();
+        var dish = await Dish((product, 0.5m));
+
+        var response = await waiter.PostAsJsonAsync("/api/orders", new OrderRequest([new OrderLine(dish.Id, 1)]));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var order = await Read<OrderResponse>(response);
+        Assert.Equal(OrderStatus.Rejected, order.Status);
+        Assert.Equal(product.Id, Assert.Single(order.Shortages).ProductId);
+        Assert.Empty(order.Alternatives!);
+    }
+
+    private sealed class BrokenFinder(
+        Ostatok.Api.Data.AppDbContext db, TimeProvider time, StockOptions options, Microsoft.Extensions.Logging.ILogger<AlternativeFinder> log)
+        : AlternativeFinder(db, time, options, log)
+    {
+        protected override Task<IReadOnlyList<DishReplacement>> FindAsync(
+            IReadOnlyDictionary<Guid, int> order, IReadOnlySet<Guid> missingProducts, CancellationToken ct) =>
+            throw new InvalidOperationException("подбор сломан");
     }
 }

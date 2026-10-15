@@ -23,6 +23,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) => options
     .AddInterceptors(sp.GetRequiredService<PublishChanges>()));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<OrderService>();
+builder.Services.AddScoped<AlternativeFinder>();
 builder.Services.AddScoped<PrepService>();
 builder.Services.AddScoped<SupportDesk>();
 builder.Services.AddHttpClient();
