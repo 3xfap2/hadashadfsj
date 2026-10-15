@@ -28,10 +28,15 @@ const Purchasing = lazy(() => import('./pages/Purchasing').then((m) => ({ defaul
 const Staff = lazy(() => import('./pages/Staff').then((m) => ({ default: m.Staff })));
 const SupplyImport = lazy(() => import('./pages/SupplyImport').then((m) => ({ default: m.SupplyImport })));
 const OwnerMessages = lazy(() => import('./pages/OwnerMessages').then((m) => ({ default: m.OwnerMessages })));
+const Hall = lazy(() => import('./pages/Hall').then((m) => ({ default: m.Hall })));
+const HallBookings = lazy(() => import('./pages/HallBookings').then((m) => ({ default: m.HallBookings })));
+const HallJournal = lazy(() => import('./pages/HallJournal').then((m) => ({ default: m.HallJournal })));
+const HallSetup = lazy(() => import('./pages/HallSetup').then((m) => ({ default: m.HallSetup })));
 
 const SECTIONS = [
   { id: 'today', path: '/app', title: 'Сегодня' },
   { id: 'orders', path: '/app/orders', title: 'Заказы' },
+  { id: 'hall', path: '/app/hall', title: 'Зал' },
   { id: 'board', path: '/app/kitchen-board', title: 'Кухня' },
   { id: 'stock', path: '/app/stock', title: 'Склад' },
   { id: 'menu', path: '/app/menu', title: 'Меню и стоп-лист' },
@@ -148,6 +153,10 @@ export function Shell() {
           <Route index element={<Fence>{home}</Fence>} />
           <Route path="staff" element={<Guard section="staff"><Staff /></Guard>} />
           <Route path="orders" element={<Guard section="orders"><Orders /></Guard>} />
+          <Route path="hall" element={<Guard section="hall"><Hall /></Guard>} />
+          <Route path="hall/bookings" element={<Guard section="hall"><HallBookings /></Guard>} />
+          <Route path="hall/journal" element={<Guard section="hall"><HallJournal /></Guard>} />
+          <Route path="hall/setup" element={<Guard section="hall"><HallSetup /></Guard>} />
           <Route path="kitchen-board" element={<Guard section="board"><KitchenBoard /></Guard>} />
           <Route path="stock" element={<Guard section="stock"><Stock /></Guard>} />
           <Route path="stock/supplies" element={<Guard section="stock"><Supplies /></Guard>} />
