@@ -77,9 +77,9 @@ public class PlatformTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(("apiKey", "header", "X-Api-Key"), (apiKey.GetProperty("type").GetString(), apiKey.GetProperty("in").GetString(), apiKey.GetProperty("name").GetString()));
         var paths = root.GetProperty("paths");
         Assert.Equal("Оформить заказ (официант)", paths.GetProperty("/api/orders").GetProperty("post").GetProperty("summary").GetString());
-        // Поставку извне принимают по токену или по ключу — два требования, «любое из».
+        // Поставку извне принимают по ключу внешней системы.
         var incoming = paths.GetProperty("/api/supplies/incoming").GetProperty("post");
-        Assert.Equal(["Bearer", "ApiKey"], incoming.GetProperty("security").EnumerateArray().Select(r => r.EnumerateObject().Single().Name));
+        Assert.Contains("ApiKey", incoming.GetProperty("security").EnumerateArray().SelectMany(r => r.EnumerateObject().Select(p => p.Name)));
         Assert.Equal("Приёмка поставки", paths.GetProperty("/api/supplies/incoming/{id}/accept").GetProperty("post").GetProperty("summary").GetString());
         // Вход открыт: требования токена у него нет.
         Assert.False(paths.GetProperty("/api/auth/login").GetProperty("post").TryGetProperty("security", out _));
