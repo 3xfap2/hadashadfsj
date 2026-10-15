@@ -64,7 +64,7 @@ public static class Observability
                 context.Response.Headers[RequestIdHeader] = id;
                 return Task.CompletedTask;
             });
-            using var scope = log.BeginScope(new Dictionary<string, object> { ["RequestId"] = id });
+            using var scope = log.BeginScope("X-Request-Id:{XRequestId}", id);
             var started = Stopwatch.GetTimestamp();
             await next();
             log.LogInformation("{Method} {Path} → {Status} за {Elapsed:0} мс", context.Request.Method, context.Request.Path, context.Response.StatusCode,

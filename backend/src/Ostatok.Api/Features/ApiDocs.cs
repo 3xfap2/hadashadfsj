@@ -4,14 +4,12 @@ using Microsoft.OpenApi;
 namespace Ostatok.Api.Features;
 
 /// <summary>
-/// Описание API (/openapi/v1.json) и страница Swagger UI (/swagger) — открыты и на сервере, как сам документ.
-/// Схемы доступа: токен входа (Bearer) и ключ интеграции ресторана (X-Api-Key) для поставок из внешних систем.
-/// Описания ключевых методов задаются здесь по адресу, чтобы не трогать сами эндпоинты;
+/// Описание API (/openapi/v1.json): схемы доступа — токен входа (Bearer) и ключ интеграции ресторана (X-Api-Key)
+/// для поставок из внешних систем. Описания ключевых методов задаются здесь по адресу, чтобы не трогать сами эндпоинты;
 /// если у эндпоинта есть своё WithSummary — остаётся оно.
 /// </summary>
 public static class ApiDocs
 {
-    public const string Path = "/swagger";
     private const string Bearer = "Bearer";
     private const string ApiKey = "ApiKey";
 
@@ -55,7 +53,7 @@ public static class ApiDocs
         {
             document.Info.Title = "Остаток API";
             document.Info.Description = "Партии со сроками годности, заказы со списанием, стоп-лист и горячие предложения. "
-                + "Токен: POST /api/auth/login → кнопка Authorize → Bearer. Внешние системы присылают поставки по ключу X-Api-Key.";
+                + "Токен: POST /api/auth/login, затем заголовок Authorization: Bearer <токен>. Внешние системы присылают поставки по ключу X-Api-Key.";
             document.Components ??= new OpenApiComponents();
             document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
             document.Components.SecuritySchemes[Bearer] = new OpenApiSecurityScheme
@@ -97,14 +95,4 @@ public static class ApiDocs
     private static string Route(string? path) =>
         System.Text.RegularExpressions.Regex.Replace(path ?? "", @"\{(\w+)(:[^}]*)?\}", "{$1}").TrimEnd('/');
 
-    public static void MapApiDocs(this WebApplication app)
-    {
-        app.MapOpenApi();
-        app.UseSwaggerUI(options =>
-        {
-            options.RoutePrefix = Path.TrimStart('/');
-            options.SwaggerEndpoint("/openapi/v1.json", "Остаток API v1");
-            options.DocumentTitle = "Остаток — API";
-        });
-    }
 }

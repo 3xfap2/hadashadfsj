@@ -9,7 +9,7 @@ using Ostatok.Api.Features;
 
 namespace Ostatok.Tests;
 
-/// <summary>Инфраструктура: проверки работоспособности, номер запроса, описание API, выключатель кэша и гонка заказа со списанием.</summary>
+/// <summary>Инфраструктура: проверки работоспособности, номер запроса, схемы доступа в описании API, выключатель кэша и гонка заказа со списанием.</summary>
 public class PlatformTests(ApiFixture fx) : IClassFixture<ApiFixture>
 {
     private HttpClient Api => fx.Api;
@@ -66,15 +66,12 @@ public class PlatformTests(ApiFixture fx) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task Swagger_открыт_и_описывает_ключ_интеграции_и_заказ()
+    public async Task Описание_API_называет_ключ_интеграции_и_описывает_заказ()
     {
         using var client = fx.CreateClient();
 
-        var page = await client.GetAsync("/swagger/index.html");
         using var doc = JsonDocument.Parse(await client.GetStringAsync("/openapi/v1.json"));
 
-        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
-        Assert.Equal("text/html", page.Content.Headers.ContentType!.MediaType);
         var root = doc.RootElement;
         var apiKey = root.GetProperty("components").GetProperty("securitySchemes").GetProperty("ApiKey");
         Assert.Equal(("apiKey", "header", "X-Api-Key"), (apiKey.GetProperty("type").GetString(), apiKey.GetProperty("in").GetString(), apiKey.GetProperty("name").GetString()));

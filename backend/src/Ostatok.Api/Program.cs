@@ -199,7 +199,7 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.MapApiDocs();
+app.MapOpenApi();
 app.MapHealth();
 app.MapAuth();
 app.MapLeads();
