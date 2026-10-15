@@ -344,4 +344,17 @@ public class HallTests(ApiFixture fx) : IClassFixture<ApiFixture>
         // Повторный номер у действующего стола не допускается.
         Assert.Equal(HttpStatusCode.BadRequest, (await floor.Manager.PostAsJsonAsync("/api/hall/tables", new TableRequest(floor.Zone, 40, 2, TableShape.Round, 0, 0, 10, 10), ApiFixture.Json)).StatusCode);
     }
+
+    [Fact]
+    public async Task Число_столов_в_настройках_не_меньше_номеров_в_схеме_зала()
+    {
+        var floor = await FloorAsync();
+        var settings = (await floor.Manager.GetFromJsonAsync<RestaurantSettings>("/api/restaurant", ApiFixture.Json))!;
+
+        // В схеме есть стол № 3: меньше трёх столов задать нельзя, три — можно.
+        var tooFew = await floor.Manager.PutAsJsonAsync("/api/restaurant", settings with { Tables = 2 }, ApiFixture.Json);
+        Assert.Equal(HttpStatusCode.BadRequest, tooFew.StatusCode);
+        Assert.Contains("стол № 3", await tooFew.Content.ReadAsStringAsync());
+        (await floor.Manager.PutAsJsonAsync("/api/restaurant", settings with { Tables = 3 }, ApiFixture.Json)).EnsureSuccessStatusCode();
+    }
 }

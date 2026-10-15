@@ -1001,7 +1001,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         using var support = await fx.SignInAsSupportAsync();
         Assert.Contains("support", (await support.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
         using var manager = await fx.SignInAsync("manager");
-        Assert.Equal(["today", "stock", "menu", "board", "kitchen", "purchasing", "analytics", "catalog", "staff"],
+        Assert.Equal(["today", "hall", "stock", "menu", "board", "kitchen", "purchasing", "analytics", "catalog", "staff"],
             (await manager.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
     }
 

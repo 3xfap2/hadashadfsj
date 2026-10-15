@@ -57,6 +57,11 @@ public static partial class RestaurantEndpoints
             if (StopCost.ParseTime(end) == StopCost.ParseTime(start))
                 return errors.Add("shift", "Начало и конец смены не должны совпадать.").ToResult();
 
+            // Столы схемы зала принимаются заказом как «Стол N»: число столов не может быть меньше самого большого номера в схеме.
+            var maxHallTable = await db.HallTables.Where(t => !t.Archived).MaxAsync(t => (int?)t.Number, ct) ?? 0;
+            if (req.Tables < maxHallTable)
+                return errors.Add("tables", $"В схеме зала есть стол № {maxHallTable}: столов должно быть не меньше {maxHallTable}. Уберите стол в «Зал → Настройка» или увеличьте число.").ToResult();
+
             var places = new Restaurant { Name = name, Tables = req.Tables, HasBar = req.HasBar }.Places();
             var busy = await OrderEndpoints.OpenOrders(db, time.GetUtcNow()).Select(o => o.Place).Distinct().ToListAsync(ct);
             if (busy.Except(places).Order().ToList() is { Count: > 0 } left)
