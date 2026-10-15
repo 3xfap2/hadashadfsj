@@ -49,7 +49,8 @@ public class AlternativesTests
 
         var replacement = Assert.Single(result);
         Assert.Equal((failed.Id, 2), (replacement.DishId, replacement.Quantity));
-        Assert.Equal([sameSection.Id, hot.Id, other.Id], replacement.Options.Select(o => o.DishId));
+        // Блюдо из другого раздела (не горячее) не предлагается: официанту нужна замена того же рода.
+        Assert.Equal([sameSection.Id, hot.Id], replacement.Options.Select(o => o.DishId));
         Assert.Equal("тот же раздел, в продаже 9 порций", replacement.Options[0].Reason);
         Assert.True(replacement.Options[1].Hot);
         Assert.Equal("из горячих: базилик истекает через 6 ч", replacement.Options[1].Reason);

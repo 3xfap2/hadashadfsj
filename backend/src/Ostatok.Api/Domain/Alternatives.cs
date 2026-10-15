@@ -12,7 +12,7 @@ public sealed record DishReplacement(Guid DishId, string DishName, int Quantity,
 /// Чем заменить блюда отклонённого заказа. Для каждого блюда, которое не собрать (снято с продажи или в рецепте
 /// продукт, которого не хватило), — до трёх блюд в продаже, которых хватит на то же количество порций вместе
 /// с остальным заказом. Цена — в пределах ±50 % от исходной; само блюдо и блюда, уже лежащие в заказе, не предлагаются.
-/// Порядок: тот же раздел меню, затем горячие предложения (в порядке их плана), затем ближе по цене.
+/// Только тот же раздел меню или горячие предложения (у блюда без раздела — любые); порядок: тот же раздел, горячие (в порядке их плана), ближе по цене.
 /// </summary>
 public static class Alternatives
 {
@@ -55,6 +55,9 @@ public static class Alternatives
                 .Select(x => (x.Dish, x.Portions,
                     Same: dish.Category is { Length: > 0 } && x.Dish.Category == dish.Category,
                     Rank: hotRank.TryGetValue(x.Dish.Id, out var rank) ? rank : int.MaxValue))
+                // Десерт вместо супа официанту не поможет: только тот же раздел или горячие предложения.
+                // Блюдо без раздела сравнивать не с чем — тогда подходит любое по цене.
+                .Where(x => x.Same || x.Rank != int.MaxValue || dish.Category is not { Length: > 0 })
                 .OrderByDescending(x => x.Same)
                 .ThenBy(x => x.Rank)
                 .ThenBy(x => Math.Abs(x.Dish.Price - dish.Price))
