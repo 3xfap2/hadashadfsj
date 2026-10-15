@@ -2909,29 +2909,28 @@ body {
     color: var(--brand);
   }
 
+  // Панель настроек узкая (колонка рядом со списком сотрудников): поле, права и кнопка — друг под другом.
   &__new {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: 12px 16px;
-    align-items: end;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    > button {
+      align-self: flex-start;
+    }
   }
 
   &__checks {
     display: flex;
     flex-wrap: wrap;
     gap: 8px 16px;
-    margin: 0 0 10px;
+    margin: 0;
     padding: 0;
     border: 0;
   }
 }
 
 @media (max-width: 700px) {
-  .rest-keys__new {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
-  }
-
   .rest-keys > li {
     grid-template-columns: minmax(0, 1fr);
   }

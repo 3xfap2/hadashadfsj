@@ -308,13 +308,14 @@
             body: JSON.stringify(body),
           });
           const answer = await response.json().catch(() => null);
+          // Номер с ответом 201 или 409 уже занят: повтор с ним вернул бы тот же заказ, поэтому следующий заказ — со следующим номером.
+          if (response.status === 201 || response.status === 409)
+            $('number').value = $('number').value.replace(/(\d+)$/, (d) => String(Number(d) + 1).padStart(d.length, '0'));
           if (response.status === 201) {
             show('ok', 'Заказ № ' + answer.number + ' принят — ушёл на кухню', 'Продукты списаны со склада ресторана. Ответ сервера (201 Created):', answer);
             cart.clear();
-            $('number').value = $('number').value.replace(/(\d+)$/, (d) => String(Number(d) + 1).padStart(d.length, '0'));
           } else if (response.status === 409) {
-            const list = answer && answer.unavailable && answer.unavailable.length ? 'Не приготовить: ' + answer.unavailable.join(', ') + '. ' : '';
-            show('err', 'Заказ не принят', list + ((answer && answer.detail) || ''), answer ?? undefined);
+            show('err', 'Заказ не принят', (answer && answer.detail) || '', answer ?? undefined);
           } else {
             const messages = answer && answer.errors ? Object.values(answer.errors).flat().join(' ') : (answer && answer.detail) || '';
             const titles = { 400: 'Заказ не принят: ошибка в данных', 401: 'Ключ не подошёл', 403: 'У ключа нет права оформлять заказы', 429: 'Слишком много запросов' };

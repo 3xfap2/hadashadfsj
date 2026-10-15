@@ -235,7 +235,7 @@ public static class OrderEndpoints
                 var response = new ExternalOrderResponse(
                     order.Id, order.ExternalId ?? externalId, order.Number, order.Status, order.Place, order.Delivery, order.Source ?? key.Name, Total(order), order.CreatedAt,
                     order.Items.Select(i => new ExternalOrderItem(i.DishId, i.Dish!.Name, i.Quantity, i.Price)), unavailable,
-                    accepted ? null : $"Не хватает продуктов: {string.Join(", ", unavailable)} сейчас не приготовить. Ничего не списано.");
+                    accepted ? null : $"Не хватает продуктов для блюд: {string.Join(", ", unavailable)}. Ничего не списано.");
                 return accepted
                     ? Results.Created($"/api/orders/{order.Id}", response)
                     : Results.Json(response, statusCode: StatusCodes.Status409Conflict);
