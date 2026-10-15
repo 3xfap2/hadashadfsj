@@ -1,7 +1,8 @@
 import { Haptics, NotificationType } from '@capacitor/haptics';
 import { isNative } from '../native';
 import { useEffect, useRef, useState } from 'react';
-import { post, useApi, type HotOffer, type Me, type OrderRow, type OrderSummary, type StopListRow } from '../api';
+import { post, useApi, type HallView, type HotOffer, type Me, type OrderRow, type OrderSummary, type StopListRow } from '../api';
+import { STATE } from './HallCommon';
 import { clock, dayStart, duration, money, plural, portions, qty } from '../format';
 import { Photo, URGENT_HOURS } from '../ui';
 
@@ -23,7 +24,16 @@ export function Orders() {
   const menu = useApi<StopListRow[]>('/stop-list');
   const offers = useApi<HotOffer[]>('/hot-offers');
   const orders = useApi<OrderSummary>(`/orders/summary?since=${dayStart()}`);
-  const places = useApi<Me>('/me', 300_000).data?.places ?? [];
+  const allPlaces = useApi<Me>('/me', 300_000).data?.places ?? [];
+  // Есть схема зала — столы идут из неё (по зонам, с местами и состоянием); без схемы — номера из настроек, как раньше.
+  const scheme = useApi<HallView>('/hall', 60_000).data;
+  const hallTables = new Map((scheme?.tables ?? []).map((t) => [`Стол ${t.number}`, t]));
+  const zoneOrder = (scheme?.zones ?? []).map((z) => z.id);
+  const places = hallTables.size === 0 ? allPlaces : [
+    ...[...hallTables.values()].sort((a, b) => zoneOrder.indexOf(a.zoneId) - zoneOrder.indexOf(b.zoneId) || a.number - b.number)
+      .map((t) => `Стол ${t.number}`).filter((p) => allPlaces.includes(p)),
+    ...allPlaces.filter((p) => !/^Стол \d+$/.test(p)),
+  ];
   const [chosenPlace, setPlace] = useState('');
   const place = chosenPlace || places[0] || '';
   const [cart, setCart] = useState<Record<string, number>>({});
@@ -160,13 +170,16 @@ export function Orders() {
             {places.map((p) => {
               const table = /^Стол (\d+)$/.exec(p)?.[1];
               const seen = served.get(p);
+              const inHall = hallTables.get(p);
+              const zone = inHall && scheme!.zones.find((z) => z.id === inHall.zoneId)?.name;
               return (
-                <button key={p} className="hall__table" type="button" aria-pressed={place === p} aria-label={p} onClick={() => { if (p !== place) newAttempt(); setPlace(p); }}>
+                <button key={p} className="hall__table" type="button" aria-pressed={place === p} aria-label={inHall ? `${p}, ${zone}, ${inHall.seats} мест: ${inHall.label}` : p}
+                  title={inHall ? `${zone} · ${inHall.label}` : undefined} onClick={() => { if (p !== place) newAttempt(); setPlace(p); }}>
                   <strong className={table ? 'num' : 'hall__word'}>{table ?? p}</strong>
                   {seen ? (
                     <><span className="num hd">{money(seen.total)}</span>{seen.ready ? <span className="hall__ready small">готов</span> : <span className="num muted small">{clock(seen.last)}</span>}</>
                   ) : (
-                    <span className="muted small">свободен</span>
+                    <span className="muted small">{inHall ? `${STATE[inHall.state].toLowerCase()} · ${inHall.seats} м.` : 'свободен'}</span>
                   )}
                 </button>
               );
