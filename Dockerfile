@@ -35,5 +35,8 @@ COPY --from=web /web/dist ./wwwroot
 COPY --from=crm /crm/dist ./wwwroot/crm
 COPY --from=owner /owner/dist ./wwwroot/owner
 ENV ASPNETCORE_ENVIRONMENT=Production
+# Версия в /health: на Render — RENDER_GIT_COMMIT (его задаёт хостинг), иначе docker build --build-arg GIT_SHA=$(git rev-parse HEAD).
+ARG GIT_SHA=""
+ENV GIT_SHA=$GIT_SHA
 # Хостинг сообщает порт переменной PORT; локально — 8080.
 CMD ["sh", "-c", "ASPNETCORE_URLS=http://0.0.0.0:${PORT:-8080} exec dotnet Ostatok.Api.dll"]

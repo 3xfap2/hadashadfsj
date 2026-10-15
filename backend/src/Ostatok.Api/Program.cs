@@ -14,7 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Ключ шифрования личных данных; отдельной настройки может не быть — тогда он выводится из секрета токенов.
 PersonalData.Configure(builder.Configuration["Crypto:Key"] ?? builder.Configuration["Auth:Key"] ?? "");
 
-builder.Services.AddSingleton<ReadCache>();
+builder.Services.AddSingleton(sp => new ReadCache(sp.GetRequiredService<TimeProvider>()) { Enabled = sp.GetRequiredService<IConfiguration>().GetValue("Cache:Enabled", true) });
 builder.Services.AddSingleton<EventBus>();
 builder.Services.AddScoped<Tenant>();
 builder.Services.AddSingleton<PublishChanges>();
@@ -121,12 +121,28 @@ builder.Services.AddProblemDetails();
 // Запрос, который не удалось разобрать (дробь вместо целого, оборванный JSON), — ошибка клиента (400),
 // одинаково в разработке и на сервере.
 builder.Services.Configure<Microsoft.AspNetCore.Routing.RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
-builder.Services.AddOpenApi();
+builder.Services.AddApiDocs();
 
 // Тело запроса: самое большое, что принимает API, — фото блюда до 10 МБ.
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = 12_000_000);
 
+// На сервере журнал — JSON по строке на запись, с областями (номер запроса): его разбирает хостинг или сборщик логов.
+// В разработке — обычный текст.
+if (!builder.Environment.IsDevelopment())
+{
+    builder.Logging.ClearProviders();
+    builder.Logging.AddJsonConsole(options =>
+    {
+        options.IncludeScopes = true;
+        options.UseUtcTimestamp = true;
+        options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
+        options.JsonWriterOptions = new System.Text.Json.JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    });
+}
+
 var app = builder.Build();
+
+app.UseRequestId();
 
 // За обратным прокси хостинга адрес клиента приходит в заголовке X-Forwarded-For. Доверять ему можно,
 // только если перед сервером действительно стоит прокси: иначе заголовок подделывается и обходит ограничения частоты.
@@ -183,9 +199,8 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.MapOpenApi();
-// Счётчики кэша чтений — без данных ресторанов, поэтому открыты, как и сама проверка.
-app.MapGet("/health", (ReadCache cache) => Results.Ok(new { status = "ok", cache = cache.Stats() })).ExcludeFromDescription();
+app.MapApiDocs();
+app.MapHealth();
 app.MapAuth();
 app.MapLeads();
 app.MapChats();

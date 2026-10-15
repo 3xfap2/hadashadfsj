@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 
 import { Link, useNavigate } from 'react-router-dom';
 import { login } from '../api';
 import { LandingChat } from '../LandingChat';
+import { apiUrl } from '../native';
 
 // Открытая учётная запись демо-ресторана — та же, что на экране входа.
 const DEMO = { login: 'demo', password: 'demo2026' };
@@ -361,6 +362,7 @@ export function Landing() {
           <span className="g-brand" style={{ fontSize: 18 }}>Остаток</span>
           <span>Почта: <span className="num hd" style={{ userSelect: 'all' }}>hello@ostatok.example</span></span>
           <span>Телефон: <span className="num hd" style={{ userSelect: 'all' }}>+7 000 000-00-00</span></span>
+          <a className="lnk" href={apiUrl('/swagger')}>API для разработчиков</a>
         </div>
       </footer>
 
