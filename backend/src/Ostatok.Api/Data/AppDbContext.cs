@@ -36,6 +36,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
     public DbSet<CrmTask> CrmTasks => Set<CrmTask>();
     public DbSet<StaffMessage> StaffMessages => Set<StaffMessage>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<HallZone> HallZones => Set<HallZone>();
+    public DbSet<HallTable> HallTables => Set<HallTable>();
+    public DbSet<Reservation> Reservations => Set<Reservation>();
+    public DbSet<Visit> Visits => Set<Visit>();
+    public DbSet<TableBlock> TableBlocks => Set<TableBlock>();
+    public DbSet<HallSettings> HallSettings => Set<HallSettings>();
+    public DbSet<HallEvent> HallEvents => Set<HallEvent>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
     {
@@ -275,6 +282,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(u => u.Title).HasMaxLength(60);
             e.HasIndex(u => u.Login).IsUnique();
         });
+
+        HallModel.Configure(model);
 
         // Каждая запись ресторана видна только ему: фильтр добавляется ко всем запросам автоматически.
         foreach (var type in model.Model.GetEntityTypes().Where(t => typeof(IOwned).IsAssignableFrom(t.ClrType)).ToList())

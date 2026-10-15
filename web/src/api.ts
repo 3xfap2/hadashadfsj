@@ -403,6 +403,110 @@ export interface Me {
   restaurantId: string;
 }
 
+// ---------- Зал: столы, брони, визиты ----------
+
+export type TableState = 'Free' | 'Reserved' | 'Occupied' | 'Cleaning' | 'Blocked';
+export type ReservationStatus = 'Confirmed' | 'Seated' | 'Completed' | 'Cancelled' | 'NoShow';
+export type TableShape = 'Round' | 'Rect';
+
+export interface HallReservation {
+  id: string;
+  tableId: string;
+  tableNumber: number;
+  zone: string;
+  guest: string;
+  phone: string | null;
+  guests: number;
+  startsAt: string;
+  endsAt: string;
+  status: ReservationStatus;
+  note: string | null;
+  version: number;
+  /** С какого момента можно отметить неявку. */
+  noShowFrom: string;
+  visitId: string | null;
+}
+
+export interface HallVisit {
+  id: string;
+  tableId: string;
+  reservationId: string | null;
+  guest: string | null;
+  guests: number;
+  seatedAt: string;
+  expectedEndAt: string;
+  endedAt: string | null;
+  seatedBy: string;
+}
+
+export interface HallTableView {
+  id: string;
+  zoneId: string;
+  number: number;
+  seats: number;
+  shape: TableShape;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  version: number;
+  state: TableState;
+  /** Состояние словами по часам ресторана: «Свободен до 19:45». */
+  label: string;
+  warning: string | null;
+  visit: HallVisit | null;
+  next: HallReservation | null;
+  block: { id: string; from: string; to: string | null; reason: string; createdBy: string } | null;
+  cleaningSince: string | null;
+  freeUntil: string | null;
+  upcoming: HallReservation[];
+  /** Открытые заказы стола (место «Стол N»). */
+  orders: { number: number; total: number; createdAt: string; ready: boolean }[];
+}
+
+export interface HallSettings {
+  visitMinutes: number;
+  bufferMinutes: number;
+  noShowMinutes: number;
+  warnMinutes: number;
+}
+
+export interface HallView {
+  now: string;
+  at: string;
+  /** Срез на текущий момент; false — планирование на выбранные дату и время. */
+  live: boolean;
+  date: string;
+  time: string;
+  /** Часовой пояс ресторана: время показывается по нему, а не по часам браузера. */
+  utcOffsetMinutes: number;
+  settings: HallSettings;
+  zones: { id: string; name: string; sort: number }[];
+  tables: HallTableView[];
+  reservations: HallReservation[];
+  canManage: boolean;
+}
+
+export interface TableOption {
+  tableId: string;
+  number: number;
+  zoneId: string;
+  zone: string;
+  seats: number;
+  fits: boolean;
+  reason: string | null;
+}
+
+export interface HallEventRow {
+  id: number;
+  at: string;
+  actor: string;
+  entity: string;
+  entityId: string | null;
+  action: string;
+  text: string;
+}
+
 /** Итог инвентаризации: только продукты с расхождением; в сохранённом документе — все пересчитанные. */
 export interface InventoryResult {
   id: string;

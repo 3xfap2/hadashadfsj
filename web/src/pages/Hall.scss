@@ -1,0 +1,196 @@
+// Раздел «Зал»: схема столов, карточка стола, брони. Цвета — из палитры сайта; статус всегда подписан словом.
+.g {
+  --zal-free: #e2f6d5;
+  --zal-free-ink: #163300;
+  --zal-res: #fbefd5;
+  --zal-res-ink: #8a5300;
+  --zal-busy: #163300;
+  --zal-busy-ink: #ffffff;
+  --zal-clean: #ece6f6;
+  --zal-clean-ink: #4b2f80;
+  --zal-off: #eceeea;
+  --zal-off-ink: #6a6c6a;
+}
+
+// Внутри .g: у кнопок сайта цвет наследуется (.g button), без этого цвет статуса стола терялся бы.
+.g {
+.zal-tag--free { background: var(--zal-free); color: var(--zal-free-ink); }
+.zal-tag--reserved { background: var(--zal-res); color: var(--zal-res-ink); }
+.zal-tag--occupied { background: var(--zal-busy); color: var(--zal-busy-ink); }
+.zal-tag--cleaning { background: var(--zal-clean); color: var(--zal-clean-ink); }
+.zal-tag--blocked { background: var(--zal-off); color: var(--zal-off-ink); }
+.zal-status--confirmed { background: var(--zal-res); color: var(--zal-res-ink); }
+.zal-status--seated { background: var(--zal-busy); color: var(--zal-busy-ink); }
+.zal-status--completed { background: var(--zal-free); color: var(--zal-free-ink); }
+.zal-status--cancelled,
+.zal-status--noshow { background: var(--zal-off); color: var(--zal-off-ink); }
+
+.zal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  .g-input { width: auto; }
+}
+.zal-filters__date { min-width: 150px; }
+.zal-filters__time { min-width: 110px; }
+.zal-kpis .v .n { font-size: 15px; font-weight: 500; color: var(--ink); }
+
+.zal-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+.zal-floors { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.zal-side { position: sticky; top: 16px; min-width: 0; }
+
+// Зал — прямоугольник: столы стоят в процентах его ширины и высоты.
+.zal-floor {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  margin: 16px;
+  border-radius: 8px;
+  background-color: #fafbf9;
+  background-image: radial-gradient(#dfe3dc 1px, transparent 1px);
+  background-size: 18px 18px;
+  border: 1px dashed #c9cec6;
+}
+.zal-floor--edit .zal-t { cursor: grab; touch-action: none; }
+
+.zal-t {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px;
+  min-width: 64px;
+  min-height: 64px;
+  border: 1.5px solid #c9cec6;
+  border-radius: 10px;
+  background: var(--zal-free);
+  color: var(--zal-free-ink);
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.15;
+  overflow: hidden;
+  strong { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+  &[aria-pressed='true'] { outline: 3px solid var(--brand); outline-offset: 2px; }
+}
+.zal-t--round { border-radius: 50%; }
+.zal-t__seats, .zal-t__state, .zal-t__hint { font-size: 12px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.zal-t__state { font-weight: 700; }
+.zal-t--reserved { background: var(--zal-res); color: var(--zal-res-ink); border-color: #e3c58c; }
+.zal-t--occupied { background: var(--zal-busy); color: var(--zal-busy-ink); border-color: var(--zal-busy); }
+.zal-t--cleaning { background: var(--zal-clean); color: var(--zal-clean-ink); border-color: #cbbce6; }
+.zal-t--blocked { background: repeating-linear-gradient(45deg, var(--zal-off), var(--zal-off) 6px, #f6f7f5 6px, #f6f7f5 12px); color: var(--zal-off-ink); }
+.zal-t--warn { box-shadow: 0 0 0 3px var(--red); }
+.zal-t--dim { opacity: .3; }
+
+.zal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  span { display: inline-flex; align-items: center; gap: 6px; }
+}
+.zal-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid #c9cec6; }
+.zal-dot--free { background: var(--zal-free); }
+.zal-dot--reserved { background: var(--zal-res); }
+.zal-dot--occupied { background: var(--zal-busy); }
+.zal-dot--cleaning { background: var(--zal-clean); }
+.zal-dot--blocked { background: var(--zal-off); }
+
+.zal-card__body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px; }
+.zal-card__box {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  h3 { font-size: 15px; font-weight: 700; color: var(--h); }
+}
+.zal-card__actions { display: flex; flex-direction: column; gap: 8px; }
+.zal-card__orders li { display: flex; gap: 12px; justify-content: space-between; }
+.zal-card__res li { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.zal-card__res-act { display: flex; gap: 8px; }
+.zal-warn { background: var(--amber-tint); color: var(--amber); font-weight: 600; }
+.zal-seat { display: flex; flex-direction: column; gap: 6px; h3 { font-size: 15px; color: var(--h); } }
+.zal-seat__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  .g-input { width: auto; flex: 1 1 120px; }
+}
+
+.zal-list > li { grid-template-columns: 80px minmax(0, 1fr) auto auto; }
+.zal-list__time { display: flex; flex-direction: column; }
+.zal-list__acts { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+
+.zal-form__body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 16px; }
+.zal-form__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; }
+.zal-form__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.zal-pick { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.zal-pick__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 280px; overflow-y: auto; }
+.zal-pick__opt {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 8px;
+  padding: 10px 12px;
+  border: 1px solid #c9cec6;
+  border-radius: 8px;
+  cursor: pointer;
+  input { grid-row: span 3; margin-top: 4px; accent-color: var(--brand); }
+  &:has(input:checked) { border-color: var(--brand); background: var(--hl); }
+}
+.zal-pick__opt--off { cursor: not-allowed; background: #f6f7f5; color: var(--ink-2); }
+.zal-pick__why { color: var(--red); }
+
+.zal-bookings__bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; .g-input { width: auto; } }
+.zal-bookings > li { grid-template-columns: 90px minmax(0, 1fr) auto auto; }
+
+.zal-journal > li { grid-template-columns: 120px minmax(0, 1fr); min-height: 0; }
+
+.zal-setup { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.zal-setup__rows { display: flex; flex-direction: column; }
+.zal-setup__row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  &[aria-current='true'] { background: var(--hl); }
+  .g-input { height: 38px; padding: 0 8px; }
+  label { font-size: 13px; color: var(--ink-2); display: flex; flex-direction: column; gap: 2px; }
+}
+.zal-setup__acts { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.zal-settings { padding: 16px 20px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 12px; align-items: end; }
+
+@media (max-width: 1100px) {
+  .zal-main, .zal-setup { grid-template-columns: minmax(0, 1fr); }
+  .zal-side { position: static; }
+}
+
+// Телефон: схема превращается в сетку карточек столов — на ширине 390 пиксельная схема нечитаема.
+@media (max-width: 700px) {
+  .zal-floor {
+    aspect-ratio: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 8px;
+    margin: 12px;
+    padding: 8px;
+    background-image: none;
+  }
+  .zal-t { position: static; width: auto !important; height: auto !important; min-height: 96px; border-radius: 10px !important; }
+  .zal-floor--edit .zal-t { touch-action: auto; }
+  .zal-form__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .zal-list > li, .zal-bookings > li { grid-template-columns: 64px minmax(0, 1fr); }
+  .zal-list > li > :nth-child(n + 3), .zal-bookings > li > :nth-child(n + 3) { grid-column: 2; justify-self: start; }
+  .zal-journal > li { grid-template-columns: minmax(0, 1fr); }
+  .zal-settings { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .zal-filters .g-input { flex: 1 1 140px; }
+}
+}

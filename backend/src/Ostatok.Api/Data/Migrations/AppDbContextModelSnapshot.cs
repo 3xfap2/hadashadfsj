@@ -387,6 +387,155 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("DishPhotos");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.HallEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Entity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId", "At");
+
+                    b.ToTable("HallEvents");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.HallSettings", b =>
+                {
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("BufferMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("NoShowMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("VisitMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WarnMinutes")
+                        .HasColumnType("integer");
+
+                    b.HasKey("RestaurantId");
+
+                    b.ToTable("HallSettings");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.HallTable", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Archived")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("H")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Seats")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Shape")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<int>("W")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("X")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Y")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ZoneId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ZoneId");
+
+                    b.HasIndex("RestaurantId", "Number")
+                        .IsUnique()
+                        .HasFilter("NOT \"Archived\"");
+
+                    b.ToTable("HallTables", t =>
+                        {
+                            t.HasCheckConstraint("CK_HallTables_Seats", "\"Seats\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.HallZone", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Archived")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Sort")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId", "Sort");
+
+                    b.ToTable("HallZones");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.HotSettings", b =>
                 {
                     b.Property<Guid>("RestaurantId")
@@ -879,6 +1028,74 @@ namespace Ostatok.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.Reservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("EndsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Guest")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Guests")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Phone")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTimeOffset>("StartsAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("TableId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId", "StartsAt");
+
+                    b.HasIndex("TableId", "StartsAt");
+
+                    b.ToTable("Reservations", t =>
+                        {
+                            t.HasCheckConstraint("CK_Reservations_Guests", "\"Guests\" > 0");
+
+                            t.HasCheckConstraint("CK_Reservations_Interval", "\"EndsAt\" > \"StartsAt\"");
+                        });
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Restaurant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1056,6 +1273,53 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("Supplies");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.TableBlock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("From")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LiftedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LiftedBy")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TableId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("To")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.HasIndex("TableId", "From");
+
+                    b.ToTable("TableBlocks");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.TelegramOperator", b =>
                 {
                     b.Property<long>("ChatId")
@@ -1119,6 +1383,67 @@ namespace Ostatok.Api.Data.Migrations
                     b.HasIndex("RestaurantId");
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Visit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndedBy")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("ExpectedEndAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Guests")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("ReadyAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReadyBy")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<Guid?>("ReservationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("SeatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SeatedBy")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<Guid>("TableId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReservationId")
+                        .IsUnique()
+                        .HasFilter("\"ReservationId\" IS NOT NULL");
+
+                    b.HasIndex("RestaurantId");
+
+                    b.HasIndex("TableId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Visits_Active")
+                        .HasFilter("\"EndedAt\" IS NULL");
+
+                    b.HasIndex("TableId", "SeatedAt");
+
+                    b.ToTable("Visits");
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Alert", b =>
@@ -1222,6 +1547,48 @@ namespace Ostatok.Api.Data.Migrations
                         .WithOne()
                         .HasForeignKey("Ostatok.Api.Domain.DishPhoto", "DishId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.HallEvent", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.HallSettings", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.HallTable", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.HallZone", null)
+                        .WithMany()
+                        .HasForeignKey("ZoneId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.HallZone", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -1406,6 +1773,21 @@ namespace Ostatok.Api.Data.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.Reservation", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.HallTable", null)
+                        .WithMany()
+                        .HasForeignKey("TableId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.StaffMessage", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Restaurant", null)
@@ -1441,11 +1823,46 @@ namespace Ostatok.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.TableBlock", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.HallTable", null)
+                        .WithMany()
+                        .HasForeignKey("TableId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.User", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Restaurant", null)
                         .WithMany()
                         .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.Visit", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Reservation", null)
+                        .WithMany()
+                        .HasForeignKey("ReservationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ostatok.Api.Domain.HallTable", null)
+                        .WithMany()
+                        .HasForeignKey("TableId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

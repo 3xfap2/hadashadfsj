@@ -229,6 +229,7 @@ api.MapOwnerCabinet();
 api.MapOwnerMessages();
 api.MapSupportDesk();
 api.MapCrm();
+api.MapHall();
 
 await using (var scope = app.Services.CreateAsyncScope())
 {

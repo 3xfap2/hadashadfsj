@@ -19,6 +19,9 @@ public static class Access
     public static readonly Role[] Catalog = [Role.Manager, Role.Chef];
     public static readonly Role[] Staff = [Role.Manager];
     public static readonly Role[] Leads = [Role.Manager];
+    /// <summary>Зал: брони, посадка, завершение визита и уборка. Схему, настройки зала и закрытие столов меняет только управляющий.</summary>
+    public static readonly Role[] Hall = [Role.Manager, Role.Chef, Role.Waiter];
+    public static readonly Role[] HallAdmin = [Role.Manager];
     /// <summary>
     /// Кто видит закупочные цены и суммы по ним. Официанту и повару они для работы не нужны:
     /// сервер отдаёт им те же списки без этих цифр.
@@ -33,6 +36,7 @@ public static class Access
     {
         if (role != Role.Waiter) yield return "today";
         if (Orders.Contains(role)) yield return "orders";
+        if (Hall.Contains(role)) yield return "hall";
         if (Stock.Contains(role)) yield return "stock";
         if (role != Role.Storekeeper) yield return "menu";
         if (Kitchen.Contains(role)) yield return "board";
