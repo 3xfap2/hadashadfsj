@@ -389,6 +389,27 @@ body {
   }
 }
 
+// Замены недоступного блюда: кнопка и короткая причина, почему предложено именно оно.
+.g .orders__swaps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.g .orders__swap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+
+  .g-btn {
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
+  }
+}
+
 .g .x {
   width: 32px;
   height: 32px;

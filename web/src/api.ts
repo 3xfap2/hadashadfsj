@@ -354,6 +354,27 @@ export interface OrderRow {
   source: string | null;
   /** Заказ на доставку. */
   delivery: boolean;
+  /** Чем заменить блюда, которые не собрать; приходит в ответе на отклонённый заказ. */
+  alternatives?: DishReplacement[] | null;
+}
+
+/** Блюдо в продаже, которым можно заменить недоступное: порций хватит вместе с остальным заказом. */
+export interface DishAlternative {
+  dishId: string;
+  dishName: string;
+  price: number;
+  /** null — у блюда нет рецепта. */
+  portions: number | null;
+  /** Из горячих предложений. */
+  hot: boolean;
+  reason: string;
+}
+
+export interface DishReplacement {
+  dishId: string;
+  dishName: string;
+  quantity: number;
+  options: DishAlternative[];
 }
 
 /** Экран кухни: очередь заказов от старых к новым и несколько последних отданных. */

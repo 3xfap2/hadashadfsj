@@ -270,4 +270,24 @@ public class IntegrationTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.Equal(3L, broken.BrokenSealNo);
         Assert.Contains("удалена", broken.Message);
     }
+
+    [Fact]
+    public async Task Отказ_внешнего_заказа_предлагает_замену_которой_хватит()
+    {
+        var (manager, _, _, dish) = await RestaurantAsync();
+        var cucumbers = await Read<ProductResponse>(await manager.PostAsJsonAsync("/api/products", new ProductRequest("Огурцы", Unit.Kg, 72, 150), ApiFixture.Json));
+        var other = await Read<DishResponse>(await manager.PostAsJsonAsync("/api/dishes", new DishRequest("Салат овощной", 500, [new RecipeItemDto(cucumbers.Id, 0.2m)])));
+        (await manager.PostAsJsonAsync("/api/supplies", new SupplyRequest(null, "П-2", null, [new SupplyItemRequest(cucumbers.Id, 2, null)]))).EnsureSuccessStatusCode();
+        using var pos = await KeyAsync(fx, manager, "Касса", "orders");
+
+        // Томатов на пять порций салата, заказано шесть; овощного салата хватит на десять.
+        var refused = await External(pos, "ALT-1", dish.Id, 6);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        var rejected = (await refused.Content.ReadFromJsonAsync<ExternalOrderResponse>(ApiFixture.Json))!;
+        var replacement = Assert.Single(rejected.Alternatives!);
+        Assert.Equal((dish.Id, 6), (replacement.DishId, replacement.Quantity));
+        var option = Assert.Single(replacement.Options);
+        Assert.Equal((other.Id, (int?)10, "в продаже 10 порций"), (option.DishId, option.Portions, option.Reason));
+    }
 }

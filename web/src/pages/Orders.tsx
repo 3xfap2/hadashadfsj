@@ -1,7 +1,7 @@
 import { Haptics, NotificationType } from '@capacitor/haptics';
 import { isNative } from '../native';
 import { useEffect, useRef, useState } from 'react';
-import { post, useApi, type HotOffer, type Me, type OrderRow, type OrderSummary, type StopListRow } from '../api';
+import { post, useApi, type DishAlternative, type DishReplacement, type HotOffer, type Me, type OrderRow, type OrderSummary, type StopListRow } from '../api';
 import { clock, dayStart, duration, money, plural, portions, qty } from '../format';
 import { Photo, URGENT_HOURS } from '../ui';
 
@@ -31,6 +31,8 @@ export function Orders() {
   const [discounted, setDiscounted] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
   const [result, setResult] = useState<Result>(null);
+  // Чем сервер предложил заменить блюда отклонённого заказа: блюдо → блюда в продаже.
+  const [swaps, setSwaps] = useState<Record<string, DishAlternative[]>>({});
   const [busy, setBusy] = useState(false);
   // Идентификатор попытки заказа. Если связь оборвалась и официант нажал «Оформить» ещё раз,
   // уходит тот же идентификатор, и сервер возвращает уже созданный заказ, а не списывает продукты второй раз.
@@ -85,7 +87,20 @@ export function Orders() {
     newAttempt();
     setCart((c) => Object.fromEntries(Object.entries(c).filter(([id]) => !blocked.some((d) => d.dishId === id))));
     setResult(null);
+    setSwaps({});
   };
+  // Одно нажатие: недоступное блюдо уходит из заказа, замена встаёт в том же количестве.
+  const replace = (dishId: string, alt: DishAlternative) => {
+    newAttempt();
+    setCart((c) => {
+      const { [dishId]: quantity, ...rest } = c;
+      return { ...rest, [alt.dishId]: (rest[alt.dishId] ?? 0) + quantity };
+    });
+    setDiscounted(({ [dishId]: _, ...rest }) => rest);
+    setSwaps(({ [dishId]: _, ...rest }) => rest);
+    if (blocked.length === 1) setResult(null);
+  };
+  const keepSwaps = (list?: DishReplacement[] | null) => setSwaps(Object.fromEntries((list ?? []).map((r) => [r.dishId, r.options])));
 
   // Открытые заказы за каждым столом: сумма и время последнего. После «Закрыть стол» он снова свободен.
   const served = new Map((orders.data?.tables ?? []).map((t) => [t.place, t]));
@@ -106,12 +121,16 @@ export function Orders() {
         setResult({ kind: 'ok', order: await response.json() });
         setCart({});
         setDiscounted({});
+        setSwaps({});
       } else if (response.status === 409) {
         buzz(NotificationType.Error);
-        setResult({ kind: 'rejected', order: await response.json() });
+        const order: OrderRow = await response.json();
+        setResult({ kind: 'rejected', order });
+        keepSwaps(order.alternatives);
       } else {
         // Причину отказа называет сервер: блюдо сняли с продажи, стол убрали из зала.
         const problem = await response.json().catch(() => ({}));
+        keepSwaps(problem.alternatives);
         const messages = Object.values((problem.errors ?? {}) as Record<string, string[]>).flat();
         buzz(NotificationType.Error);
         setResult({ kind: 'error', message: messages.join(' ') || `Сервер ответил ошибкой ${response.status}. Заказ не создан.` });
@@ -254,7 +273,23 @@ export function Orders() {
             <section className="g-note g-note--err orders__blocked" role="alert">
               <h3>{blocked.length === 1 ? 'Блюдо из заказа уже не собрать' : 'Блюда из заказа уже не собрать'}</h3>
               <ul>
-                {blocked.map((d) => <li key={d.dishId}><strong className="hd">{d.dishName}</strong> — {problem(d)}</li>)}
+                {blocked.map((d) => (
+                  <li key={d.dishId}>
+                    <strong className="hd">{d.dishName}</strong> — {problem(d)}
+                    {swaps[d.dishId] && (
+                      <span className="orders__swaps">
+                        {swaps[d.dishId].map((a) => (
+                          <span key={a.dishId} className="orders__swap">
+                            <button className="g-btn g-btn--sm" type="button" onClick={() => replace(d.dishId, a)}>
+                              Заменить на {a.dishName} · <span className="num">{money(a.price)}</span>
+                            </button>
+                            <span className="muted small">{a.reason}</span>
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </li>
+                ))}
               </ul>
               <button className="g-btn g-btn--sm" type="button" onClick={removeBlocked}>
                 Убрать из заказа{blocked.length > 1 ? ` (${blocked.length})` : ''}
