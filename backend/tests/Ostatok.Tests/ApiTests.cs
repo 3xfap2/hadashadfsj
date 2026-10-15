@@ -870,7 +870,7 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         Assert.All([supply, analytics, newProduct], r => Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode));
         Assert.All([await fx.Waiter.GetAsync("/api/stop-list"), await fx.Waiter.GetAsync("/api/hot-offers")], r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
 
-        Assert.Equal(["orders", "menu"], (await fx.Waiter.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
+        Assert.Equal(["orders", "hall", "menu"], (await fx.Waiter.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
         Assert.Equal(["today", "menu", "board", "kitchen"], (await cook.GetFromJsonAsync<MeResponse>("/api/me", ApiFixture.Json))!.Sections);
     }
 

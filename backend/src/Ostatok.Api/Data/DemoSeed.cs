@@ -8,6 +8,8 @@ public static class DemoSeed
 {
     public static async Task RunAsync(AppDbContext db, DateTimeOffset now, CancellationToken ct = default)
     {
+        // Зал заводится и в уже наполненной базе: он появился позже склада.
+        await HallDemo.SeedAsync(db, now, ct);
         if (await db.Products.AnyAsync(ct)) return;
 
         Product P(string name, Unit unit, int shelfLifeHours, decimal cost) =>
