@@ -713,7 +713,7 @@ internal sealed class Hall(AppDbContext db, TimeProvider clock, StockOptions opt
             .Check(req.WarnMinutes is >= 0 and <= 240, "warnMinutes", "Показ брони заранее — от 0 до 240 минут.");
         if (errors.Any) return errors.ToResult();
         var row = await db.HallSettings.FirstOrDefaultAsync(ct);
-        if (row is null) db.HallSettings.Add(row = new HallSettings());
+        if (row is null) db.HallSettings.Add(row = new HallSettings { RestaurantId = db.TenantId });
         (row.VisitMinutes, row.BufferMinutes, row.NoShowMinutes, row.WarnMinutes) = (req.VisitMinutes, req.BufferMinutes, req.NoShowMinutes, req.WarnMinutes);
         Log("settings", null, "changed", $"Настройки зала: визит {req.VisitMinutes} мин, перерыв {req.BufferMinutes} мин, ожидание {req.NoShowMinutes} мин, бронь видна за {req.WarnMinutes} мин");
         await db.SaveChangesAsync(ct);

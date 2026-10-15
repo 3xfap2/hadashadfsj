@@ -303,7 +303,9 @@ public class HallTests(ApiFixture fx) : IClassFixture<ApiFixture>
 
         var refused = await floor.Manager.PostAsJsonAsync($"/api/hall/tables/{floor.Four}/block", new BlockRequest(null, null, null, null, "Ремонт"), ApiFixture.Json);
         Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
-        Assert.Contains("Мария", await refused.Content.ReadAsStringAsync());
+        var problem = await refused.Content.ReadFromJsonAsync<Dictionary<string, System.Text.Json.JsonElement>>();
+        Assert.Contains("Мария", problem!["detail"].GetString());
+        Assert.Equal(booking.Id, problem["reservations"][0].GetProperty("id").GetGuid());
         Assert.Equal(ReservationStatus.Confirmed, (await View(floor.Manager, $"?date={Tomorrow:yyyy-MM-dd}&time=19:00")).Reservations.Single(r => r.Id == booking.Id).Status);
 
         var blocked = await floor.Manager.PostAsJsonAsync($"/api/hall/tables/{floor.Four}/block", new BlockRequest(null, null, null, null, "Ремонт", CancelReservations: true), ApiFixture.Json);

@@ -46,6 +46,8 @@ public static class HallDemo
             (v.EndedAt, v.ReadyAt, v.EndedBy, v.ReadyBy) = (v.EndedAt ?? now, now, v.EndedBy ?? Actor, Actor);
         foreach (var r in await db.Reservations.Where(r => r.Status == ReservationStatus.Seated || (r.Status == ReservationStatus.Confirmed && r.StartsAt < now)).ToListAsync(ct))
             r.Status = r.Status == ReservationStatus.Seated ? ReservationStatus.Completed : ReservationStatus.NoShow;
+        // Отдельным сохранением: за столом не бывает двух незавершённых визитов (уникальный индекс), прежние закрываются раньше новых.
+        await db.SaveChangesAsync(ct);
 
         // Время сцены кратно пяти минутам — как в настоящей книге броней.
         var at = new DateTimeOffset(now.Ticks - now.Ticks % TimeSpan.FromMinutes(5).Ticks, TimeSpan.Zero);
