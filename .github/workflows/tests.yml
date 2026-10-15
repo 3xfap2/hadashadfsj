@@ -1,6 +1,6 @@
 name: tests
 
-# Тесты сервера на настоящем PostgreSQL (Testcontainers), тесты бота и сборка обоих сайтов.
+# Тесты сервера на настоящем PostgreSQL (Testcontainers), тесты бота и сборка сайта, CRM и кабинета владельца.
 # Запускается на любой ветке: так работу можно проверить до слияния в main, откуда идёт выкладка.
 on:
   workflow_dispatch:
@@ -40,3 +40,5 @@ jobs:
         working-directory: web
       - run: npm ci && npm run build
         working-directory: crm
+      - run: npm ci && npm run build
+        working-directory: owner

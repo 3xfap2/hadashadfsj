@@ -1,0 +1,6 @@
+test_suite,test_name,scenario,duration,step_name,request_count,ok,failed,ok_rps,ok_min,ok_mean,ok_max,ok_50_percent,ok_75_percent,ok_95_percent,ok_99_percent,ok_std_dev,data_transfer_min_kb,data_transfer_mean_kb,data_transfer_max_kb,data_transfer_all_mb,fail_rps,fail_min,fail_mean,fail_max,fail_50_percent,fail_75_percent,fail_95_percent,fail_99_percent,fail_std_dev,fail_data_transfer_min_kb,fail_data_transfer_mean_kb,fail_data_transfer_max_kb,fail_data_transfer_all_mb
+ostatok,mixed,waiters,00:01:00,global information,1200,1200,0,20,9.65,13.84,95.09,12.48,14.84,21.23,29.65,4.82,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+ostatok,mixed,terminals,00:01:00,global information,600,600,0,10,6.33,8.57,76.78,7.73,8.87,12.38,14.77,3.87,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+ostatok,mixed,storekeeper,00:01:00,global information,30,30,0,0.5,15.72,27.54,203.05,20.61,24.8,28.59,203.14,32.8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+ostatok,mixed,storekeeper,00:01:00,send,30,30,0,0.5,6.8,14.23,136.91,9.62,11.34,13.89,136.96,22.85,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+ostatok,mixed,storekeeper,00:01:00,accept,30,30,0,0.5,8.84,13.05,58.92,10.87,14.1,16.66,58.94,8.78,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0

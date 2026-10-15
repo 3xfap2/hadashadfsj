@@ -32,6 +32,8 @@ public sealed class ReadCache(TimeProvider time)
 {
     public static readonly TimeSpan Ttl = TimeSpan.FromSeconds(15);
 
+    public bool Enabled { get; init; } = true;
+
     private sealed record Entry(object Value, DateTimeOffset ValidUntil, string ETag);
 
     private readonly ConcurrentDictionary<(Guid Restaurant, string Key), Lazy<Task<Entry>>> _entries = new();
@@ -60,6 +62,14 @@ public sealed class ReadCache(TimeProvider time)
     public async Task<IResult> GetAsync<T>(HttpContext http, Guid restaurant, string key, Func<Task<(T Value, DateTimeOffset? ChangesAt)>> load)
         where T : class
     {
+        // Кэш выключен (Cache:Enabled=false) — только для замера нагрузки «без кэша»: каждый запрос считается по базе.
+        if (!Enabled)
+        {
+            Interlocked.Increment(ref _misses);
+            http.Response.Headers["X-Cache"] = "off";
+            return Results.Ok((await load()).Value);
+        }
+
         var id = (restaurant, $"{key}|v{_versions.GetValueOrDefault(restaurant)}|g{Interlocked.Read(ref _global)}");
         Entry entry;
         while (true)
