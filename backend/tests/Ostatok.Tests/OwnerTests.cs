@@ -57,13 +57,19 @@ public class OwnerTests(ApiFixture fx) : IClassFixture<ApiFixture>
     public async Task Кабинет_владельца_открыт_только_владельцу()
     {
         var (owner, _, _, _) = await OwnerAsync();
-        var (manager, _, _) = await fx.NewRestaurantAsync("Без своих ресторанов");
+        // Ресторан, открытый поддержкой, принадлежит своему управляющему: кабинет владельца открыт ему сразу.
+        var (crmManager, _, _) = await fx.NewRestaurantAsync("Открыт поддержкой");
+        Assert.Equal(HttpStatusCode.OK, (await crmManager.GetAsync("/api/owner/summary")).StatusCode);
+        // Второй управляющий, которого завёл владелец, — не владелец.
+        var login = $"m{Guid.NewGuid():N}"[..16];
+        (await crmManager.PostAsJsonAsync("/api/users", new StaffRequest(login, "Manager-pass-2026", "Управляющий", Role.Manager), ApiFixture.Json)).EnsureSuccessStatusCode();
+        using var manager = await fx.SignInAsync(login, "Manager-pass-2026");
         using var demoManager = await fx.SignInAsync("manager");
 
         foreach (var url in new[] { "/api/owner/summary", "/api/owner/staff", "/api/owner/suppliers", "/api/owner/messages" })
         {
             Assert.Equal(HttpStatusCode.OK, (await owner.GetAsync(url)).StatusCode);
-            // Управляющий, который не добавлял себе ресторанов, — не владелец: понятный отказ, а не пустые данные.
+            // Управляющий, которому ресторан не принадлежит, — не владелец: понятный отказ, а не пустые данные.
             var refused = await manager.GetAsync(url);
             Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
             Assert.Contains("только владельцу", await refused.Content.ReadAsStringAsync());

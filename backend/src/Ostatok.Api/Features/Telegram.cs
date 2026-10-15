@@ -207,6 +207,8 @@ public static class Restaurants
         var restaurant = new Restaurant
         {
             Id = Guid.NewGuid(), Name = name, CreatedAt = time.GetUtcNow(), ShiftStart = defaults.ShiftStart, ShiftEnd = defaults.ShiftEnd,
+            // Управляющий, которому открыли ресторан, — его владелец: сразу входит в кабинет владельца и добавляет точки.
+            OwnerLogin = login,
         };
         var user = new User { Id = Guid.NewGuid(), RestaurantId = restaurant.Id, Login = login, PasswordHash = "", Title = "Управляющий", Role = Role.Manager };
         user.PasswordHash = new Microsoft.AspNetCore.Identity.PasswordHasher<User>().HashPassword(user, password);
