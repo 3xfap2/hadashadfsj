@@ -42,6 +42,8 @@ public sealed class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         // Автосписание в тестах вызывается явно, фоновый запуск мешал бы сценариям с переводом часов.
         builder.UseSetting("Stock:AutoWriteOff", "false");
         builder.UseSetting("Stock:TrackStops", "false");
+        // Печать журнала тесты вызывают сами: фоновая печать запечатала бы записи посреди сценария.
+        builder.UseSetting("Journal:Seal", "false");
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<TimeProvider>();

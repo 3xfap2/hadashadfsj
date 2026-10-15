@@ -1,8 +1,59 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useApi, type MovementRow } from '../api';
-import { dueLong, qty } from '../format';
+import { useApi, type Me, type MovementRow } from '../api';
+import { dueLong, plural, qty } from '../format';
 import { StockTabs } from './Stock';
+
+/** Проверка печати журнала (GET /stock/journal/verify): сервер пересчитывает хэш-цепочку с первой записи. */
+interface JournalVerify {
+  intact: boolean;
+  sealed: number;
+  unsealed: number;
+  lastHash: string | null;
+  lastSealedAt: string | null;
+  brokenMovementId: number | null;
+  brokenSealNo: number | null;
+  message: string;
+}
+
+/**
+ * Плашка печати журнала для управляющего: записи журнала запечатаны хэш-цепочкой, правка или удаление записи в базе
+ * видны при проверке. Это защита от незаметной правки, а не от администратора базы, который пересчитает и хеши.
+ */
+function JournalSeal() {
+  const verify = useApi<JournalVerify>('/stock/journal/verify', 60_000);
+  const [checking, setChecking] = useState(false);
+  const check = async () => {
+    setChecking(true);
+    try {
+      await verify.reload();
+    } finally {
+      setChecking(false);
+    }
+  };
+  const v = verify.data;
+  if (!v && !verify.error) return null;
+
+  return (
+    <div className={`g-note ${v && !v.intact ? 'g-note--err' : 'g-note--ok'} journal-seal`} role={v && !v.intact ? 'alert' : 'status'}>
+      <div className="journal-seal__text">
+        <h3>
+          {!v ? 'Печать журнала не проверена'
+            : !v.intact ? `Журнал изменён в обход системы: запись № ${v.brokenSealNo}`
+            : v.sealed === 0 ? 'Журнал ещё не запечатан'
+            : `Журнал запечатан: ${plural(v.sealed, 'запись', 'записи', 'записей')}, цепочка цела`}
+        </h3>
+        <span>
+          {!v ? verify.error
+            : !v.intact ? `${v.message} Записи до неё не тронуты.`
+            : `Каждая запись скреплена хешем с предыдущей: правка или удаление записи прямо в базе видны при проверке.${v.unsealed > 0 ? ` Новых записей ждут печати: ${v.unsealed} — печать идёт раз в 30 секунд.` : ''}`}
+        </span>
+        {v?.lastHash && v.intact && <code className="journal-seal__hash" title="Последний хеш цепочки">{v.lastHash.slice(0, 16)}…</code>}
+      </div>
+      <button className="g-btn g-btn--sm" type="button" disabled={checking} onClick={check}>{checking ? 'Проверяем…' : 'Проверить'}</button>
+    </div>
+  );
+}
 
 type Filter = 'all' | 'Supply' | 'Order' | 'WriteOff' | 'Prep' | 'Inventory';
 
@@ -24,6 +75,7 @@ export function Journal() {
   const batch = useSearchParams()[0].get('batch');
   const movements = useApi<MovementRow[]>(batch ? `/movements?take=500&batchId=${batch}` : `/movements?take=${take}`);
   const [filter, setFilter] = useState<Filter>('all');
+  const me = useApi<Me>('/me', 300_000);
   // Пока догружается следующая порция, на экране прежние строки.
   const [loadingMore, setLoadingMore] = useState(false);
   useEffect(() => setLoadingMore(false), [movements.data]);
@@ -54,6 +106,8 @@ export function Journal() {
           </div>
         </div>
       </div>
+
+      {me.data?.role === 'Manager' && !batch && <JournalSeal />}
 
       <section className="g-panel" aria-labelledby="journal-h">
         <div className="g-panel__head">

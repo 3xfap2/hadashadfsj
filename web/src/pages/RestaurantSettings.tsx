@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { post, problemText, send, useApi, type IntegrationKey, type RestaurantSettings as Settings } from '../api';
+import { post, problemText, send, useApi, type RestaurantSettings as Settings } from '../api';
+import { clock, dayMonthShort } from '../format';
 
 /** Целое число из поля ввода; пусто, дробь или не число — null (а не 0: пустое поле не должно молча стать нулём). */
 const whole = (text: string) => {
@@ -109,28 +110,47 @@ export function RestaurantSettings({ onSaved }: { onSaved: () => void }) {
         <span />
         <button className="g-btn g-btn--primary" type="submit" disabled={busy}>Сохранить</button>
       </div>
-      <SupplyKey issued={form.hasIntegrationKey} onIssued={() => setForm({ ...form, hasIntegrationKey: true })} />
+      <IntegrationKeys />
     </form>
   );
 }
 
+type Right = 'supplies' | 'orders';
+
+/** Ключ внешней системы в списке; сам ключ виден только при выдаче. */
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  rights: Right[];
+  createdAt: string;
+  createdBy: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  /** В демо-ресторане ключ отзывается только в первые 30 минут после выдачи. */
+  canRevoke: boolean;
+}
+
+const RIGHTS: Record<Right, string> = { supplies: 'Поставки', orders: 'Заказы и меню' };
+const shortDate = (iso: string) => `${dayMonthShort(iso)}, ${clock(iso)}`;
+
 /**
- * Ключ интеграции: с ним учётная система или сервис поставщика присылает поставки в кабинет — без входа сотрудника.
- * Ключ показывается один раз; новый ключ сразу отключает прежний.
+ * Ключи внешних систем: у каждой системы свой ключ со своими правами — поставщик присылает поставки, касса или сайт кафе — заказы.
+ * Ключ показывается один раз; отозванный ключ сразу перестаёт работать, остальные не затрагиваются.
  */
-function SupplyKey({ issued, onIssued }: { issued: boolean; onIssued: () => void }) {
-  const [key, setKey] = useState('');
+function IntegrationKeys() {
+  const keys = useApi<ApiKeyRow[]>('/restaurant/keys', 300_000);
+  const [draft, setDraft] = useState<{ name: string; rights: Right[] }>({ name: '', rights: ['orders'] });
+  const [issued, setIssued] = useState<{ key: string; name: string } | null>(null);
   const [state, setState] = useState({ busy: false, error: '', copied: false });
 
-  const issue = async () => {
-    if (issued && !window.confirm('Выдать новый ключ? Прежний сразу перестанет работать — его придётся заменить у поставщика.')) return;
+  const run = async (action: () => Promise<Response>, done: (response: Response) => Promise<void>) => {
     setState({ busy: true, error: '', copied: false });
     try {
-      const response = await post('/restaurant/integration-key');
+      const response = await action();
       if (response.ok) {
-        setKey(((await response.json()) as IntegrationKey).key);
-        onIssued();
+        await done(response);
         setState({ busy: false, error: '', copied: false });
+        await keys.reload();
       } else {
         setState({ busy: false, error: await problemText(response), copied: false });
       }
@@ -138,9 +158,21 @@ function SupplyKey({ issued, onIssued }: { issued: boolean; onIssued: () => void
       setState({ busy: false, error: (e as Error).message, copied: false });
     }
   };
+  const issue = () =>
+    run(() => post('/restaurant/keys', draft), async (response) => {
+      const created = (await response.json()) as { key: string; name: string };
+      setIssued({ key: created.key, name: created.name });
+      setDraft({ name: '', rights: ['orders'] });
+    });
+  const revoke = (row: ApiKeyRow) => {
+    if (!window.confirm(`Отозвать ключ «${row.name}»? Система с этим ключом сразу перестанет работать.`)) return;
+    void run(() => post(`/restaurant/keys/${row.id}/revoke`), async () => setIssued(null));
+  };
+  const toggle = (right: Right) =>
+    setDraft((d) => ({ ...d, rights: d.rights.includes(right) ? d.rights.filter((r) => r !== right) : [...d.rights, right] }));
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(key);
+      await navigator.clipboard.writeText(issued?.key ?? '');
       setState((s) => ({ ...s, copied: true }));
     } catch {
       // Буфер обмена недоступен (нет разрешения): ключ виден на экране, его можно выделить и скопировать вручную.
@@ -149,26 +181,75 @@ function SupplyKey({ issued, onIssued }: { issued: boolean; onIssued: () => void
 
   return (
     <div className="form-body rest-key">
-      <h3>Поставки извне</h3>
+      <h3>Ключи внешних систем</h3>
       <span className="muted">
-        Учётная система или сервис поставщика присылает поставку методом <code>POST /api/supplies/incoming</code> с ключом в заголовке <code>X-Api-Key</code>.
-        Поставка появится в «Склад → Поставки» и встанет на склад только после приёмки. Ключ даёт право только присылать поставки в этот ресторан.
+        У каждой системы свой ключ в заголовке <code>X-Api-Key</code>. С правом «Поставки» сервис поставщика присылает поставку
+        (<code>POST /api/supplies/incoming</code>) — она встанет на склад после приёмки. С правом «Заказы и меню» касса или сайт кафе
+        видят меню со стоп-листом и оформляют заказ (<code>POST /api/orders/external</code>) — он сразу уходит на кухню.
+        Цены закупки и остатки ключу не видны.
       </span>
-      {key && (
+      {issued && (
         <div className="g-note g-note--ok" role="status">
-          <h3>Ключ выдан — скопируйте его сейчас</h3>
+          <h3>Ключ «{issued.name}» выдан — скопируйте его сейчас</h3>
           <span>Он показывается один раз: у нас хранится только его отпечаток.</span>
-          <code className="rest-key__value">{key}</code>
+          <code className="rest-key__value">{issued.key}</code>
           <span className="rest-key__acts">
             <button className="g-btn g-btn--sm" type="button" onClick={copy}>{state.copied ? 'Скопировано' : 'Скопировать'}</button>
-            <a className="g-btn g-btn--sm" href="/supplier/" target="_blank" rel="noreferrer">Открыть страницу поставщика</a>
           </span>
         </div>
       )}
+      {keys.data && keys.data.length > 0 && (
+        <ul className="rest-keys" aria-label="Выданные ключи">
+          {keys.data.map((k) => (
+            <li key={k.id} className={k.revokedAt ? 'rest-keys__off' : undefined}>
+              <span className="rest-keys__main">
+                <strong className="g-name">{k.name}</strong>
+                <span className="rest-keys__rights">
+                  {k.rights.map((r) => <span key={r} className="g-tag rest-keys__right">{RIGHTS[r]}</span>)}
+                </span>
+              </span>
+              <span className="muted small rest-keys__meta">
+                {k.revokedAt
+                  ? `Отозван ${shortDate(k.revokedAt)}`
+                  : `Выдан ${shortDate(k.createdAt)}${k.createdBy ? ` · ${k.createdBy}` : ''} · ${k.lastUsedAt ? `запрос ${shortDate(k.lastUsedAt)}` : 'ещё не использовался'}`}
+              </span>
+              {!k.revokedAt && (
+                <span className="rest-keys__act">
+                  {k.canRevoke
+                    ? <button className="g-btn g-btn--sm" type="button" disabled={state.busy} onClick={() => revoke(k)}>Отозвать</button>
+                    : <span className="muted small">ключ для показа, не отзывается</span>}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {keys.error && <span className="g-error-text" role="alert">{keys.error}</span>}
+      <div className="rest-keys__new">
+        <div className="g-field">
+          <label htmlFor="k-name">Чей ключ</label>
+          <input
+            className="g-input" id="k-name" maxLength={60} placeholder="Касса зала, Поставщик ФрешПоставка" value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            // Поле стоит внутри формы ресторана: Enter выдаёт ключ, а не сохраняет настройки.
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!state.busy) void issue(); } }}
+          />
+        </div>
+        <fieldset className="rest-keys__checks">
+          <legend className="sr">Права ключа</legend>
+          {(Object.keys(RIGHTS) as Right[]).map((r) => (
+            <label key={r} className="hot-check">
+              <input type="checkbox" checked={draft.rights.includes(r)} onChange={() => toggle(r)} />
+              <span>{RIGHTS[r]}</span>
+            </label>
+          ))}
+        </fieldset>
+        <button className="g-btn" type="button" disabled={state.busy} onClick={issue}>Выдать ключ</button>
+      </div>
       {state.error && <span className="g-error-text" role="alert">{state.error}</span>}
       <span className="rest-key__acts">
-        <button className="g-btn" type="button" disabled={state.busy} onClick={issue}>{issued ? 'Выдать новый ключ' : 'Выдать ключ'}</button>
-        {!key && <span className="muted small">{issued ? 'Ключ выдан. Если он потерян, выдайте новый.' : 'Ключ ещё не выдавался.'}</span>}
+        <a className="g-btn g-btn--sm" href="/supplier/" target="_blank" rel="noreferrer">Страница поставщика</a>
+        <a className="g-btn g-btn--sm" href="/pos/" target="_blank" rel="noreferrer">Касса / сайт кафе</a>
       </span>
     </div>
   );

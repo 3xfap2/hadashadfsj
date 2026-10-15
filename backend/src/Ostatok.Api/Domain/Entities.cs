@@ -42,7 +42,10 @@ public class Restaurant
     public bool AutoWriteOff { get; set; }
     /// <summary>Сколько часов просрочка ждёт ручного списания, прежде чем спишется сама (если автосписание включено).</summary>
     public int AutoWriteOffAfterHours { get; set; } = 12;
-    /// <summary>SHA-256 ключа интеграции, с которым внешняя система присылает поставки. Сам ключ не хранится.</summary>
+    /// <summary>
+    /// Устарело: прежний единственный ключ интеграции ресторана. Миграция ApiKeys перенесла его в <see cref="ApiKey"/>
+    /// как «Ключ поставщика»; столбец оставлен, чтобы миграция только добавляла.
+    /// </summary>
     public string? IntegrationKeyHash { get; set; }
 
     /// <summary>Места, откуда приходят заказы: столы и бар.</summary>
@@ -235,6 +238,12 @@ public class Order : IOwned
     public DateTimeOffset? ClosedAt { get; set; }
     /// <summary>Когда кухня отдала заказ; пусто, пока он в очереди у поваров.</summary>
     public DateTimeOffset? ReadyAt { get; set; }
+    /// <summary>Внешняя система, приславшая заказ по ключу (название ключа); пусто — заказ оформил официант или генератор.</summary>
+    public string? Source { get; set; }
+    /// <summary>Номер заказа во внешней системе (сайт, касса); по нему повтор запроса не создаёт второй заказ.</summary>
+    public string? ExternalId { get; set; }
+    /// <summary>Заказ на доставку: места в зале нет, стол он не занимает.</summary>
+    public bool Delivery { get; set; }
     public List<OrderItem> Items { get; set; } = [];
     /// <summary>Чего не хватило; заполнено только у отклонённого заказа.</summary>
     public List<OrderShortage> Shortages { get; set; } = [];
@@ -284,6 +293,36 @@ public class Movement : IOwned
     public string? Note { get; set; }
     /// <summary>Логин сотрудника, который провёл операцию; «система» — для автосписания.</summary>
     public string Actor { get; set; } = "";
+    /// <summary>
+    /// Печать журнала (см. JournalSeal): номер записи в цепочке ресторана, SHA-256 от хеша предыдущей записи и полей этой,
+    /// время печати. Пусто, пока фоновая задача не запечатала движение (до 30 секунд после записи).
+    /// </summary>
+    public long? SealNo { get; set; }
+    public string? Hash { get; set; }
+    public DateTimeOffset? SealedAt { get; set; }
+}
+
+/// <summary>
+/// Ключ внешней системы ресторана: сервиса поставщика, кассы, сайта кафе. У каждой системы свой ключ со своими правами,
+/// его можно отозвать, не трогая остальные. Хранится только SHA-256 ключа.
+/// </summary>
+public class ApiKey : IOwned
+{
+    public Guid RestaurantId { get; set; }
+    public Guid Id { get; set; }
+    /// <summary>Чей ключ: «Поставщик ФрешПоставка», «Касса зала». Это же имя стоит в журнале как исполнитель.</summary>
+    public required string Name { get; set; }
+    public required string Hash { get; set; }
+    /// <summary>Может присылать входящие поставки.</summary>
+    public bool CanSupplies { get; set; }
+    /// <summary>Может оформлять заказы и читать меню со стоп-листом.</summary>
+    public bool CanOrders { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public string CreatedBy { get; set; } = "";
+    /// <summary>Последний запрос с этим ключом (с точностью до минуты).</summary>
+    public DateTimeOffset? LastUsedAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public string? RevokedBy { get; set; }
 }
 
 /// <summary>Инвентаризация как документ: кто и когда пересчитал склад и что при этом нашлось.</summary>

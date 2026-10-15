@@ -22,10 +22,28 @@ public sealed record ShortageResponse(Guid ProductId, string ProductName, Unit U
 public sealed record OrderWriteOff(string ProductName, Unit Unit, string SupplyNumber, decimal Quantity);
 
 /// <param name="WriteOffs">Из каких партий списаны продукты; заполняется в ответе на создание заказа.</param>
+/// <param name="Source">Внешняя система, приславшая заказ (название её ключа); пусто — заказ оформлен в кабинете.</param>
+/// <param name="Delivery">Заказ на доставку.</param>
 public sealed record OrderResponse(
     Guid Id, int Number, DateTimeOffset CreatedAt, OrderStatus Status, string Place, decimal Total,
     IEnumerable<OrderItemResponse> Items, IEnumerable<ShortageResponse> Shortages,
-    IEnumerable<OrderWriteOff> WriteOffs, DateTimeOffset? ClosedAt, DateTimeOffset? ReadyAt);
+    IEnumerable<OrderWriteOff> WriteOffs, DateTimeOffset? ClosedAt, DateTimeOffset? ReadyAt,
+    string? Source = null, bool Delivery = false);
+
+/// <param name="Id">Номер заказа во внешней системе, до 64 символов. Повтор с тем же номером от того же ключа вернёт прежний заказ и ничего не спишет.</param>
+/// <param name="Items">Блюда (dishId из GET /api/integration/menu) и порции. Скидки горячих предложений к внешним заказам не применяются.</param>
+/// <param name="Place">Стол или бар ресторана; пусто — без места (самовывоз, касса).</param>
+/// <param name="Delivery">Заказ на доставку: место не указывается.</param>
+public sealed record ExternalOrderRequest(string? Id, List<OrderLine>? Items, string? Place = null, bool Delivery = false);
+
+public sealed record ExternalOrderItem(Guid DishId, string DishName, int Quantity, decimal Price);
+
+/// <summary>Квитанция внешней системе: без складских данных ресторана (партий, остатков, закупочных цен).</summary>
+/// <param name="Unavailable">Блюда, которые сейчас не приготовить; заполнено, если заказ не принят.</param>
+/// <param name="Detail">Причина отказа текстом; пусто у принятого заказа.</param>
+public sealed record ExternalOrderResponse(
+    Guid Id, string ExternalId, int Number, OrderStatus Status, string Place, bool Delivery, string Source, decimal Total,
+    DateTimeOffset CreatedAt, IEnumerable<ExternalOrderItem> Items, IEnumerable<string> Unavailable, string? Detail);
 
 /// <summary>Экран кухни: очередь заказов от старых к новым и несколько последних отданных.</summary>
 public sealed record KitchenBoard(IEnumerable<OrderResponse> Queue, IEnumerable<OrderResponse> Ready);
@@ -156,7 +174,83 @@ public static class OrderEndpoints
         .Produces<OrderResponse>(StatusCodes.Status201Created)
         .Produces<OrderResponse>(StatusCodes.Status409Conflict)
         .RequireRoles(Access.Orders);
+
+        // Заказ извне — с сайта кафе или кассы — по ключу с правом orders. Идёт тем же OrderService, что и заказ официанта:
+        // те же блокировки партий и тот же отказ при нехватке. Исполнитель в журнале — название ключа.
+        orders.MapPost("/external", async (ExternalOrderRequest req, HttpContext http, OrderService service, AppDbContext db, CancellationToken ct) =>
+        {
+            var key = IntegrationKey.Current(http);
+            var externalId = req.Id?.Trim() ?? "";
+            var items = req.Items ?? [];
+            var place = req.Place?.Trim() ?? "";
+            var places = (await db.CurrentRestaurantAsync(ct)).Places();
+            var errors = new Errors()
+                .Check(externalId is { Length: > 0 and <= 64 }, "id", "Укажите номер заказа во внешней системе — до 64 символов.")
+                .Check(!req.Delivery || place == "", "place", "У заказа на доставку нет места в зале.")
+                .Check(place == "" || places.Contains(place), "place", "Такого места в ресторане нет.")
+                .Check(items.Count > 0, "items", "В заказе должно быть хотя бы одно блюдо.")
+                .Check(items.Count <= 200, "items", "В заказе не больше 200 строк.")
+                .Check(items.All(i => i.Quantity is > 0 and <= 1000), "items", "Количество порций — от 1 до 1000.")
+                .Check(items.GroupBy(i => i.DishId).All(g => g.Sum(i => (long)i.Quantity) <= 1000), "items", "Одного блюда в заказе — не больше 1000 порций.");
+            if (errors.Any) return errors.ToResult();
+
+            // Идентификатор заказа выводится из ключа и номера во внешней системе: повтор того же запроса попадает в тот же заказ,
+            // а одинаковые номера у сайта и кассы не путаются.
+            var id = ExternalOrderId(key.Id, externalId);
+            if (await db.Orders.AnyAsync(o => o.Id == id, ct)) return await AnswerAsync(id);
+
+            var ids = items.Select(i => i.DishId).Distinct().ToArray();
+            var known = await db.Dishes.CountAsync(d => ids.Contains(d.Id), ct);
+            if (errors.Check(known == ids.Length, "items", "В заказе есть неизвестное блюдо: dishId берётся из GET /api/integration/menu.").Any) return errors.ToResult();
+
+            var paused = await db.Dishes.Where(d => ids.Contains(d.Id) && d.ManuallyStopped).Select(d => d.Name).ToListAsync(ct);
+            if (paused.Count > 0)
+                return Results.Problem($"Снято с продажи: {string.Join(", ", paused)}. Уберите блюдо из заказа.", statusCode: StatusCodes.Status409Conflict,
+                    title: "Заказ не принят", extensions: new Dictionary<string, object?> { ["unavailable"] = paused });
+
+            // Источник заказа записывается тем же сохранением, что и сам заказ: OrderService о внешних системах не знает.
+            void Mark(object? sender, SavingChangesEventArgs e)
+            {
+                foreach (var entry in db.ChangeTracker.Entries<Order>().Where(x => x.State == EntityState.Added))
+                    (entry.Entity.Source, entry.Entity.ExternalId, entry.Entity.Delivery) = (key.Name, externalId, req.Delivery);
+            }
+            db.SavingChanges += Mark;
+            try
+            {
+                await service.PlaceAsync(items.Select(i => i with { Discount = false }).ToList(), place, key.Name, ct, id: id);
+            }
+            finally
+            {
+                db.SavingChanges -= Mark;
+            }
+            return await AnswerAsync(id);
+
+            async Task<IResult> AnswerAsync(Guid orderId)
+            {
+                var order = await Detailed(db).AsNoTracking().Include(o => o.Items).ThenInclude(i => i.Dish).ThenInclude(d => d!.Recipe)
+                    .FirstAsync(o => o.Id == orderId, ct);
+                var missing = order.Shortages.Select(s => s.ProductId).ToHashSet();
+                var unavailable = order.Items.Where(i => i.Dish!.Recipe.Any(r => missing.Contains(r.ProductId))).Select(i => i.Dish!.Name).ToList();
+                var accepted = order.Status == OrderStatus.Accepted;
+                var response = new ExternalOrderResponse(
+                    order.Id, order.ExternalId ?? externalId, order.Number, order.Status, order.Place, order.Delivery, order.Source ?? key.Name, Total(order), order.CreatedAt,
+                    order.Items.Select(i => new ExternalOrderItem(i.DishId, i.Dish!.Name, i.Quantity, i.Price)), unavailable,
+                    accepted ? null : $"Не хватает продуктов для блюд: {string.Join(", ", unavailable)}. Ничего не списано.");
+                return accepted
+                    ? Results.Created($"/api/orders/{order.Id}", response)
+                    : Results.Json(response, statusCode: StatusCodes.Status409Conflict);
+            }
+        })
+        .RequireKey(IntegrationKey.Orders)
+        .Produces<ExternalOrderResponse>(StatusCodes.Status201Created)
+        .Produces<ExternalOrderResponse>(StatusCodes.Status409Conflict)
+        .WithSummary("Заказ извне: сайт кафе или касса по ключу")
+        .WithDescription("Нужен ключ с правом orders в заголовке X-Api-Key. Заказ проходит тот же путь, что и заказ официанта: годные партии блокируются, продукты списываются по FEFO одной транзакцией. 201 — принят и ушёл на кухню; 409 — блюдо снято с продажи или не хватает продуктов (перечень в unavailable, ничего не списано). Повтор с тем же id возвращает прежний заказ.");
     }
+
+    /// <summary>Идентификатор заказа из ключа и номера во внешней системе: первые 16 байт SHA-256.</summary>
+    private static Guid ExternalOrderId(Guid key, string externalId) =>
+        new(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{key:N}:{externalId}")).AsSpan(0, 16));
 
     /// <summary>Заказы, по которым гость ещё не расплатился. Стол не бывает открыт дольше суток, поэтому старые заказы зал не занимают.</summary>
     public static IQueryable<Order> OpenOrders(AppDbContext db, DateTimeOffset now) => db.Orders
@@ -172,7 +266,7 @@ public static class OrderEndpoints
         o.Id, o.Number, o.CreatedAt, o.Status, o.Place, Total(o),
         o.Items.Select(i => new OrderItemResponse(i.DishId, i.Dish!.Name, i.Quantity, i.DiscountPercent, i.DiscountQuantity, i.Price)),
         o.Shortages.Select(s => new ShortageResponse(s.ProductId, s.Product!.Name, s.Product.Unit, s.Required, s.Available)),
-        writeOffs, o.ClosedAt, o.ReadyAt);
+        writeOffs, o.ClosedAt, o.ReadyAt, o.Source, o.Delivery);
 
     /// <summary>Сумма заказа; цена со скидкой округляется до рубля, как её показывает горячее предложение.</summary>
     public static decimal Total(Order o) => o.Items.Sum(LineTotal);

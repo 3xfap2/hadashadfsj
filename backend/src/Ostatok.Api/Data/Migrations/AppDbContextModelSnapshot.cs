@@ -71,6 +71,59 @@ namespace Ostatok.Api.Data.Migrations
                     b.ToTable("Alerts");
                 });
 
+            modelBuilder.Entity("Ostatok.Api.Domain.ApiKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("CanOrders")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("CanSupplies")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevokedBy")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Hash")
+                        .IsUnique();
+
+                    b.HasIndex("RestaurantId");
+
+                    b.ToTable("ApiKeys");
+                });
+
             modelBuilder.Entity("Ostatok.Api.Domain.Batch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -589,6 +642,10 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<Guid>("BatchId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Hash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Note")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -606,6 +663,12 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uuid");
 
+                    b.Property<long?>("SealNo")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("SealedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -620,6 +683,14 @@ namespace Ostatok.Api.Data.Migrations
                     b.HasIndex("ProductId");
 
                     b.HasIndex("RestaurantId", "At");
+
+                    b.HasIndex("RestaurantId", "Id")
+                        .HasDatabaseName("IX_Movements_Unsealed")
+                        .HasFilter("\"SealNo\" IS NULL");
+
+                    b.HasIndex("RestaurantId", "SealNo")
+                        .IsUnique()
+                        .HasFilter("\"SealNo\" IS NOT NULL");
 
                     b.ToTable("Movements");
                 });
@@ -636,6 +707,13 @@ namespace Ostatok.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("Delivery")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ExternalId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<int>("Number")
                         .HasColumnType("integer");
 
@@ -649,6 +727,10 @@ namespace Ostatok.Api.Data.Migrations
 
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Source")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1040,6 +1122,15 @@ namespace Ostatok.Api.Data.Migrations
                 });
 
             modelBuilder.Entity("Ostatok.Api.Domain.Alert", b =>
+                {
+                    b.HasOne("Ostatok.Api.Domain.Restaurant", null)
+                        .WithMany()
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ostatok.Api.Domain.ApiKey", b =>
                 {
                     b.HasOne("Ostatok.Api.Domain.Restaurant", null)
                         .WithMany()

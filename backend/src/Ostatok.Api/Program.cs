@@ -40,6 +40,7 @@ builder.Services.AddHostedService<Simulator>();
 builder.Services.AddSingleton(sp =>
     sp.GetRequiredService<IConfiguration>().GetSection("Stock").Get<StockOptions>() ?? new StockOptions());
 builder.Services.AddHostedService<ExpiryWorker>();
+builder.Services.AddHostedService<JournalSealer>();
 
 builder.Services.AddSingleton(sp =>
 {
@@ -205,6 +206,8 @@ api.MapAlerts();
 api.MapSimulator();
 api.MapStaff();
 api.MapRestaurant();
+api.MapIntegration();
+api.MapJournalSeal();
 api.MapOwner();
 api.MapOwnerCabinet();
 api.MapOwnerMessages();

@@ -9,9 +9,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <!--
-      Отдельная «внешняя система» поставщика. Она не входит в кабинет ресторана и не читает его данные:
-      справочник продуктов вписан прямо сюда, а поставка уходит одним запросом POST /api/supplies/incoming
-      с ключом интеграции ресторана в заголовке X-Api-Key. Ресторан сервер определяет по ключу.
+      Отдельная «внешняя система» поставщика. Она не входит в кабинет ресторана: по ключу в заголовке X-Api-Key
+      она читает только названия продуктов (GET /api/integration/products), а поставка уходит одним запросом
+      POST /api/supplies/incoming. Ресторан сервер определяет по ключу.
     -->
     <style>
       :root {
@@ -124,7 +124,7 @@
             <label>
               Ключ интеграции ресторана
               <input id="key" autocomplete="off" spellcheck="false" placeholder="ost_…" required />
-              <span class="hint">Выдаёт управляющий в «Остатке»: раздел «Ресторан» → «Поставки извне».</span>
+              <span class="hint">Выдаёт управляющий в «Остатке»: раздел «Ресторан» → «Ключи внешних систем», право «Поставки».</span>
             </label>
             <label>
               Адрес API
@@ -132,6 +132,7 @@
               <span class="hint">По умолчанию — этот же сайт.</span>
             </label>
           </div>
+          <p class="hint" id="catalog" aria-live="polite">Введите ключ — страница загрузит справочник продуктов ресторана. Пока показан список демо-ресторана.</p>
         </section>
 
         <section aria-labelledby="doc-h" style="margin-top: 20px">
@@ -157,9 +158,9 @@
     </main>
 
     <script>
-      // Справочник ресторана вписан в страницу: внешняя система не ходит в API «Остатка» ни за чем, кроме отправки поставки.
-      // Названия — как в справочнике демо-ресторана; сервер находит продукт по точному названию.
-      const PRODUCTS = [
+      // Справочник ресторана страница берёт по ключу (GET /api/integration/products: названия и единицы, без цен).
+      // Пока ключ не введён или запрос не удался — запасной список демо-ресторана; сервер находит продукт по точному названию.
+      let PRODUCTS = [
         ['Авокадо', 'шт'], ['Говяжья вырезка', 'кг'], ['Картофель', 'кг'], ['Креветки тигровые', 'кг'],
         ['Куриное филе', 'кг'], ['Лосось охлаждённый', 'кг'], ['Моцарелла', 'кг'], ['Основа том ям', 'л'],
         ['Пармезан', 'кг'], ['Паста феттучине', 'кг'], ['Салат романо', 'кг'], ['Сливки 33%', 'л'],
@@ -187,11 +188,9 @@
           <label>Срок хранения<span class="unit"><input class="num life" inputmode="numeric" placeholder="норматив" /><span>ч</span></span></label>
           <button type="button" class="icon" aria-label="Удалить строку ${n}">✕</button>`;
         const select = row.querySelector('select');
-        for (const [title] of PRODUCTS) select.add(new Option(title, title));
-        select.value = name;
-        const unit = () => { row.querySelector('.u').textContent = PRODUCTS.find((p) => p[0] === select.value)[1]; };
-        select.addEventListener('change', unit);
-        unit();
+        fill(select, name);
+        select.addEventListener('change', () => unit(row));
+        unit(row);
         row.querySelector('.qty').value = quantity;
         row.querySelector('.life').value = hours;
         row.querySelector('button').addEventListener('click', () => { row.remove(); count(); });
@@ -199,11 +198,45 @@
         count();
       }
       const count = () => { $('count').textContent = 'Строк: ' + lines.children.length; };
+      // Список продуктов в строке; если прежнего продукта в справочнике нет, выбирается первый.
+      function fill(select, value) {
+        select.replaceChildren(...PRODUCTS.map(([title]) => new Option(title, title)));
+        select.value = PRODUCTS.some((p) => p[0] === value) ? value : PRODUCTS[0][0];
+      }
+      function unit(row) {
+        const product = PRODUCTS.find((p) => p[0] === row.querySelector('select').value);
+        row.querySelector('.u').textContent = product ? product[1] : '';
+      }
+
+      const UNITS = { Kg: 'кг', L: 'л', Pcs: 'шт' };
+      async function loadProducts() {
+        const key = $('key').value.trim();
+        const api = $('api').value.trim().replace(/\/+$/, '') || location.origin;
+        if (!key) return;
+        $('catalog').textContent = 'Загружаем справочник ресторана…';
+        try {
+          const response = await fetch(api + '/api/integration/products', { headers: { 'X-Api-Key': key } });
+          if (!response.ok) {
+            const answer = await response.json().catch(() => null);
+            throw new Error((answer && answer.detail) || 'сервер ответил ' + response.status);
+          }
+          const list = await response.json();
+          if (list.length === 0) throw new Error('в справочнике ресторана нет продуктов');
+          PRODUCTS = list.map((p) => [p.name, UNITS[p.unit] || p.unit]);
+          for (const row of lines.children) { fill(row.querySelector('select'), row.querySelector('select').value); unit(row); }
+          $('catalog').textContent = 'Справочник ресторана загружен по ключу: продуктов — ' + list.length + '.';
+        } catch (err) {
+          $('catalog').textContent = 'Справочник по ключу не загрузился (' + err.message + '). Показан запасной список демо-ресторана.';
+        }
+      }
+      $('key').addEventListener('change', loadProducts);
+      $('api').addEventListener('change', loadProducts);
 
       addLine('Томаты', '5', '');
       addLine('Картофель', '10', '');
       addLine('Сливки 33%', '2', '96');
       $('add').addEventListener('click', () => addLine(PRODUCTS[0][0], '1', ''));
+      loadProducts();
 
       function show(kind, title, text, json) {
         const box = document.createElement('div');
@@ -252,7 +285,7 @@
             $('number').value = $('number').value.replace(/(\d+)$/, (d) => String(Number(d) + 1).padStart(d.length, '0'));
           } else {
             const messages = answer && answer.errors ? Object.values(answer.errors).flat().join(' ') : (answer && answer.detail) || '';
-            const titles = { 400: 'Поставка не принята: ошибка в данных', 401: 'Ключ не подошёл', 409: 'Такая поставка уже есть' };
+            const titles = { 400: 'Поставка не принята: ошибка в данных', 401: 'Ключ не подошёл', 403: 'У ключа нет права присылать поставки', 409: 'Такая поставка уже есть', 429: 'Слишком много запросов' };
             show('err', titles[response.status] || `Сервер ответил ошибкой ${response.status}`, messages, answer ?? undefined);
           }
         } catch (err) {

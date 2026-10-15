@@ -61,10 +61,10 @@ export function KitchenBoard() {
             return (
               <li key={o.id} className="g-panel kb__card">
                 <div className="kb__head">
-                  <strong className="hd kb__place">{o.place || 'Без стола'}</strong>
+                  <strong className="hd kb__place">{o.place || (o.delivery ? 'Доставка' : 'Без стола')}</strong>
                   <span className={minutes >= LATE_MINUTES ? 'g-tag g-tag--red num' : 'muted num'}>{wait(minutes)}</span>
                 </div>
-                <span className="muted small num">№ {o.number} · принят в {clock(o.createdAt)}</span>
+                <span className="muted small num">№ {o.number} · принят в {clock(o.createdAt)}{o.source && ` · ${o.source}`}</span>
                 <ul className="kb__items">
                   {o.items.map((i) => (
                     <li key={i.dishId}><span className="num hd kb__qty">{i.quantity} ×</span><span className="g-name">{i.dishName}</span></li>
@@ -86,7 +86,7 @@ export function KitchenBoard() {
             {ready.map((o) => (
               <li key={o.id}>
                 <span className="num hd">№ {o.number}</span>
-                <span>{o.place && `${o.place} · `}{dishes(o)}</span>
+                <span>{o.source && `${o.source} · `}{o.place && `${o.place} · `}{dishes(o)}</span>
                 <span className="num muted small">готов в {clock(o.readyAt!)}</span>
               </li>
             ))}
