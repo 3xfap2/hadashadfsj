@@ -177,9 +177,9 @@ public static class OwnerCabinet
         return await next(context);
     }
 
-    /// <summary>Рестораны владельца в порядке добавления: добавленные им самим и тот, где заведена его учётная запись.</summary>
+    /// <summary>Рестораны владельца в порядке добавления: те, где записан его логин (в том числе первый, открытый командой продукта).</summary>
     internal static async Task<List<(Guid Id, string Name)>> OwnedListAsync(AppDbContext db, ClaimsPrincipal principal, CancellationToken ct) =>
-        (await OwnerEndpoints.OwnedAsync(db, principal).OrderBy(r => r.CreatedAt).Select(r => new { r.Id, r.Name }).ToListAsync(ct))
+        (await OwnerEndpoints.InOrder(OwnerEndpoints.OwnerOf(db, principal), db, principal).Select(r => new { r.Id, r.Name }).ToListAsync(ct))
             .Select(r => (r.Id, r.Name)).ToList();
 
     /// <summary>
@@ -189,7 +189,7 @@ public static class OwnerCabinet
     internal static async Task<IResult> InRestaurantAsync(
         Guid restaurantId, ClaimsPrincipal principal, AppDbContext db, Tenant tenant, CancellationToken ct, Func<Task<IResult>> action)
     {
-        if (!await OwnerEndpoints.OwnedAsync(db, principal).AnyAsync(r => r.Id == restaurantId, ct)) return Results.NotFound();
+        if (!await OwnerEndpoints.OwnerOf(db, principal).AnyAsync(r => r.Id == restaurantId, ct)) return Results.NotFound();
         tenant.Id = restaurantId;
         return await action();
     }

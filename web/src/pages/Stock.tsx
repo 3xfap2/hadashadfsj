@@ -139,16 +139,19 @@ export function Stock() {
       const product = products.data!.find((p) => p.id === s.productId)!;
       const own = batches.data!.filter((b) => b.productId === s.productId);
       const fresh = own.filter((b) => b.status !== 'Expired');
-      const expiredValue = own.filter((b) => b.status === 'Expired').reduce((sum, b) => sum + (b.value ?? 0), 0);
+      const expired = own.filter((b) => b.status === 'Expired');
+      const expiredValue = expired.reduce((sum, b) => sum + (b.value ?? 0), 0);
       // Блюда, которые стоят или заканчиваются из-за этого продукта.
       const blocked = stopList.data!.filter((d) => d.status !== 'Available' && d.limitingProductId === s.productId);
       const stopped = blocked.filter((d) => d.status === 'Stop');
 
       let kind: Kind;
       let next: string;
-      if (fresh.length === 0 && own.length > 0) {
+      // Просроченная партия «под списание» видна всегда, даже если у продукта есть годный остаток:
+      // строка раскрыта, у партии кнопка «Списать».
+      if (expired.length > 0) {
         kind = 'expired';
-        next = `годной нет · под списание ${money(expiredValue)}`;
+        next = fresh.length === 0 ? `годной нет · под списание ${money(expiredValue)}` : `под списание ${money(expiredValue)} · годная до ${dayMonthShort(fresh[0].expiresAt)}`;
       } else if (fresh.length === 0) {
         kind = 'low';
         next = stopped.length > 0 ? `нет на складе: ${stopped[0].dishName.toLowerCase()} в стопе` : 'нет на складе';
@@ -212,7 +215,7 @@ export function Stock() {
                   </span>
                 </span>
                 <span className="hide-s prow__total">
-                  <span className="num" style={{ color: p.kind === 'expired' || p.fresh === 0 ? 'var(--red)' : 'var(--h)' }}>{qty(p.fresh, p.unit)}</span>
+                  <span className="num" style={{ color: p.fresh === 0 ? 'var(--red)' : 'var(--h)' }}>{qty(p.fresh, p.unit)}</span>
                   <span className="muted small">годный остаток</span>
                 </span>
                 <span className="hide-s prow__state">

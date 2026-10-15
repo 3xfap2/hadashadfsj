@@ -32,7 +32,7 @@ public static class OwnerEndpoints
             var rows = new List<MyRestaurant>();
             try
             {
-                foreach (var restaurant in await OwnedAsync(db, principal).OrderBy(r => r.CreatedAt).ToListAsync(ct))
+                foreach (var restaurant in await InOrder(OwnedAsync(db, principal), db, principal).ToListAsync(ct))
                 {
                     // Сводка каждого ресторана считается в его собственном пространстве данных.
                     tenant.Id = restaurant.Id;
@@ -61,7 +61,7 @@ public static class OwnerEndpoints
             var name = (req.Name ?? "").Trim();
             var errors = new Errors()
                 .Check(name is { Length: > 0 and <= 120 }, "name", "Укажите название ресторана — до 120 символов.")
-                .Check(await db.Restaurants.CountAsync(r => r.OwnerLogin == login, ct) < MaxOwned, "name", $"Самостоятельно можно добавить до {MaxOwned} ресторанов. Напишите в поддержку.");
+                .Check(await db.Restaurants.CountAsync(r => r.OwnerLogin == login && r.Id != home, ct) < MaxOwned, "name", $"Самостоятельно можно добавить до {MaxOwned} ресторанов. Напишите в поддержку.");
             if (errors.Any) return errors.ToResult();
 
             var restaurant = new Restaurant
@@ -71,6 +71,10 @@ public static class OwnerEndpoints
             };
             db.Restaurants.Add(restaurant);
             await db.SaveChangesAsync(ct);
+            // Ресторан, открытый командой продукта, становится рестораном владельца, только если владельца у него ещё нет:
+            // второй управляющий, добавив себе ресторан, чужой переписки и кабинета не получает.
+            await db.Restaurants.Where(r => r.Id == home && r.OwnerLogin == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.OwnerLogin, login), ct);
             return Results.Created($"/api/my/restaurants/{restaurant.Id}", new MyRestaurant(restaurant.Id, restaurant.Name, false, 0, 0));
         });
 
@@ -89,5 +93,27 @@ public static class OwnerEndpoints
         var login = principal.Identity!.Name;
         return db.Restaurants.Where(r => r.DisabledAt == null
             && (r.OwnerLogin == login || db.Users.IgnoreQueryFilters().Any(u => u.Login == login && u.RestaurantId == r.Id)));
+    }
+
+    /// <summary>
+    /// Рестораны в порядке добавления; при равном времени первым — тот, где заведена учётная запись
+    /// (ресторан, открытый командой продукта, и добавленный сразу за ним иначе меняются местами).
+    /// </summary>
+    internal static IOrderedQueryable<Restaurant> InOrder(IQueryable<Restaurant> restaurants, AppDbContext db, ClaimsPrincipal principal)
+    {
+        var login = principal.Identity!.Name;
+        return restaurants.OrderBy(r => r.CreatedAt)
+            .ThenByDescending(r => db.Users.IgnoreQueryFilters().Any(u => u.Login == login && u.RestaurantId == r.Id))
+            .ThenBy(r => r.Id);
+    }
+
+    /// <summary>
+    /// Рестораны, где сотрудник — владелец: его логин записан в ресторане. Только они открыты в кабинете владельца и в переписке;
+    /// место работы владельцем не делает. Отключённые не показываются.
+    /// </summary>
+    internal static IQueryable<Restaurant> OwnerOf(AppDbContext db, ClaimsPrincipal principal)
+    {
+        var login = principal.Identity!.Name;
+        return db.Restaurants.Where(r => r.DisabledAt == null && r.OwnerLogin == login);
     }
 }

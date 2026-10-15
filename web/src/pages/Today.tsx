@@ -89,7 +89,7 @@ export function Today() {
               <span>Каждая позиция станет партией со своим сроком годности. {canStock && <Link to="/app/stock/supplies">Принять поставку</Link>}</span>
             </li>
           </ol>
-          {canStaff && <p className="muted start__note">Заказы оформляет официант: заведите ему учётную запись в разделе <Link to="/app/staff">«Сотрудники»</Link>.</p>}
+          {canStaff && <p className="muted start__note">Заказы оформляет официант: заведите ему учётную запись в разделе <Link to="/app/staff">«Ресторан»</Link>.</p>}
         </section>
       )}
 

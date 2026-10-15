@@ -1,25 +1,47 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { post, problemText, send, useApi, type IntegrationKey, type RestaurantSettings as Settings } from '../api';
 
+/** Целое число из поля ввода; пусто, дробь или не число — null (а не 0: пустое поле не должно молча стать нулём). */
+const whole = (text: string) => {
+  const value = Number(text.trim().replace(',', '.'));
+  return text.trim() !== '' && Number.isInteger(value) ? value : null;
+};
+
 /** Настройки ресторана: название, часы смены, зал, автосписание просрочки и ключ для поставок извне. Меняет управляющий. */
 export function RestaurantSettings({ onSaved }: { onSaved: () => void }) {
   const settings = useApi<Settings>('/restaurant', 300_000);
   const [form, setForm] = useState<Settings | null>(null);
+  // Числа хранятся строкой, как их набрали: так «1,5» не превращается на ходу в «15», а стёртое поле — в «0».
+  const [text, setText] = useState({ tables: '', grace: '' });
+  const [tried, setTried] = useState(false);
   const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!form && settings.data) setForm(settings.data);
+    if (!form && settings.data) {
+      setForm(settings.data);
+      setText({ tables: String(settings.data.tables), grace: String(settings.data.autoWriteOffAfterHours) });
+    }
   }, [form, settings.data]);
 
   if (!form) return null;
 
+  const tables = whole(text.tables);
+  const grace = whole(text.grace);
+  const tablesError = tables === null || tables < 0 || tables > 60;
+  // Отсрочка проверяется, только когда автосписание включено; выключено — сохраняется прежняя.
+  const graceError = form.autoWriteOff && (grace === null || grace < 1 || grace > 168);
+
   const save = async (e: FormEvent) => {
     e.preventDefault();
+    setTried(true);
+    if (tablesError || graceError) return;
     setBusy(true);
     // Обрыв связи бросает исключение: без finally кнопка осталась бы серой до перезагрузки страницы.
     try {
-      const response = await send('PUT', '/restaurant', form);
+      const response = await send('PUT', '/restaurant', {
+        ...form, tables, autoWriteOffAfterHours: form.autoWriteOff ? grace : form.autoWriteOffAfterHours,
+      });
       if (response.ok) {
         setNote({ kind: 'ok', text: 'Сохранено. Зал и часы смены обновятся у сотрудников при следующем открытии кабинета.' });
         onSaved();
@@ -52,9 +74,10 @@ export function RestaurantSettings({ onSaved }: { onSaved: () => void }) {
           </div>
         </div>
         <span className="g-hint">Если смена заканчивается после полуночи, укажите время как есть: 18:00 – 02:00.</span>
-        <div className="g-field">
+        <div className={`g-field${tried && tablesError ? ' g-field--error' : ''}`}>
           <label htmlFor="r-tables">Столов в зале</label>
-          <input className="g-input num" id="r-tables" inputMode="numeric" value={form.tables} onChange={(e) => setForm({ ...form, tables: Number(e.target.value) || 0 })} />
+          <input className="g-input num" id="r-tables" inputMode="numeric" value={text.tables} onChange={(e) => setText({ ...text, tables: e.target.value })} aria-invalid={tried && tablesError} aria-describedby={tried && tablesError ? 'r-tables-e' : undefined} />
+          {tried && tablesError && <span className="g-error-text" id="r-tables-e">Укажите целое число столов от 0 до 60.</span>}
           <span className="g-hint">От 0 до 60. По ним официант выбирает, куда записать заказ.</span>
         </div>
         <label className="hot-check">
@@ -66,17 +89,18 @@ export function RestaurantSettings({ onSaved }: { onSaved: () => void }) {
           <span>Списывать просрочку автоматически</span>
         </label>
         {form.autoWriteOff && (
-          <div className="g-field">
+          <div className={`g-field${tried && graceError ? ' g-field--error' : ''}`}>
             <label htmlFor="r-grace">Через сколько часов после истечения срока</label>
             <div className="g-unit rest-hours">
-              <input className="g-input num" id="r-grace" inputMode="numeric" value={form.autoWriteOffAfterHours} onChange={(e) => setForm({ ...form, autoWriteOffAfterHours: Number(e.target.value) || 0 })} />
+              <input className="g-input num" id="r-grace" inputMode="numeric" value={text.grace} onChange={(e) => setText({ ...text, grace: e.target.value })} aria-invalid={tried && graceError} aria-describedby={tried && graceError ? 'r-grace-e' : undefined} />
               <span>ч</span>
             </div>
+            {tried && graceError && <span className="g-error-text" id="r-grace-e">Укажите целое число часов от 1 до 168.</span>}
           </div>
         )}
         <span className="g-hint">
           {form.autoWriteOff
-            ? 'Просрочка ждёт ручного списания это время (но не дольше, чем продукт хранился), потом система спишет её сама. От 0 до 168 часов.'
+            ? 'Просрочка ждёт ручного списания это время (но не дольше, чем продукт хранился), потом система спишет её сама. От 1 до 168 часов.'
             : 'По умолчанию выключено: просроченная партия остаётся на складе «под списание», в заказы не идёт, а списывает её сотрудник кнопкой — так он видит, что выбрасывает.'}
         </span>
         {note && <div className={`g-note g-note--${note.kind}`} role={note.kind === 'err' ? 'alert' : 'status'}><span>{note.text}</span></div>}

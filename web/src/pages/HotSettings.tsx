@@ -6,12 +6,21 @@ import { Photo } from '../ui';
 
 const DEFAULTS: HotRules = { horizonHours: 48, urgencyWeight: 50, shareAcrossDishes: true, maxDiscountPercent: 40 };
 
+/** Целое число из поля ввода; пусто, дробь или не число — null (а не 0: пустое поле не должно молча стать нулём). */
+const whole = (text: string) => {
+  const value = Number(text.trim().replace(',', '.'));
+  return text.trim() !== '' && Number.isInteger(value) ? value : null;
+};
+
 /** Настройка горячих предложений: правила расчёта слева, получившийся список и его ручная правка справа. */
 export function HotSettings() {
   const rules = useApi<HotRules>('/hot-offers/settings', 300_000);
   const offers = useApi<HotOffer[]>('/hot-offers');
   const dishes = useApi<DishRow[]>('/dishes');
   const [form, setForm] = useState<HotRules | null>(null);
+  // Числа хранятся строкой, как их набрали: так «1,5» не превращается на ходу в «15», а стёртое поле — в «0».
+  const [text, setText] = useState({ horizon: '', discount: '' });
+  const [tried, setTried] = useState(false);
   const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   // Своё блюдо: какое добавить и с какой причиной.
@@ -19,7 +28,10 @@ export function HotSettings() {
   const [addNote, setAddNote] = useState('');
 
   useEffect(() => {
-    if (!form && rules.data) setForm(rules.data);
+    if (!form && rules.data) {
+      setForm(rules.data);
+      setText({ horizon: String(rules.data.horizonHours), discount: String(rules.data.maxDiscountPercent) });
+    }
   }, [form, rules.data]);
 
   const error = rules.error ?? offers.error ?? dishes.error;
@@ -33,6 +45,8 @@ export function HotSettings() {
       const response = await send('PUT', '/hot-offers/settings', next);
       if (response.ok) {
         setForm(next);
+        setText({ horizon: String(next.horizonHours), discount: String(next.maxDiscountPercent) });
+        setTried(false);
         setNote({ kind: 'ok', text: 'Сохранено. Список справа пересчитан.' });
         await offers.reload();
       } else {
@@ -81,6 +95,15 @@ export function HotSettings() {
   const hidden = dishes.data.filter((d) => d.hotHidden);
   const added = dishes.data.filter((d) => d.hotAdded);
   const addable = dishes.data.filter((d) => !d.hotAdded);
+  const horizon = whole(text.horizon);
+  const discount = whole(text.discount);
+  const horizonError = horizon === null || horizon < 6 || horizon > 168;
+  const discountError = discount === null || discount < 0 || discount > 70;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setTried(true);
+    if (horizon !== null && discount !== null && !horizonError && !discountError) void save({ ...form, horizonHours: horizon, maxDiscountPercent: discount });
+  };
   const balance = form.urgencyWeight === 50 ? 'поровну' : form.urgencyWeight < 50 ? 'важнее сумма потерь' : 'важнее срок';
 
   return (
@@ -92,15 +115,16 @@ export function HotSettings() {
 
       <div className="sup-row">
         <aside className="sup-side cat-side">
-          <form className="g-panel" onSubmit={(e: FormEvent) => { e.preventDefault(); void save(form); }} noValidate>
+          <form className="g-panel" onSubmit={submit} noValidate>
             <div className="g-panel__head"><h2>Правила</h2></div>
             <div className="form-body">
-              <div className="g-field">
+              <div className={`g-field${tried && horizonError ? ' g-field--error' : ''}`}>
                 <label htmlFor="h-horizon">Горизонт</label>
                 <div className="g-unit">
-                  <input className="g-input num" id="h-horizon" inputMode="numeric" value={form.horizonHours} onChange={(e) => setForm({ ...form, horizonHours: Number(e.target.value) || 0 })} />
+                  <input className="g-input num" id="h-horizon" inputMode="numeric" value={text.horizon} onChange={(e) => setText({ ...text, horizon: e.target.value })} aria-invalid={tried && horizonError} aria-describedby={tried && horizonError ? 'h-horizon-e' : undefined} />
                   <span>ч</span>
                 </div>
+                {tried && horizonError && <span className="g-error-text" id="h-horizon-e">Укажите целое число часов от 6 до 168.</span>}
                 <span className="g-hint">Учитываются партии, которые истекают в эти часы. От 6 до 168.</span>
               </div>
               <div className="g-field">
@@ -113,12 +137,13 @@ export function HotSettings() {
                 <input type="checkbox" checked={form.shareAcrossDishes} onChange={(e) => setForm({ ...form, shareAcrossDishes: e.target.checked })} />
                 <span>Понижать блюдо, если тот же продукт уходит и в другие блюда</span>
               </label>
-              <div className="g-field">
+              <div className={`g-field${tried && discountError ? ' g-field--error' : ''}`}>
                 <label htmlFor="h-discount">Наибольшая скидка</label>
                 <div className="g-unit">
-                  <input className="g-input num" id="h-discount" inputMode="numeric" value={form.maxDiscountPercent} onChange={(e) => setForm({ ...form, maxDiscountPercent: Number(e.target.value) || 0 })} />
+                  <input className="g-input num" id="h-discount" inputMode="numeric" value={text.discount} onChange={(e) => setText({ ...text, discount: e.target.value })} aria-invalid={tried && discountError} aria-describedby={tried && discountError ? 'h-discount-e' : undefined} />
                   <span>%</span>
                 </div>
+                {tried && discountError && <span className="g-error-text" id="h-discount-e">Укажите целое число от 0 до 70.</span>}
                 <span className="g-hint">0 — скидки не предлагать. Ниже стоимости продуктов, которые не истекают, цена не опустится в любом случае.</span>
               </div>
               {note && <div className={`g-note g-note--${note.kind}`} role={note.kind === 'err' ? 'alert' : 'status'}><span>{note.text}</span></div>}

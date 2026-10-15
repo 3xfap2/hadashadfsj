@@ -250,8 +250,8 @@ class Monitor:
         events = diff(previous, *data)
         # Напоминания — со второго опроса ресторана: первый только запоминает. После простоя они не теряются:
         # повторы отсчитываются по каждой партии.
-        reminded = (saved or {}).get("reminded") or {}
-        due, soon, reminded = reminders(data[1], reminded, now) if saved is not None else ([], [], reminded)
+        was_reminded = (saved or {}).get("reminded") or {}
+        due, soon, reminded = reminders(data[1], was_reminded, now) if saved is not None else ([], [], was_reminded)
         reminded_ids = {b["id"] for b in due + soon}
 
         # Сигналы хранятся на сервере, поэтому их не теряем и после простоя: отсчёт по id, а не по времени.
@@ -261,7 +261,7 @@ class Monitor:
             events += alert_events(alerts, last_id)
             last_id = max([last_id or 0, *map(alert_id, alerts)])
 
-        attempted = delivered = 0
+        attempted = delivered = reminded_managers = 0
         for session in sessions:
             if session.chat_id in logged_out:
                 continue
@@ -280,7 +280,13 @@ class Monitor:
                     if expired and session.allows("stock"):
                         keyboard = write_off_keyboard(expired[:REMIND_BUTTONS])
                 attempted += 1
-                delivered += await self._send(session, text, keyboard)
+                sent = await self._send(session, text, keyboard)
+                delivered += sent
+                reminded_managers += sent if remind else 0
+        # Партия считается напомненной, только когда напоминание дошло хотя бы до одного управляющего:
+        # если его нет в боте или Telegram не принял сообщение, напомним на следующем опросе.
+        if (due or soon) and not reminded_managers:
+            reminded = was_reminded
         # Состояние продвигается, только когда события дошли хотя бы до одного адресата (или слать было
         # некому): если Telegram не принял ни одного сообщения, следующий опрос пришлёт их снова.
         if delivered or not attempted:

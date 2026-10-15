@@ -38,7 +38,7 @@ public static partial class RestaurantEndpoints
                 .Check(ClockTime().IsMatch(start) && ClockTime().IsMatch(end) && start != "24:00", "shift", "Время смены — в формате ЧЧ:ММ: начало не позже 23:59, конец не позже 24:00.")
                 .Check(req.Tables is >= 0 and <= 60, "tables", "Столов — от 0 до 60.")
                 .Check(req.Tables > 0 || req.HasBar, "tables", "В зале должен быть хотя бы один стол или бар.")
-                .Check(req.AutoWriteOffAfterHours is null or (>= 0 and <= 168), "autoWriteOffAfterHours", "Отсрочка автосписания — от 0 до 168 часов.");
+                .Check(req.AutoWriteOffAfterHours is null or (>= 1 and <= 168), "autoWriteOffAfterHours", "Отсрочка автосписания — от 1 до 168 часов: так просрочку успевают увидеть и списать вручную.");
             if (errors.Any) return errors.ToResult();
             // Конец раньше начала — смена через полночь (18:00–02:00), это допустимо; совпадать они не могут.
             if (StopCost.ParseTime(end) == StopCost.ParseTime(start))

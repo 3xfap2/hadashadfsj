@@ -112,3 +112,61 @@ async def test_only_manager_gets_reminders_about_batches_under_write_off():
     api.returns["get_batches"] = [batch("b2", "ExpiringSoon", 1, product=SALMON, value=500.0)]
     await monitor.poll_once()
     assert len(bot.to(1)) == 2
+
+
+async def test_reminder_waits_for_manager_who_is_not_in_bot_yet():
+    db = Storage(":memory:")
+    login(db, 2, "Storekeeper", REST_A, hours=48)
+    api, bot = FakeApi(), FakeBot()
+    api.returns["get_stop_list"] = [stop_item(status="Available", portions=5)]
+    api.returns["get_batches"] = [batch("b1", "Fresh", 30), batch("b2", "Fresh", 40, product=SALMON, value=500.0)]
+    clock = [NOW]
+    monitor = make_monitor(api, db, bot, clock=lambda: clock[0])
+    await monitor.poll_once()
+    api.returns["get_batches"] = [batch("b1", "Expired", -1), batch("b2", "ExpiringSoon", 4, product=SALMON, value=500.0)]
+    await monitor.poll_once()                     # управляющего в боте нет: кладовщик видит смену статуса, напоминать некому
+    assert bot.to(2) and all("Напоминание" not in t for t, _ in bot.to(2))
+
+    # Управляющий вошёл через минуту — получает и «под списание», и «истекает скоро», а не через REMIND_REPEAT.
+    login(db, 1, "Manager", REST_A, hours=48)
+    clock[0] = NOW + timedelta(minutes=1)
+    await monitor.poll_once()
+    text = bot.to(1)[0][0]
+    assert "Под списание — 1 партия" in text and "Истекают в ближайшие 6 ч:\n• Лосось охлаждённый" in text
+    clock[0] = NOW + timedelta(minutes=2)
+    await monitor.poll_once()
+    assert len(bot.to(1)) == 1                    # дошло — больше не повторяет
+
+
+class ManagerUnreachableBot(FakeBot):
+    """Telegram не принимает сообщения управляющему (чат 1), остальным доставляет."""
+
+    def __init__(self):
+        super().__init__()
+        self.manager_down = True
+
+    async def send_message(self, chat_id, text, reply_markup=None):
+        if chat_id == 1 and self.manager_down:
+            raise RuntimeError("Telegram недоступен")
+        await super().send_message(chat_id, text, reply_markup)
+
+
+async def test_reminder_is_repeated_when_message_to_manager_failed_but_reached_others():
+    db = Storage(":memory:")
+    login(db, 1, "Manager", REST_A, hours=48)
+    login(db, 2, "Storekeeper", REST_A, hours=48)
+    api, bot = FakeApi(), ManagerUnreachableBot()
+    api.returns["get_stop_list"] = [stop_item(status="Available", portions=5)]
+    api.returns["get_batches"] = [batch("b1", "Fresh", 30), batch("b2", "Fresh", 40, product=SALMON, value=500.0)]
+    clock = [NOW]
+    monitor = make_monitor(api, db, bot, clock=lambda: clock[0])
+    await monitor.poll_once()
+    api.returns["get_batches"] = [batch("b1", "Expired", -1), batch("b2", "ExpiringSoon", 4, product=SALMON, value=500.0)]
+    await monitor.poll_once()
+    assert bot.to(1) == [] and bot.to(2)          # кладовщику дошло, управляющему — нет
+
+    bot.manager_down = False
+    clock[0] = NOW + timedelta(minutes=1)
+    await monitor.poll_once()
+    text = bot.to(1)[0][0]
+    assert "Под списание — 1 партия" in text and "Истекают в ближайшие 6 ч" in text

@@ -2589,6 +2589,13 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
         // Отсрочку проверяет сервер, автосписание включает только управляющий.
         Assert.Equal(HttpStatusCode.BadRequest, (await manager.PutAsJsonAsync("/api/restaurant", settings with { AutoWriteOffAfterHours = 500 })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Api.PutAsJsonAsync("/api/restaurant", settings with { AutoWriteOff = true })).StatusCode);
+
+        // Границы отсрочки: 0 ч списал бы просрочку сразу, человек не успел бы её увидеть — поэтому от 1 до 168 ч.
+        // Автосписание остаётся выключенным: проверяется только сама отсрочка.
+        foreach (var (hours, status) in new[] { (0, HttpStatusCode.BadRequest), (-1, HttpStatusCode.BadRequest), (169, HttpStatusCode.BadRequest), (1, HttpStatusCode.OK), (168, HttpStatusCode.OK) })
+            Assert.Equal(status, (await manager.PutAsJsonAsync("/api/restaurant", settings with { AutoWriteOffAfterHours = hours })).StatusCode);
+        Assert.Equal(168, (await manager.GetFromJsonAsync<RestaurantSettings>("/api/restaurant", ApiFixture.Json))!.AutoWriteOffAfterHours);
+        (await manager.PutAsJsonAsync("/api/restaurant", settings)).EnsureSuccessStatusCode();
     }
 
     [Fact]

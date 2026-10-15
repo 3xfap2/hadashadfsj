@@ -235,4 +235,40 @@ public class OwnerTests(ApiFixture fx) : IClassFixture<ApiFixture>
         // Сам владелец переписывается из своего кабинета, а не как сотрудник.
         Assert.Equal(HttpStatusCode.Forbidden, (await owner.GetAsync("/api/messages")).StatusCode);
     }
+
+    [Fact]
+    public async Task Второй_управляющий_добавив_себе_ресторан_не_становится_владельцем_чужого()
+    {
+        var (owner, _, home, _) = await OwnerAsync();
+        var (manager, managerLogin) = await EmployeeAsync(owner, home, Role.Manager);
+        var (alice, aliceLogin) = await EmployeeAsync(owner, home);
+        Assert.Equal(HttpStatusCode.Created, (await owner.PostAsJsonAsync("/api/owner/messages", new OwnerMessageRequest(home, aliceLogin, "Как дела у управляющего?"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await alice.PostAsJsonAsync("/api/messages", new MessageTextRequest("Жалоба на управляющего"))).StatusCode);
+
+        // Управляющий ресторана, у которого есть владелец, — не владелец: кабинет и переписка закрыты.
+        Assert.Equal(HttpStatusCode.Forbidden, (await manager.GetAsync("/api/owner/messages")).StatusCode);
+        // Добавил себе свой ресторан — владеет только им.
+        var own = await Read<MyRestaurant>(await manager.PostAsJsonAsync("/api/my/restaurants", new MyRestaurantRequest("Своя точка")));
+
+        Assert.DoesNotContain(home, (await Get<List<OwnerDialog>>(manager, "/api/owner/messages")).Select(d => d.RestaurantId));
+        Assert.Equal(HttpStatusCode.NotFound, (await manager.GetAsync($"/api/owner/messages/{home}?employee={aliceLogin}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await manager.PostAsJsonAsync("/api/owner/messages", new OwnerMessageRequest(home, aliceLogin, "Пишет «владелец»"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await manager.PostAsync($"/api/owner/messages/{home}/read?employee={aliceLogin}", null)).StatusCode);
+        Assert.Equal([own.Id], (await Get<OwnerSummary>(manager, "/api/owner/summary")).Restaurants.Select(r => r.Id));
+        Assert.DoesNotContain(home, (await Get<List<OwnerStaffRow>>(manager, "/api/owner/staff")).Select(s => s.RestaurantId));
+        Assert.Equal(HttpStatusCode.NotFound, (await manager.PostAsJsonAsync($"/api/owner/restaurants/{home}/users",
+            new StaffRequest($"x{Guid.NewGuid():N}"[..20], "stranger-pass-2026", "Повар", Role.Cook), ApiFixture.Json)).StatusCode);
+
+        // Настоящий владелец видит ответ Алисы непрочитанным, от управляющего ничего не пришло.
+        var withAlice = (await Get<List<OwnerDialog>>(owner, "/api/owner/messages")).Single(d => d.RestaurantId == home && d.Employee == aliceLogin);
+        Assert.Equal(("Жалоба на управляющего", 1), (withAlice.LastText, withAlice.Unread));
+        Assert.Equal(["Как дела у управляющего?"], (await Get<MyMessages>(alice, "/api/messages")).Messages.Where(m => m.FromOwner).Select(m => m.Text));
+        // В ресторане владельца управляющий остаётся сотрудником: пишет владельцу и может вернуться туда из своего ресторана.
+        var sections = (await Get<MeResponse>(manager, "/api/me")).Sections;
+        Assert.Contains("owner", sections);
+        Assert.Contains("messages", sections);
+        Assert.Equal(HttpStatusCode.Created, (await manager.PostAsJsonAsync("/api/messages", new MessageTextRequest("Я управляющий"))).StatusCode);
+        Assert.Contains((await Get<List<OwnerDialog>>(owner, "/api/owner/messages")), d => d.Employee == managerLogin);
+        Assert.Equal([home, own.Id], (await Get<List<MyRestaurant>>(manager, "/api/my/restaurants")).Select(r => r.Id));
+    }
 }

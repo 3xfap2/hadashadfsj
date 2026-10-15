@@ -158,19 +158,14 @@ public static class OwnerMessages
     }
 
     /// <summary>
-    /// Сотрудник может переписываться с владельцем, если у ресторана есть владелец и сам он не владелец:
+    /// Сотрудник может переписываться с владельцем, если у ресторана есть владелец и это не он сам:
     /// владелец пишет из своего кабинета. Ресторан — текущий, из токена.
     /// </summary>
-    public static async Task<bool> CanWriteToOwnerAsync(AppDbContext db, string? login, CancellationToken ct) =>
-        !await OwnerCabinet.IsOwnerAsync(db, login, ct) && await HasOwnerAsync(db, db.TenantId, ct);
-
-    /// <summary>
-    /// Есть ли у ресторана владелец: его добавил себе управляющий сам, или в нём заведён управляющий,
-    /// который добавил себе другие рестораны (ресторан, открытый командой продукта, — первый ресторан владельца).
-    /// </summary>
-    private static Task<bool> HasOwnerAsync(AppDbContext db, Guid restaurant, CancellationToken ct) =>
-        db.Restaurants.AnyAsync(r => r.Id == restaurant && (r.OwnerLogin != null
-            || db.Users.IgnoreQueryFilters().Any(u => u.RestaurantId == restaurant && u.Role == Role.Manager && db.Restaurants.Any(o => o.OwnerLogin == u.Login))), ct);
+    public static Task<bool> CanWriteToOwnerAsync(AppDbContext db, string? login, CancellationToken ct)
+    {
+        var restaurant = db.TenantId;
+        return db.Restaurants.AnyAsync(r => r.Id == restaurant && r.OwnerLogin != null && r.OwnerLogin != login, ct);
+    }
 
     /// <summary>Что видит сотрудник: свой диалог и сообщения владельца всем сотрудникам. Ресторан — из фильтра.</summary>
     private static IQueryable<StaffMessage> Visible(AppDbContext db, string login) =>
@@ -180,7 +175,7 @@ public static class OwnerMessages
         Visible(db, login).Where(m => m.FromOwner && m.Id > lastRead);
 
     private static Task<bool> OwnedAsync(AppDbContext db, ClaimsPrincipal principal, Guid restaurantId, CancellationToken ct) =>
-        OwnerEndpoints.OwnedAsync(db, principal).AnyAsync(r => r.Id == restaurantId, ct);
+        OwnerEndpoints.OwnerOf(db, principal).AnyAsync(r => r.Id == restaurantId, ct);
 
     private static string? Normalize(string? employee) =>
         string.IsNullOrWhiteSpace(employee) ? null : employee.Trim().ToLowerInvariant();

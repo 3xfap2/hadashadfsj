@@ -170,8 +170,9 @@ public static class AuthEndpoints
             if (user is null) return Results.Unauthorized();
             var restaurant = await db.CurrentRestaurantAsync(ct);
             // Владелец ресторанов видит ссылку на кабинет владельца, его сотрудники — переписку с ним.
-            string[] extra = await OwnerCabinet.IsOwnerAsync(db, user.Login, ct) ? ["owner"]
-                : await OwnerMessages.CanWriteToOwnerAsync(db, user.Login, ct) ? ["messages"] : [];
+            // Управляющий может владеть своим рестораном и при этом работать в чужом: тогда у него оба раздела.
+            string[] extra = [.. await OwnerCabinet.IsOwnerAsync(db, user.Login, ct) ? ["owner"] : Array.Empty<string>(),
+                .. await OwnerMessages.CanWriteToOwnerAsync(db, user.Login, ct) ? ["messages"] : Array.Empty<string>()];
             return Results.Ok(new MeResponse(
                 user.Login, user.Title, user.Role, Access.Sections(user.Role, Access.IsVendor(user.Login, restaurant.Id, options)).Concat(extra),
                 new ShiftInfo(restaurant.ShiftStart, restaurant.ShiftEnd), restaurant.Places(), restaurant.Name, restaurant.Id));
