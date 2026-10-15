@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Касса / сайт кафе — заказ в ресторан</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!--
+      Отдельная «внешняя система»: касса зала или сайт кафе с доставкой. Она не входит в кабинет ресторана:
+      по ключу с правом orders (заголовок X-Api-Key) читает меню со стоп-листом (GET /api/integration/menu)
+      и оформляет заказ (POST /api/orders/external). Заказ идёт тем же путём, что и заказ официанта.
+    -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --panel: #f2f4f0;
+        --line: #e3e7df;
+        --h: #0e0f0c;
+        --ink: #454745;
+        --ink-2: #6a6c6a;
+        --brand: #163300;
+        --accent: #9fe870;
+        --red: #c62a1e;
+        --red-tint: #fdecea;
+        --amber: #8a5a00;
+        --hl: #e2f6d5;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.45 "Onest", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      }
+      header {
+        border-bottom: 1px solid var(--line);
+        padding: 14px 24px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 16px;
+      }
+      header strong { color: var(--brand); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+      header span { color: var(--ink-2); font-size: 14px; }
+      main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 20px; }
+      h1 { margin: 0; color: var(--h); font-size: 28px; line-height: 1.2; letter-spacing: -0.02em; }
+      h2 { margin: 0; color: var(--h); font-size: 18px; font-weight: 600; }
+      p { margin: 0; }
+      .lead { color: var(--ink-2); max-width: 720px; }
+      section { border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+      label { display: flex; flex-direction: column; gap: 6px; font-weight: 500; color: var(--h); font-size: 15px; }
+      label.check { flex-direction: row; align-items: center; gap: 10px; font-weight: 500; }
+      label.check input { width: 18px; height: 18px; accent-color: var(--brand); }
+      .hint { color: var(--ink-2); font-size: 13px; font-weight: 400; }
+      input {
+        font: inherit;
+        color: var(--h);
+        height: 44px;
+        padding: 0 12px;
+        border: 1px solid #c9cec6;
+        border-radius: 8px;
+        background: var(--bg);
+        width: 100%;
+        min-width: 0;
+      }
+      input:disabled { background: var(--panel); color: var(--ink-2); }
+      input:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+      .num { font-variant-numeric: tabular-nums; }
+      button {
+        font: inherit;
+        font-weight: 600;
+        height: 44px;
+        padding: 0 18px;
+        border-radius: 8px;
+        border: 1px solid #c9cec6;
+        background: var(--bg);
+        color: var(--brand);
+        cursor: pointer;
+      }
+      button.primary { background: var(--accent); border-color: var(--accent); color: var(--brand); }
+      button:disabled { opacity: 0.6; cursor: default; }
+      button.small { height: 36px; padding: 0 12px; }
+      button.step { width: 36px; height: 36px; padding: 0; }
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+      .head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+      .menu { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+      .dish { border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+      .dish strong { color: var(--h); font-weight: 600; overflow-wrap: anywhere; }
+      .dish .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
+      .dish .price { color: var(--h); font-weight: 700; }
+      .dish.off { background: var(--panel); }
+      .dish.off strong, .dish.off .price { color: var(--ink-2); }
+      .tag { display: inline-flex; align-self: flex-start; align-items: center; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 13px; font-weight: 700; }
+      .tag.stop { background: var(--red-tint); color: var(--red); }
+      .tag.low { background: #fff4dc; color: var(--amber); }
+      .cat { color: var(--ink-2); font-size: 13px; }
+      .cart { position: sticky; top: 16px; }
+      .cart ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+      .cart li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; }
+      .cart li .qty { display: flex; align-items: center; gap: 6px; }
+      .cart li .qty span { min-width: 24px; text-align: center; font-weight: 600; }
+      .total { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 12px; color: var(--h); font-weight: 700; font-size: 18px; }
+      .empty { color: var(--ink-2); }
+      .result { border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+      .result.ok { background: var(--hl); }
+      .result.err { background: var(--red-tint); box-shadow: inset 0 0 0 1px var(--red); }
+      .result h3 { margin: 0; font-size: 16px; color: var(--brand); }
+      .result.err h3 { color: var(--red); }
+      pre { margin: 0; padding: 12px; background: var(--panel); border-radius: 8px; overflow: auto; font-size: 13px; line-height: 1.4; max-height: 320px; white-space: pre-wrap; word-break: break-word; }
+      code { font-size: 14px; }
+      @media (max-width: 860px) {
+        .layout { grid-template-columns: minmax(0, 1fr); }
+        .cart { position: static; }
+      }
+      @media (max-width: 600px) {
+        header { padding: 12px 16px; }
+        h1 { font-size: 24px; }
+        section { padding: 16px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Касса / сайт кафе</strong>
+      <span>внешняя система ресторана, не часть «Остатка»</span>
+    </header>
+    <main>
+      <div>
+        <h1>Заказ в ресторан</h1>
+        <p class="lead">
+          Касса или сайт кафе по своему ключу видит меню и стоп-лист и отправляет заказ одним запросом <code>POST /api/orders/external</code>.
+          «Остаток» проверяет продукты так же, как для заказа официанта: при нехватке заказ не принимается и со склада ничего не списывается.
+        </p>
+      </div>
+
+      <section aria-labelledby="conn-h">
+        <h2 id="conn-h">Подключение</h2>
+        <div class="grid">
+          <label>
+            Ключ кассы или сайта
+            <input id="key" autocomplete="off" spellcheck="false" placeholder="ost_…" />
+            <span class="hint">Выдаёт управляющий в «Остатке»: «Ресторан» → «Ключи внешних систем», право «Заказы и меню».</span>
+          </label>
+          <label>
+            Адрес API
+            <input id="api" spellcheck="false" />
+            <span class="hint">По умолчанию — этот же сайт.</span>
+          </label>
+        </div>
+      </section>
+
+      <div class="layout">
+        <section aria-labelledby="menu-h">
+          <div class="head">
+            <h2 id="menu-h">Меню</h2>
+            <button type="button" class="small" id="reload">Обновить меню</button>
+          </div>
+          <p class="hint" id="menu-state" aria-live="polite">Введите ключ — меню загрузится из ресторана.</p>
+          <ul class="menu" id="menu"></ul>
+        </section>
+
+        <section class="cart" aria-labelledby="cart-h">
+          <h2 id="cart-h">Заказ</h2>
+          <label>Номер заказа в кассе<input id="number" class="num" /></label>
+          <label class="check"><input type="checkbox" id="delivery" checked /><span>Доставка</span></label>
+          <label>
+            Стол
+            <input id="place" list="places" placeholder="Стол 1, Бар" disabled />
+            <span class="hint">Пусто — самовывоз.</span>
+          </label>
+          <datalist id="places"></datalist>
+          <ul id="cart"></ul>
+          <div class="total"><span>Итого</span><span class="num" id="total">0 ₽</span></div>
+          <button type="button" class="primary" id="send">Оформить заказ</button>
+        </section>
+      </div>
+
+      <div id="result" aria-live="polite"></div>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const rub = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 });
+      const REASONS = { OutOfStock: 'закончился продукт', NotEnough: 'продукта меньше порции', Expired: 'продукт просрочен', Manual: 'снято с продажи' };
+      let menu = [];
+      const cart = new Map();   // dishId → порции
+
+      // Ключ и адрес помнит только этот браузер — чтобы не вводить их перед каждым заказом.
+      const remember = (name, value) => { try { localStorage.setItem('pos.' + name, value); } catch {} };
+      const recall = (name) => { try { return localStorage.getItem('pos.' + name) || ''; } catch { return ''; } };
+      $('key').value = recall('key');
+      $('api').value = recall('api') || location.origin;
+      const stamp = new Date();
+      $('number').value = 'КАССА-' + String(stamp.getMonth() + 1).padStart(2, '0') + String(stamp.getDate()).padStart(2, '0') + '-' + String(stamp.getHours()).padStart(2, '0') + String(stamp.getMinutes()).padStart(2, '0') + String(stamp.getSeconds()).padStart(2, '0');
+      for (const p of [...Array.from({ length: 12 }, (_, i) => 'Стол ' + (i + 1)), 'Бар']) $('places').appendChild(new Option(p));
+      $('delivery').addEventListener('change', () => { $('place').disabled = $('delivery').checked; if ($('delivery').checked) $('place').value = ''; });
+
+      const connection = () => ({ key: $('key').value.trim(), api: $('api').value.trim().replace(/\/+$/, '') || location.origin });
+
+      async function loadMenu() {
+        const { key, api } = connection();
+        if (!key) { $('menu-state').textContent = 'Введите ключ — меню загрузится из ресторана.'; return; }
+        remember('key', key);
+        remember('api', api);
+        $('menu-state').textContent = 'Загружаем меню…';
+        try {
+          const response = await fetch(api + '/api/integration/menu', { headers: { 'X-Api-Key': key } });
+          const answer = await response.json().catch(() => null);
+          if (!response.ok) throw new Error((answer && answer.detail) || 'сервер ответил ' + response.status);
+          menu = answer.dishes;
+          const off = menu.filter((d) => !d.available).length;
+          $('menu-state').textContent = answer.restaurant + ': блюд — ' + menu.length + (off ? ', в стоп-листе — ' + off : ', всё в продаже') + '.';
+          // Блюдо, которое ушло в стоп, убирается из корзины.
+          for (const id of [...cart.keys()]) if (!menu.some((d) => d.dishId === id && d.available)) cart.delete(id);
+        } catch (err) {
+          menu = [];
+          $('menu-state').textContent = 'Меню не загрузилось: ' + err.message;
+        }
+        render();
+      }
+
+      function render() {
+        $('menu').replaceChildren(...menu.map((d) => {
+          const li = document.createElement('li');
+          li.className = 'dish' + (d.available ? '' : ' off');
+          const name = document.createElement('strong');
+          name.textContent = d.name;
+          li.appendChild(name);
+          if (d.category) { const c = document.createElement('span'); c.className = 'cat'; c.textContent = d.category; li.appendChild(c); }
+          if (!d.available || (d.portions !== null && d.portions <= 5)) {
+            const tag = document.createElement('span');
+            tag.className = 'tag ' + (d.available ? 'low' : 'stop');
+            tag.textContent = d.available ? 'Осталось порций: ' + d.portions : 'В стопе: ' + (REASONS[d.reason] || 'недоступно');
+            li.appendChild(tag);
+          }
+          const row = document.createElement('div');
+          row.className = 'row';
+          const price = document.createElement('span');
+          price.className = 'price num';
+          price.textContent = rub.format(d.price);
+          const add = document.createElement('button');
+          add.type = 'button';
+          add.className = 'small';
+          add.textContent = 'Добавить';
+          add.disabled = !d.available;
+          add.setAttribute('aria-label', 'Добавить «' + d.name + '»');
+          add.addEventListener('click', () => { cart.set(d.dishId, (cart.get(d.dishId) || 0) + 1); render(); });
+          row.append(price, add);
+          li.appendChild(row);
+          return li;
+        }));
+
+        const lines = [...cart.entries()].map(([id, qty]) => ({ dish: menu.find((d) => d.dishId === id), qty })).filter((l) => l.dish);
+        $('cart').replaceChildren(...(lines.length === 0
+          ? [Object.assign(document.createElement('li'), { className: 'empty', textContent: 'Добавьте блюда из меню.' })]
+          : lines.map(({ dish, qty }) => {
+            const li = document.createElement('li');
+            const name = document.createElement('span');
+            name.textContent = dish.name + ' · ' + rub.format(dish.price * qty);
+            const box = document.createElement('span');
+            box.className = 'qty';
+            const minus = Object.assign(document.createElement('button'), { type: 'button', className: 'step', textContent: '−' });
+            minus.setAttribute('aria-label', 'Убрать порцию «' + dish.name + '»');
+            minus.addEventListener('click', () => { if (qty <= 1) cart.delete(dish.dishId); else cart.set(dish.dishId, qty - 1); render(); });
+            const count = Object.assign(document.createElement('span'), { className: 'num', textContent: String(qty) });
+            const plus = Object.assign(document.createElement('button'), { type: 'button', className: 'step', textContent: '+' });
+            plus.setAttribute('aria-label', 'Добавить порцию «' + dish.name + '»');
+            plus.addEventListener('click', () => { cart.set(dish.dishId, qty + 1); render(); });
+            box.append(minus, count, plus);
+            li.append(name, box);
+            return li;
+          })));
+        $('total').textContent = rub.format(lines.reduce((s, l) => s + l.dish.price * l.qty, 0));
+        $('send').disabled = lines.length === 0;
+      }
+
+      function show(kind, title, text, json) {
+        const box = document.createElement('div');
+        box.className = 'result ' + kind;
+        const h = document.createElement('h3');
+        h.textContent = title;
+        box.appendChild(h);
+        if (text) { const p = document.createElement('p'); p.textContent = text; box.appendChild(p); }
+        if (json !== undefined) { const pre = document.createElement('pre'); pre.textContent = JSON.stringify(json, null, 2); box.appendChild(pre); }
+        $('result').replaceChildren(box);
+        box.scrollIntoView({ block: 'nearest' });
+      }
+
+      $('send').addEventListener('click', async () => {
+        const { key, api } = connection();
+        if (!key) return show('err', 'Нужен ключ', 'Попросите управляющего ресторана выдать ключ с правом «Заказы и меню».');
+        const body = {
+          id: $('number').value.trim(),
+          delivery: $('delivery').checked,
+          place: $('delivery').checked ? null : $('place').value.trim() || null,
+          items: [...cart.entries()].map(([dishId, quantity]) => ({ dishId, quantity })),
+        };
+        $('send').disabled = true;
+        $('send').textContent = 'Отправляем…';
+        try {
+          const response = await fetch(api + '/api/orders/external', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Api-Key': key },
+            body: JSON.stringify(body),
+          });
+          const answer = await response.json().catch(() => null);
+          if (response.status === 201) {
+            show('ok', 'Заказ № ' + answer.number + ' принят — ушёл на кухню', 'Продукты списаны со склада ресторана. Ответ сервера (201 Created):', answer);
+            cart.clear();
+            $('number').value = $('number').value.replace(/(\d+)$/, (d) => String(Number(d) + 1).padStart(d.length, '0'));
+          } else if (response.status === 409) {
+            const list = answer && answer.unavailable && answer.unavailable.length ? 'Не приготовить: ' + answer.unavailable.join(', ') + '. ' : '';
+            show('err', 'Заказ не принят', list + ((answer && answer.detail) || ''), answer ?? undefined);
+          } else {
+            const messages = answer && answer.errors ? Object.values(answer.errors).flat().join(' ') : (answer && answer.detail) || '';
+            const titles = { 400: 'Заказ не принят: ошибка в данных', 401: 'Ключ не подошёл', 403: 'У ключа нет права оформлять заказы', 429: 'Слишком много запросов' };
+            show('err', titles[response.status] || 'Сервер ответил ошибкой ' + response.status, messages, answer ?? undefined);
+          }
+        } catch (err) {
+          show('err', 'Не удалось связаться с сервером', 'Проверьте адрес API и подключение. ' + err.message);
+        } finally {
+          $('send').textContent = 'Оформить заказ';
+          // Меню перечитывается: после заказа или отказа стоп-лист мог измениться.
+          await loadMenu();
+        }
+      });
+
+      $('key').addEventListener('change', loadMenu);
+      $('api').addEventListener('change', loadMenu);
+      $('reload').addEventListener('click', loadMenu);
+      render();
+      loadMenu();
+    </script>
+  </body>
+</html>

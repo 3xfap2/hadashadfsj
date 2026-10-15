@@ -198,6 +198,7 @@ export function Today() {
                     <span className="num hd">№ {o.number}</span>
                     <span className="ord__items">
                       <span>
+                        {o.source && `${o.source}${o.delivery ? ', доставка' : ''} · `}
                         {o.place && `${o.place} · `}
                         {o.items.map((i) => (i.quantity > 1 ? `${i.quantity} × ` : '') + i.dishName.toLowerCase()).join(', ')}
                         {o.status === 'Rejected' && ` — не хватило: ${o.shortages.map((s) => `${s.productName.toLowerCase()} ${qty(s.required - s.available, s.unit)}`).join(', ')}`}

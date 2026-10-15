@@ -350,6 +350,10 @@ export interface OrderRow {
   writeOffs: { productName: string; unit: Unit; supplyNumber: string; quantity: number }[];
   /** Когда кухня отдала заказ; null, пока он в очереди у поваров. */
   readyAt: string | null;
+  /** Внешняя система, приславшая заказ по ключу (название ключа); null — заказ оформлен в кабинете. */
+  source: string | null;
+  /** Заказ на доставку. */
+  delivery: boolean;
 }
 
 /** Экран кухни: очередь заказов от старых к новым и несколько последних отданных. */
@@ -443,14 +447,8 @@ export interface RestaurantSettings {
   autoWriteOff: boolean;
   /** Через сколько часов после истечения срока спишется сама (0–168). */
   autoWriteOffAfterHours: number;
-  /** Выдан ли ключ интеграции для поставок извне (сам ключ виден только при выдаче). */
+  /** Есть ли действующий ключ внешней системы (сами ключи — в /restaurant/keys). */
   hasIntegrationKey: boolean;
-}
-
-/** Ключ интеграции ресторана: показывается один раз, в базе хранится только хеш. */
-export interface IntegrationKey {
-  key: string;
-  restaurantId: string;
 }
 
 export interface StaffRow {
