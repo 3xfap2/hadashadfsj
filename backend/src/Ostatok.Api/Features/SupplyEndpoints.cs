@@ -156,17 +156,14 @@ public static class SupplyEndpoints
                 .ToListAsync(ct))
             .Select(ToResponse));
 
-        // Присылает сотрудник склада (кабинет, бот — по своему входу) или внешняя система по ключу интеграции ресторана
-        // в заголовке X-Api-Key. Ключ открывает только этот метод и только для своего ресторана: ресторан определяется ключом.
-        incoming.MapPost("", async (SupplyRequest req, HttpContext http, Tenant tenant, AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        // Присылает сотрудник склада (кабинет, бот — по своему входу) или внешняя система по ключу с правом supplies
+        // в заголовке X-Api-Key. Ресторан определяется ключом; ключ без права supplies — 403.
+        incoming.MapPost("", async (SupplyRequest req, HttpContext http, AppDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             var byKey = http.User.Identity?.IsAuthenticated != true;
             if (byKey)
             {
-                if (await IntegrationKey.FindRestaurantAsync(db, http.Request.Headers[IntegrationKey.Header], ct) is not { } restaurant)
-                    return Results.Problem($"Нужен действующий ключ интеграции ресторана в заголовке {IntegrationKey.Header}. Ключ выдаёт управляющий в разделе «Ресторан».",
-                        statusCode: StatusCodes.Status401Unauthorized);
-                tenant.Id = restaurant;
+                if (await IntegrationKey.AuthorizeAsync(http, IntegrationKey.Supplies, ct) is { } denied) return denied;
             }
             else if (!Access.Stock.Any(r => http.User.IsInRole(r.ToString()))) return Results.Forbid();
 
@@ -203,7 +200,10 @@ public static class SupplyEndpoints
                 : Results.Accepted($"/api/supplies/incoming/{supply.Id}", ToResponse(supply));
         })
         .AllowAnonymous()
-        .Produces<IncomingResponse>(StatusCodes.Status202Accepted);
+        .Produces<IncomingResponse>(StatusCodes.Status202Accepted)
+        .WithSummary("Входящая поставка: от сотрудника склада или внешней системы по ключу")
+        .WithDescription("Внешняя система передаёт ключ с правом supplies в заголовке X-Api-Key (без ключа — 401, ключ без права — 403, больше 60 запросов в минуту — 429). Продукт — productId или точное название из справочника (GET /api/integration/products). Поставка ждёт приёмки в кабинете; внешней системе возвращается квитанция без цен.")
+        .WithKeySecurity();
 
         // Приёмка: продукты появляются на складе. Срок годности партий отсчитывается от даты создания поставки,
         // как у поставки, внесённой в кабинете: пока она ждала подтверждения, продукт старел.

@@ -35,6 +35,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
     public DbSet<CrmNote> CrmNotes => Set<CrmNote>();
     public DbSet<CrmTask> CrmTasks => Set<CrmTask>();
     public DbSet<StaffMessage> StaffMessages => Set<StaffMessage>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configuration)
     {
@@ -111,6 +112,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.Property(o => o.Number).ValueGeneratedNever();
             e.HasIndex(o => new { o.RestaurantId, o.Number }).IsUnique();
             e.Property(o => o.Place).HasMaxLength(40);
+            e.Property(o => o.Source).HasMaxLength(60);
+            e.Property(o => o.ExternalId).HasMaxLength(64);
             e.HasIndex(o => o.CreatedAt);
             e.HasMany(o => o.Items).WithOne().HasForeignKey(i => i.OrderId);
             e.HasMany(o => o.Shortages).WithOne().HasForeignKey(s => s.OrderId);
@@ -166,6 +169,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             e.HasOne<Order>().WithMany().HasForeignKey(m => m.OrderId).OnDelete(DeleteBehavior.Restrict);
             // Журнал ресторана читается от новых записей к старым.
             e.HasIndex(m => new { m.RestaurantId, m.At });
+            e.Property(m => m.Hash).HasMaxLength(64);
+            // Номер в цепочке печати у ресторана один: два печатника не построят две цепочки.
+            e.HasIndex(m => new { m.RestaurantId, m.SealNo }).IsUnique().HasFilter("\"SealNo\" IS NOT NULL");
+            // Печать ищет ещё не запечатанные движения ресторана.
+            e.HasIndex(m => new { m.RestaurantId, m.Id }).HasFilter("\"SealNo\" IS NULL").HasDatabaseName("IX_Movements_Unsealed");
         });
 
         model.Entity<Inventory>(e =>
@@ -250,6 +258,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, Tenant tenant)
             // Переписка с сотрудниками — те же личные данные, что и в чате с посетителями.
             e.Property(m => m.Text).HasConversion(PersonalData.Converter);
             e.HasIndex(m => new { m.RestaurantId, m.Employee });
+        });
+
+        model.Entity<ApiKey>(e =>
+        {
+            e.Property(k => k.Name).HasMaxLength(60);
+            e.Property(k => k.Hash).HasMaxLength(64);
+            e.HasIndex(k => k.Hash).IsUnique();
+            e.Property(k => k.CreatedBy).HasMaxLength(60);
+            e.Property(k => k.RevokedBy).HasMaxLength(60);
         });
 
         model.Entity<User>(e =>
