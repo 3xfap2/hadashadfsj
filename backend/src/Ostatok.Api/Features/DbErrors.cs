@@ -45,6 +45,8 @@ public sealed class DbErrors : IExceptionHandler
             PostgresErrorCodes.CheckViolation or PostgresErrorCodes.NumericValueOutOfRange => (StatusCodes.Status400BadRequest, "Значение вне допустимых границ."),
             // Две операции помешали друг другу: ничего не записано, запрос можно повторить.
             PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure => (StatusCodes.Status409Conflict, "Одновременно шла другая операция с теми же продуктами. Повторите действие."),
+            // Блокировку не дождались за lock_timeout: зависшая операция не держит очередь, ничего не записано.
+            PostgresErrorCodes.LockNotAvailable => (StatusCodes.Status409Conflict, "Склад сейчас занят другой операцией. Повторите действие через несколько секунд."),
             _ => (0, ""),
         };
         // База недоступна (нет соединения, тайм-аут, перезапуск): это не сбой сервера, запрос можно повторить позже.

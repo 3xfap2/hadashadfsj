@@ -29,20 +29,26 @@ public static class IntegrationEndpoints
             .WithSummary("Справочник продуктов ресторана для поставщика")
             .WithDescription("Названия и единицы покупных продуктов (заготовки ресторан делает сам и в списке их нет). Цен и остатков нет. Ключ с любым правом. Название из этого списка подходит в productName входящей поставки.");
 
-        integration.MapGet("/menu", async (AppDbContext db, TimeProvider time, CancellationToken ct) =>
+        // Меню кассы и сайта кафе перечитывается постоянно — оно в кэше чтений, как стоп-лист (см. ReadCache).
+        integration.MapGet("/menu", (HttpContext http, ReadCache cache, Tenant tenant, AppDbContext db, TimeProvider time) =>
+            cache.GetAsync(http, tenant.Id, "integration-menu", async () =>
         {
-            var dishes = await db.LoadDishesAsync(ct);
-            var totals = await db.LoadTotalsAsync(time.GetUtcNow(), ct);
-            var restaurant = await db.CurrentRestaurantAsync(ct);
-            return new IntegrationMenu(restaurant.Name, dishes
+            var now = time.GetUtcNow();
+            var dishes = await db.LoadDishesAsync(CancellationToken.None);
+            var totals = await db.LoadTotalsAsync(now, CancellationToken.None);
+            var fresh = await db.LoadFreshBatchesAsync(now, CancellationToken.None);
+            var restaurant = await db.CurrentRestaurantAsync(CancellationToken.None);
+            var menu = new IntegrationMenu(restaurant.Name, dishes
                 .OrderBy(d => d.Category).ThenBy(d => d.Name)
                 .Select(d =>
                 {
                     var a = Availability.Of(d, totals);
                     return new IntegrationDish(d.Id, d.Name, d.Category, d.Price, a.Status != DishStatus.Stop,
                         a.Portions == int.MaxValue ? null : a.Portions, a.Reason);
-                }));
-        })
+                })
+                .ToList());
+            return (menu, fresh.FirstOrDefault()?.ExpiresAt);
+        }))
             .RequireKey(IntegrationKey.Orders)
             .Produces<IntegrationMenu>()
             .WithSummary("Меню ресторана со стоп-листом для кассы и сайта")

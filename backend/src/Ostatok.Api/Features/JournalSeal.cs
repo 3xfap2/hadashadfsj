@@ -12,9 +12,13 @@ namespace Ostatok.Api.Features;
 /// <param name="Unsealed">Сколько новых движений ещё ждут печати (печать идёт раз в 30 секунд).</param>
 /// <param name="BrokenMovementId">Первое движение, на котором цепочка разошлась; пусто, если цела.</param>
 /// <param name="BrokenSealNo">Номер этой записи в цепочке.</param>
+/// <summary>Остаток продукта на складе не сходится с журналом движений: его поменяли в обход операций.</summary>
+public sealed record StockMismatch(Guid ProductId, string ProductName, decimal InStock, decimal ByJournal);
+
+/// <param name="StockMismatches">Продукты, у которых остаток партий не равен сумме прихода минус расхода по журналу.</param>
 public sealed record JournalVerifyResult(
     bool Intact, int Sealed, int Unsealed, string? LastHash, DateTimeOffset? LastSealedAt,
-    long? BrokenMovementId, long? BrokenSealNo, string Message);
+    long? BrokenMovementId, long? BrokenSealNo, string Message, IReadOnlyList<StockMismatch> StockMismatches);
 
 /// <summary>
 /// Печать журнала движений: хэш-цепочка, по которой видна незаметная правка или удаление записи прямо в базе.
@@ -77,13 +81,46 @@ public static class JournalSeal
             (hash, sealedAt, count, expectedNo) = (m.Hash!, m.SealedAt, count + 1, expectedNo + 1);
         }
         var unsealed = await db.Movements.CountAsync(m => m.SealNo == null, ct);
+        var mismatches = await StockMismatchesAsync(db, ct);
         if (broken is not null)
             return new JournalVerifyResult(false, count, unsealed, count > 0 ? hash : null, sealedAt, broken.Id, broken.SealNo,
                 broken.SealNo != expectedNo
                     ? $"Цепочка нарушена: после записи № {expectedNo - 1} идёт № {broken.SealNo} (движение {broken.Id}) — запись удалена или вставлена в обход журнала."
-                    : $"Цепочка нарушена на записи № {broken.SealNo} (движение {broken.Id}): запись изменена в базе после печати.");
+                    : $"Цепочка нарушена на записи № {broken.SealNo} (движение {broken.Id}): запись изменена в базе после печати.", mismatches);
+        if (mismatches.Count > 0)
+            return new JournalVerifyResult(false, count, unsealed, count > 0 ? hash : null, sealedAt, null, null,
+                $"Цепочка цела, но остаток не сходится с журналом: {string.Join(", ", mismatches.Select(x => x.ProductName))} — его поменяли в базе в обход операций.", mismatches);
         return new JournalVerifyResult(true, count, unsealed, count > 0 ? hash : null, sealedAt, null, null,
-            count == 0 ? "Журнал ещё не запечатан." : $"Цепочка цела: запечатано записей — {count}.");
+            count == 0 ? "Журнал ещё не запечатан." : $"Цепочка цела, остатки сходятся с журналом: запечатано записей — {count}.", mismatches);
+    }
+
+    /// <summary>
+    /// Сверка остатков с журналом: у каждого продукта остаток всех партий должен равняться приходу (поставка, заготовка, излишек)
+    /// минус расход (заказ, списание, в заготовку, недостача). Вскрытие переносит количество между партиями одного продукта
+    /// и в сумме ничего не меняет. Так видна правка остатка прямо в базе, которую хэш-цепочка журнала сама не покрывает.
+    /// </summary>
+    public static async Task<IReadOnlyList<StockMismatch>> StockMismatchesAsync(AppDbContext db, CancellationToken ct)
+    {
+        var stock = await db.Batches.GroupBy(b => b.ProductId).Select(g => new { g.Key, Remaining = g.Sum(b => b.Remaining) }).ToDictionaryAsync(x => x.Key, x => x.Remaining, ct);
+        var incoming = new[] { MovementType.Supply, MovementType.PrepMade, MovementType.Surplus };
+        var outgoing = new[] { MovementType.Order, MovementType.WriteOff, MovementType.PrepUse, MovementType.Shortage };
+        var journal = await db.Movements
+            .Where(m => incoming.Contains(m.Type) || outgoing.Contains(m.Type))
+            .GroupBy(m => m.ProductId)
+            .Select(g => new
+            {
+                g.Key,
+                Balance = g.Where(m => incoming.Contains(m.Type)).Sum(m => m.Quantity) - g.Where(m => outgoing.Contains(m.Type)).Sum(m => m.Quantity),
+            })
+            .ToDictionaryAsync(x => x.Key, x => x.Balance, ct);
+        var bad = stock.Keys.Union(journal.Keys)
+            .Select(id => (id, InStock: stock.GetValueOrDefault(id), ByJournal: journal.GetValueOrDefault(id)))
+            .Where(x => Math.Abs(x.InStock - x.ByJournal) > 0.0005m)
+            .ToList();
+        if (bad.Count == 0) return [];
+        var ids = bad.Select(x => x.id).ToList();
+        var names = await db.Products.Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.Name, ct);
+        return bad.Select(x => new StockMismatch(x.id, names.GetValueOrDefault(x.id) ?? "?", x.InStock, x.ByJournal)).ToList();
     }
 
     /// <summary>

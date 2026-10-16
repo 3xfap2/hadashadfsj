@@ -290,4 +290,46 @@ public class IntegrationTests(ApiFixture fx) : IClassFixture<ApiFixture>
         var option = Assert.Single(replacement.Options);
         Assert.Equal((other.Id, (int?)10, "в продаже 10 порций"), (option.DishId, option.Portions, option.Reason));
     }
+
+    [Fact]
+    public async Task Остаток_изменённый_в_базе_в_обход_операций_виден_при_проверке_журнала()
+    {
+        var (manager, restaurant, product, dish) = await RestaurantAsync();
+        using var site = await KeyAsync(fx, manager, "Сайт", "orders");
+        (await External(site, "S-1", dish.Id, 2)).EnsureSuccessStatusCode();
+        var clean = await Get<JournalVerifyResult>(manager, "/api/stock/journal/verify");
+        Assert.True(clean.Intact);
+        Assert.Empty(clean.StockMismatches);
+
+        // Кто-то с доступом к базе «вернул» проданное в партию, не трогая журнал: продать это система не должна молча.
+        await using (var scope = fx.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.ExecuteSqlAsync($"""UPDATE "Batches" SET "Remaining" = "Quantity" WHERE "RestaurantId" = {restaurant}""");
+        }
+        var forged = await Get<JournalVerifyResult>(manager, "/api/stock/journal/verify");
+        Assert.False(forged.Intact);
+        var mismatch = Assert.Single(forged.StockMismatches);
+        Assert.Equal((product.Id, 1m, 0.6m), (mismatch.ProductId, mismatch.InStock, mismatch.ByJournal));
+        Assert.Contains("не сходится", forged.Message);
+    }
+
+    [Fact]
+    public async Task Меню_для_кассы_и_гостя_отдаётся_из_кэша_и_обновляется_после_заказа()
+    {
+        var (manager, restaurant, _, dish) = await RestaurantAsync();
+        using var site = await KeyAsync(fx, manager, "Сайт", "orders");
+        using var guest = fx.CreateClient();
+
+        Assert.Equal("miss", (await site.GetAsync("/api/integration/menu")).Headers.GetValues("X-Cache").Single());
+        Assert.Equal("hit", (await site.GetAsync("/api/integration/menu")).Headers.GetValues("X-Cache").Single());
+        Assert.Equal("miss", (await guest.GetAsync($"/api/public/menu/{restaurant}")).Headers.GetValues("X-Cache").Single());
+        Assert.Equal("hit", (await guest.GetAsync($"/api/public/menu/{restaurant}")).Headers.GetValues("X-Cache").Single());
+
+        // Заказ меняет остатки — кэш ресторана сброшен, следующий ответ посчитан заново.
+        (await External(site, "C-1", dish.Id, 1)).EnsureSuccessStatusCode();
+        var after = await site.GetAsync("/api/integration/menu");
+        Assert.Equal("miss", after.Headers.GetValues("X-Cache").Single());
+        Assert.Equal(4, (await after.Content.ReadFromJsonAsync<IntegrationMenu>(ApiFixture.Json))!.Dishes.Single().Portions);
+    }
 }

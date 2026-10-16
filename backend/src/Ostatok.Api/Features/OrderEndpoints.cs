@@ -135,10 +135,7 @@ public static class OrderEndpoints
             if (errors.Check(known == ids.Length, "items", "В заказе есть неизвестное блюдо.").Any) return errors.ToResult();
 
             var paused = await db.Dishes.Where(d => ids.Contains(d.Id) && d.ManuallyStopped).Select(d => d.Name).ToListAsync(ct);
-            if (paused.Count > 0)
-                return Results.ValidationProblem(
-                    new Dictionary<string, string[]> { ["items"] = [$"Снято с продажи: {string.Join(", ", paused)}. Уберите блюдо из заказа."] },
-                    extensions: new Dictionary<string, object?> { ["alternatives"] = await finder.TryFindAsync(Quantities(items), new HashSet<Guid>(), ct) });
+            if (paused.Count > 0) return await PausedAsync(paused);
 
             // Размер скидки задаёт сервер: касса только просит её применить. Если горячее предложение
             // уже не действует, блюдо продаётся по полной цене.
@@ -156,8 +153,22 @@ public static class OrderEndpoints
                     .ToDictionary(o => o.DishId, o => (o.Discount!.Percent, Math.Min(asked[o.DishId], o.Portions)));
             }
 
-            var placed = await service.PlaceAsync(items, place, user.Identity?.Name ?? "", ct, discounts, req.Id);
+            Order placed;
+            try
+            {
+                placed = await service.PlaceAsync(items, place, user.Identity?.Name ?? "", ct, discounts, req.Id);
+            }
+            catch (DishStoppedException stopped)
+            {
+                // Блюдо сняли с продажи, пока заказ оформлялся: тот же ответ, что и при проверке запроса.
+                return await PausedAsync(stopped.Names);
+            }
             return await AnswerAsync(placed.Id);
+
+            async Task<IResult> PausedAsync(IReadOnlyList<string> names) =>
+                Results.ValidationProblem(
+                    new Dictionary<string, string[]> { ["items"] = [$"Снято с продажи: {string.Join(", ", names)}. Уберите блюдо из заказа."] },
+                    extensions: new Dictionary<string, object?> { ["alternatives"] = await finder.TryFindAsync(Quantities(items), new HashSet<Guid>(), ct) });
 
             async Task<IResult> AnswerAsync(Guid id)
             {
@@ -210,13 +221,7 @@ public static class OrderEndpoints
             if (errors.Check(known == ids.Length, "items", "В заказе есть неизвестное блюдо: dishId берётся из GET /api/integration/menu.").Any) return errors.ToResult();
 
             var paused = await db.Dishes.Where(d => ids.Contains(d.Id) && d.ManuallyStopped).Select(d => d.Name).ToListAsync(ct);
-            if (paused.Count > 0)
-                return Results.Problem($"Снято с продажи: {string.Join(", ", paused)}. Уберите блюдо из заказа.", statusCode: StatusCodes.Status409Conflict,
-                    title: "Заказ не принят", extensions: new Dictionary<string, object?>
-                    {
-                        ["unavailable"] = paused,
-                        ["alternatives"] = await finder.TryFindAsync(Quantities(items), new HashSet<Guid>(), ct),
-                    });
+            if (paused.Count > 0) return await PausedAsync(paused);
 
             // Источник заказа записывается тем же сохранением, что и сам заказ: OrderService о внешних системах не знает.
             void Mark(object? sender, SavingChangesEventArgs e)
@@ -229,11 +234,23 @@ public static class OrderEndpoints
             {
                 await service.PlaceAsync(items.Select(i => i with { Discount = false }).ToList(), place, key.Name, ct, id: id);
             }
+            catch (DishStoppedException stopped)
+            {
+                return await PausedAsync(stopped.Names);
+            }
             finally
             {
                 db.SavingChanges -= Mark;
             }
             return await AnswerAsync(id);
+
+            async Task<IResult> PausedAsync(IReadOnlyList<string> names) =>
+                Results.Problem($"Снято с продажи: {string.Join(", ", names)}. Уберите блюдо из заказа.", statusCode: StatusCodes.Status409Conflict,
+                    title: "Заказ не принят", extensions: new Dictionary<string, object?>
+                    {
+                        ["unavailable"] = names,
+                        ["alternatives"] = await finder.TryFindAsync(Quantities(items), new HashSet<Guid>(), ct),
+                    });
 
             async Task<IResult> AnswerAsync(Guid orderId)
             {

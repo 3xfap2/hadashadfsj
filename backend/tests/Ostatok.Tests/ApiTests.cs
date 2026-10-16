@@ -2789,4 +2789,20 @@ public class ApiTests(ApiFixture fx) : IClassFixture<ApiFixture>
             IReadOnlyDictionary<Guid, int> order, IReadOnlySet<Guid> missingProducts, CancellationToken ct) =>
             throw new InvalidOperationException("подбор сломан");
     }
+
+    [Fact]
+    public async Task Блюдо_снятое_с_продажи_во_время_оформления_не_продаётся_и_ничего_не_списывает()
+    {
+        var product = await Product();
+        var dish = await Dish((product, 1m));
+        await Supply(new SupplyItemRequest(product.Id, 5, null));
+        // Запрос уже прошёл проверку, а повар в этот момент снял блюдо: сервис заказа перепроверяет флаг в своей транзакции.
+        (await Api.PostAsync($"/api/dishes/{dish.Id}/stop", null)).EnsureSuccessStatusCode();
+        await using var scope = fx.DemoScope();
+        var service = scope.ServiceProvider.GetRequiredService<OrderService>();
+
+        var stopped = await Assert.ThrowsAsync<DishStoppedException>(() => service.PlaceAsync([new OrderLine(dish.Id, 1)], "", Simulator.Actor, default));
+        Assert.Equal([dish.Name], stopped.Names);
+        Assert.Equal(5m, (await Batches(product)).Single().Remaining);
+    }
 }

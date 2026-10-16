@@ -7,8 +7,17 @@ namespace Ostatok.Api.Features;
 /// <param name="Discount">Продать со скидкой горячего предложения, если она сейчас действует.</param>
 public sealed record OrderLine(Guid DishId, int Quantity, bool Discount = false);
 
+/// <summary>Блюдо сняли с продажи вручную, пока заказ оформлялся: заказ не создан, со склада ничего не списано.</summary>
+public sealed class DishStoppedException(IReadOnlyList<string> names) : Exception($"Снято с продажи: {string.Join(", ", names)}.")
+{
+    public IReadOnlyList<string> Names { get; } = names;
+}
+
 public sealed class OrderService(AppDbContext db, TimeProvider time)
 {
+    /// <summary>Сколько заказ ждёт блокировку счётчика и партий, прежде чем ответить «повторите».</summary>
+    public static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(5);
+
     /// <summary>
     /// Проверяет ингредиенты и списывает их одной транзакцией. Годные партии нужных продуктов
     /// блокируются на время заказа, поэтому два одновременных заказа не спишут один и тот же остаток.
@@ -52,6 +61,8 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
         };
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Если чужая транзакция зависла с блокировкой, заказ не ждёт бесконечно и не копит соединения: через 5 с — отказ «повторите».
+        await db.Database.ExecuteSqlRawAsync($"SET LOCAL lock_timeout = '{LockTimeout.TotalMilliseconds}ms'", ct);
 
         // Счётчик заказов ресторана: строка блокируется до конца транзакции, поэтому номера идут подряд без повторов.
         order.Number = (await db.Database
@@ -62,6 +73,14 @@ public sealed class OrderService(AppDbContext db, TimeProvider time)
         // выстраиваются в очередь, и второй видит заказ первого. Транзакция откатывается, номер не тратится.
         if (id is not null && await db.Orders.AsNoTracking().FirstOrDefaultAsync(o => o.Id == id, ct) is { } repeated)
             return repeated;
+
+        // Повар мог снять блюдо с продажи уже после проверки запроса: перечитываем флаг в транзакции.
+        // FOR SHARE дождётся его незавершённого изменения, и заказ увидит уже снятое блюдо. Транзакция откатывается, номер не тратится.
+        var dishIds = quantities.Keys.ToArray();
+        var paused = await db.Database
+            .SqlQuery<string>($"""SELECT "Name" AS "Value" FROM "Dishes" WHERE "Id" = ANY({dishIds}) AND "RestaurantId" = {db.TenantId} AND "ManuallyStopped" FOR SHARE""")
+            .ToListAsync(ct);
+        if (paused.Count > 0) throw new DishStoppedException(paused);
 
         var productIds = required.Keys.ToArray();
         // Партии, оставшиеся в контексте от прошлого заказа (генератор оформляет несколько заказов в одном контексте), устарели:

@@ -15,25 +15,33 @@ public static class GuestMenuEndpoints
     /// приготовить, и предложения дня со скидкой. Остатки, сроки и причины скидок гостю не показываются.
     /// </summary>
     public static void MapGuestMenu(this IEndpointRouteBuilder app) =>
-        app.MapGet("/api/public/menu/{restaurant:guid}", async (Guid restaurant, AppDbContext db, Tenant tenant, TimeProvider time, StockOptions options, CancellationToken ct) =>
+        app.MapGet("/api/public/menu/{restaurant:guid}", async (Guid restaurant, HttpContext http, ReadCache cache, AppDbContext db, Tenant tenant, TimeProvider time, StockOptions options, CancellationToken ct) =>
         {
             var name = await db.Restaurants.Where(r => r.Id == restaurant && r.DisabledAt == null).Select(r => r.Name).FirstOrDefaultAsync(ct);
             if (name is null) return Results.NotFound();
             // Входа нет, поэтому ресторан берётся из адреса: дальше все запросы видят только его данные.
             tenant.Id = restaurant;
 
-            var now = time.GetUtcNow();
-            var dishes = await db.LoadDishesAsync(ct);
-            var totals = await db.LoadTotalsAsync(now, ct);
-            var offers = HotOffers.Rank(dishes, await db.LoadFreshBatchesAsync(now, ct), totals, now,
-                    await db.LoadHotRulesAsync(options, ct), await db.LoadConsumptionPerHourAsync(now, options, ct))
-                .Where(o => o.Discount is not null)
-                .ToDictionary(o => o.DishId, o => o.Discount!);
+            // Меню открывает каждый гость за столом — самое массовое чтение. Оно в кэше чтений (см. ReadCache) и считается
+            // заново только после изменения данных ресторана или когда истекает ближайшая партия.
+            return await cache.GetAsync(http, restaurant, "guest-menu", async () =>
+            {
+                var now = time.GetUtcNow();
+                var dishes = await db.LoadDishesAsync(CancellationToken.None);
+                var totals = await db.LoadTotalsAsync(now, CancellationToken.None);
+                var fresh = await db.LoadFreshBatchesAsync(now, CancellationToken.None);
+                var offers = HotOffers.Rank(dishes, fresh, totals, now,
+                        await db.LoadHotRulesAsync(options, CancellationToken.None), await db.LoadConsumptionPerHourAsync(now, options, CancellationToken.None))
+                    .Where(o => o.Discount is not null)
+                    .ToDictionary(o => o.DishId, o => o.Discount!);
 
-            return Results.Ok(new GuestMenu(name, dishes
-                .Where(d => Availability.Of(d, totals).Status != DishStatus.Stop)
-                .OrderBy(d => d.Category).ThenBy(d => d.Name)
-                .Select(d => new GuestDish(d.Id, d.Name, d.PhotoUrl, d.Category, d.Price, offers.GetValueOrDefault(d.Id)?.Price, offers.GetValueOrDefault(d.Id)?.Percent))));
+                var menu = new GuestMenu(name, dishes
+                    .Where(d => Availability.Of(d, totals).Status != DishStatus.Stop)
+                    .OrderBy(d => d.Category).ThenBy(d => d.Name)
+                    .Select(d => new GuestDish(d.Id, d.Name, d.PhotoUrl, d.Category, d.Price, offers.GetValueOrDefault(d.Id)?.Price, offers.GetValueOrDefault(d.Id)?.Percent))
+                    .ToList());
+                return (menu, fresh.FirstOrDefault()?.ExpiresAt);
+            });
         })
         .WithTags("Меню для гостя")
         .Produces<GuestMenu>()
